@@ -13,6 +13,7 @@ from cerebrum.example.agents.shared_memory_utils import (
     MEMORY_TYPE_PROFILE,
     MEMORY_TYPE_TASK_CONTEXT,
     POLICY_PRIVATE,
+    POLICY_SHARED,
 )
 
 aios_kernel_url = config.get_kernel_url()
@@ -111,7 +112,7 @@ class AssistantAgent:
             owner_agent=self.agent_name,
             user_id=user_id,
             memory_type=MEMORY_TYPE_CONVERSATION,
-            sharing_policy=POLICY_PRIVATE,
+            sharing_policy=POLICY_SHARED if getattr(self, 'share_memory', False) else POLICY_PRIVATE,
         )
         create_memory(
             agent_name=self.agent_name,

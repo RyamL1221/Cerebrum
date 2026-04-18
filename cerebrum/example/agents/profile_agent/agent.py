@@ -188,7 +188,7 @@ class ProfileAgent:
                 owner_agent=self.agent_name,
                 user_id=user_id,
                 memory_type=MEMORY_TYPE_PROFILE,
-                sharing_policy=POLICY_PRIVATE,
+                sharing_policy=POLICY_SHARED if getattr(self, 'share_memory', False) else POLICY_PRIVATE,
             )
             create_response = create_memory(
                 agent_name=self.agent_name,
