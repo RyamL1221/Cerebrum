@@ -56,14 +56,16 @@ def _validate_vague_query(
 class SyntheticDataGenerator:
     """Generates synthetic trial data (profile, task context, query) via LLM."""
 
-    def __init__(self, agent_name: str = "eval_harness"):
+    def __init__(self, agent_name: str = "eval_harness", llms: list | None = None):
         """Initialise the generator.
 
         Args:
             agent_name: Agent identity used for SDK LLM calls.
+            llms: Optional model override, e.g. [{"name": "qwen2.5:7b", "backend": "ollama"}].
         """
         self.agent_name = agent_name
         self.kernel_url = config.get_kernel_url()
+        self.llms = llms
 
     # ------------------------------------------------------------------
     # Profile generation
@@ -135,6 +137,7 @@ class SyntheticDataGenerator:
             messages=messages,
             base_url=self.kernel_url,
             response_format=response_format,
+            llms=self.llms,
         )
 
         raw = llm_response["response"]["response_message"]
@@ -224,6 +227,7 @@ class SyntheticDataGenerator:
             messages=messages,
             base_url=self.kernel_url,
             response_format=response_format,
+            llms=self.llms,
         )
 
         raw = llm_response["response"]["response_message"]
@@ -319,6 +323,7 @@ class SyntheticDataGenerator:
                 messages=messages,
                 base_url=self.kernel_url,
                 response_format=response_format,
+                llms=self.llms,
             )
 
             raw = llm_response["response"]["response_message"]
@@ -408,6 +413,7 @@ class SyntheticDataGenerator:
             messages=messages,
             base_url=self.kernel_url,
             response_format=response_format,
+            llms=self.llms,
         )
 
         raw = llm_response["response"]["response_message"]

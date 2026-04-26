@@ -98,9 +98,10 @@ def _clamp_score(value: Any, name: str) -> int:
 class LLMJudge:
     """Evaluates assistant responses using a 3-score rubric."""
 
-    def __init__(self, agent_name: str = "eval_judge"):
+    def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
         self.agent_name = agent_name
         self.kernel_url = config.get_kernel_url()
+        self.llms = llms  # Optional model override, e.g. [{"name": "gpt-4.5", "backend": "openai"}]
 
     def _build_judge_prompt(
         self,
@@ -238,6 +239,7 @@ class LLMJudge:
                 messages=messages,
                 base_url=self.kernel_url,
                 response_format=response_format,
+                llms=self.llms,
             )
 
             raw = llm_response["response"]["response_message"]
@@ -343,8 +345,8 @@ class HybridJudge:
     integration. The final score is the average of both, rounded.
     """
 
-    def __init__(self, agent_name: str = "eval_judge"):
-        self.llm_judge = LLMJudge(agent_name=agent_name)
+    def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
+        self.llm_judge = LLMJudge(agent_name=agent_name, llms=llms)
 
     def evaluate(
         self,

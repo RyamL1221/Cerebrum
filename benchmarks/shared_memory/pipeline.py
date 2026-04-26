@@ -46,6 +46,8 @@ class PipelineResult:
     retrieval_log: Optional[RetrievalLog] = None
     injection_diagnostics: Optional[InjectionDiagnostics] = None
     written_memories: List[WrittenMemoryRecord] = field(default_factory=list)
+    method: str = ""
+    retrieved_context_count: Optional[int] = None
 
 
 class AgentPipeline:
@@ -64,10 +66,12 @@ class AgentPipeline:
     Args:
         share_memory: If True, agents use sharing_policy="shared" (Phase 2).
             If False, agents use sharing_policy="private" (Phase 1).
+        assistant_llms: Optional model override for AssistantAgent LLM calls.
     """
 
-    def __init__(self, share_memory: bool):
+    def __init__(self, share_memory: bool, assistant_llms: list | None = None):
         self.share_memory = share_memory
+        self.assistant_llms = assistant_llms
 
     def run_trial(self, trial_data: SyntheticTrialData) -> PipelineResult:
         """Execute the full agent pipeline for one trial.
@@ -118,6 +122,7 @@ class AgentPipeline:
             assistant_agent = AssistantAgent("assistant_agent")
             assistant_agent.share_memory = self.share_memory
             assistant_agent.user_id = trial_data.user_id
+            assistant_agent.llms = self.assistant_llms
 
             start_time = time.time()
             assistant_result = assistant_agent.run(trial_data.follow_up_query)
@@ -289,4 +294,377 @@ class AgentPipeline:
             shared_memory_count=shared_count,
             retrieved_memories=entries,
             cross_agent_found=cross_agent,
+        )
+
+
+class MethodPipeline:
+    """Dispatches trial execution to the appropriate method implementation.
+
+    Acts as a router that derives a method-scoped user ID for each trial
+    and delegates to the correct execution path. The existing AgentPipeline
+    is called unchanged for the ``kernel_shared`` method.
+
+    Args:
+        method: One of ``"kernel_shared"``, ``"naive_concat"``,
+            ``"vanilla_rag"``, or ``"mem0_default"``.
+        top_k: Number of chunks/entries to retrieve for ``vanilla_rag``
+            and ``mem0_default`` (default 3).
+    """
+
+    def __init__(self, method: str, top_k: int = 3, assistant_llms: list | None = None):
+        self.method = method
+        self.top_k = top_k
+        self.assistant_llms = assistant_llms
+
+    def run_trial(self, trial_data: SyntheticTrialData) -> PipelineResult:
+        """Route to the correct execution path based on self.method.
+
+        Derives a Method_User_ID by appending the method name to the base
+        user ID with a double-underscore separator, then dispatches to the
+        appropriate private method.
+
+        Args:
+            trial_data: The synthetic data for this trial.
+
+        Returns:
+            PipelineResult with method field set to self.method.
+
+        Raises:
+            ValueError: If self.method is not a recognised method name.
+        """
+        method_user_id = f"{trial_data.user_id}__{self.method}"
+        if self.method == "kernel_shared":
+            return self._run_kernel_shared(trial_data, method_user_id)
+        elif self.method == "naive_concat":
+            return self._run_naive_concat(trial_data, method_user_id)
+        elif self.method == "vanilla_rag":
+            return self._run_vanilla_rag(trial_data, method_user_id)
+        elif self.method == "mem0_default":
+            return self._run_mem0_default(trial_data, method_user_id)
+        else:
+            raise ValueError(
+                f"Unknown method: {self.method!r}. "
+                "Valid methods are: kernel_shared, naive_concat, vanilla_rag, mem0_default."
+            )
+
+    def _run_kernel_shared(
+        self, trial_data: SyntheticTrialData, method_user_id: str
+    ) -> PipelineResult:
+        """Delegate to the existing AgentPipeline unchanged.
+
+        Creates a copy of trial_data with user_id replaced by method_user_id
+        so that memory namespacing is scoped to this method, then runs the
+        existing AgentPipeline with share_memory=True.
+
+        Args:
+            trial_data: Original trial data.
+            method_user_id: Method-scoped user ID (e.g. ``alice__kernel_shared``).
+
+        Returns:
+            PipelineResult from AgentPipeline with method set to
+            ``"kernel_shared"``.
+        """
+        scoped_trial = trial_data.model_copy(update={"user_id": method_user_id})
+        pipeline = AgentPipeline(share_memory=True, assistant_llms=self.assistant_llms)
+        result = pipeline.run_trial(scoped_trial)
+        result.method = "kernel_shared"
+        return result
+
+    def _run_naive_concat(
+        self, trial_data: SyntheticTrialData, method_user_id: str
+    ) -> PipelineResult:
+        """Naive concatenation baseline — prepend full context to the prompt.
+
+        Builds a structured plain-text context block from the synthetic profile
+        and task context, prepends it to the follow-up query, and passes the
+        combined string to AssistantAgent.run(). No memory system is accessed.
+
+        Args:
+            trial_data: The synthetic data for this trial.
+            method_user_id: Method-scoped user ID (e.g. ``alice__naive_concat``).
+
+        Returns:
+            PipelineResult with method="naive_concat", retrieved_context_count=0,
+            and injection_diagnostics recording the character length of the
+            injected context block.
+        """
+        profile = trial_data.profile
+        task_context = trial_data.task_context
+        follow_up_query = trial_data.follow_up_query
+
+        # Build the structured plain-text context block
+        context_block = (
+            f"--- USER PROFILE ---\n"
+            f"Name: {profile.user_name}\n"
+            f"Preferred Tools: {', '.join(profile.preferred_tools)}\n"
+            f"Preferred Language: {profile.preferred_language}\n"
+            f"Response Style: {profile.response_style}\n"
+            f"\n"
+            f"--- TASK CONTEXT ---\n"
+            f"Current Project: {task_context.current_project}\n"
+            f"Active Experiment: {task_context.active_experiment}\n"
+            f"Goals: {', '.join(task_context.goals)}\n"
+            f"Blockers: {', '.join(task_context.blockers)}\n"
+            f"Next Steps: {', '.join(task_context.next_steps)}\n"
+            f"\n"
+            f"--- QUERY ---\n"
+            f"{follow_up_query}"
+        )
+
+        # Record the character length of the injected context block
+        injection_diagnostics = InjectionDiagnostics(injected_count=len(context_block))
+
+        # Instantiate AssistantAgent with method-scoped user_id
+        assistant_agent = AssistantAgent("assistant_agent")
+        assistant_agent.user_id = method_user_id
+        assistant_agent.llms = self.assistant_llms
+
+        start_time = time.time()
+        assistant_result = assistant_agent.run(context_block)
+        latency_seconds = time.time() - start_time
+
+        assistant_response = assistant_result.get("result", "")
+
+        return PipelineResult(
+            profile_result={},
+            task_result={},
+            assistant_result=assistant_result,
+            assistant_response=assistant_response,
+            latency_seconds=latency_seconds,
+            retrieval_log=None,
+            injection_diagnostics=injection_diagnostics,
+            written_memories=[],
+            method="naive_concat",
+            retrieved_context_count=0,
+        )
+
+    def _run_vanilla_rag(
+        self, trial_data: SyntheticTrialData, method_user_id: str
+    ) -> PipelineResult:
+        """Vanilla RAG baseline — TF-IDF retrieval over context chunks.
+
+        Builds document chunks from the profile and task context (one chunk per
+        logical section), fits a TfidfVectorizer on those chunks, transforms the
+        follow-up query with the same vectorizer, computes cosine similarity, and
+        selects the top-k most relevant chunks to inject into the AssistantAgent
+        prompt. No kernel memory or Mem0 API is called.
+
+        Args:
+            trial_data: The synthetic data for this trial.
+            method_user_id: Method-scoped user ID (e.g. ``alice__vanilla_rag``).
+
+        Returns:
+            PipelineResult with method="vanilla_rag" and retrieved_context_count
+            set to the number of chunks actually injected.
+        """
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        profile = trial_data.profile
+        task_context = trial_data.task_context
+        follow_up_query = trial_data.follow_up_query
+
+        # Build one chunk per logical section
+        chunks: List[str] = []
+
+        # Profile block
+        chunks.append(
+            f"User Profile:\n"
+            f"Name: {profile.user_name}\n"
+            f"Preferred Tools: {', '.join(profile.preferred_tools)}\n"
+            f"Preferred Language: {profile.preferred_language}\n"
+            f"Response Style: {profile.response_style}"
+        )
+
+        # Task block
+        chunks.append(
+            f"Task Context:\n"
+            f"Current Project: {task_context.current_project}\n"
+            f"Active Experiment: {task_context.active_experiment}"
+        )
+
+        # One chunk per goal
+        for goal in task_context.goals:
+            chunks.append(f"Goal: {goal}")
+
+        # One chunk per blocker
+        for blocker in task_context.blockers:
+            chunks.append(f"Blocker: {blocker}")
+
+        # One chunk per next step
+        for next_step in task_context.next_steps:
+            chunks.append(f"Next Step: {next_step}")
+
+        # Fit TF-IDF on chunks; transform query with the same vectorizer
+        vectorizer = TfidfVectorizer()
+        chunk_matrix = vectorizer.fit_transform(chunks)
+        query_vector = vectorizer.transform([follow_up_query])
+
+        # Compute cosine similarity between query and each chunk
+        scores = cosine_similarity(query_vector, chunk_matrix).flatten()
+
+        # Select top-k chunks; fall back to all chunks if all scores are 0.0
+        if scores.max() == 0.0:
+            selected_chunks = chunks
+        else:
+            k = min(self.top_k, len(chunks))
+            top_indices = scores.argsort()[::-1][:k]
+            selected_chunks = [chunks[i] for i in top_indices]
+
+        # Format selected chunks as a context block and prepend to the query
+        context_parts = "\n\n".join(selected_chunks)
+        augmented_query = (
+            f"--- RETRIEVED CONTEXT ---\n"
+            f"{context_parts}\n\n"
+            f"--- QUERY ---\n"
+            f"{follow_up_query}"
+        )
+
+        # Instantiate AssistantAgent with method-scoped user_id
+        assistant_agent = AssistantAgent("assistant_agent")
+        assistant_agent.user_id = method_user_id
+        assistant_agent.llms = self.assistant_llms
+
+        start_time = time.time()
+        assistant_result = assistant_agent.run(augmented_query)
+        latency_seconds = time.time() - start_time
+
+        assistant_response = assistant_result.get("result", "")
+
+        return PipelineResult(
+            profile_result={},
+            task_result={},
+            assistant_result=assistant_result,
+            assistant_response=assistant_response,
+            latency_seconds=latency_seconds,
+            retrieval_log=None,
+            injection_diagnostics=None,
+            written_memories=[],
+            method="vanilla_rag",
+            retrieved_context_count=len(selected_chunks),
+        )
+
+    def _run_mem0_default(
+        self, trial_data: SyntheticTrialData, method_user_id: str
+    ) -> PipelineResult:
+        """Mem0 default baseline — add/search via Mem0 client.
+
+        Instantiates a Mem0 Memory client with default configuration, adds the
+        synthetic profile and task context as memory entries under the
+        Method_User_ID, searches for relevant memories using the follow-up
+        query, and injects the retrieved memory text into the AssistantAgent
+        prompt. No AIOS kernel memory APIs are used.
+
+        Args:
+            trial_data: The synthetic data for this trial.
+            method_user_id: Method-scoped user ID (e.g. ``alice__mem0_default``).
+
+        Returns:
+            PipelineResult with method="mem0_default" and retrieved_context_count
+            set to the number of entries returned by memory.search().
+        """
+        try:
+            from mem0 import Memory
+        except ImportError:
+            raise ImportError(
+                "mem0ai is required for the mem0_default method. "
+                "Install it with: pip install mem0ai"
+            )
+
+        profile = trial_data.profile
+        task_context = trial_data.task_context
+        follow_up_query = trial_data.follow_up_query
+
+        # Build plain-text representations of profile and task context
+        profile_text = (
+            f"User Profile:\n"
+            f"Name: {profile.user_name}\n"
+            f"Preferred Tools: {', '.join(profile.preferred_tools)}\n"
+            f"Preferred Language: {profile.preferred_language}\n"
+            f"Response Style: {profile.response_style}"
+        )
+
+        task_text = (
+            f"Task Context:\n"
+            f"Current Project: {task_context.current_project}\n"
+            f"Active Experiment: {task_context.active_experiment}\n"
+            f"Goals: {', '.join(task_context.goals)}\n"
+            f"Blockers: {', '.join(task_context.blockers)}\n"
+            f"Next Steps: {', '.join(task_context.next_steps)}"
+        )
+
+        # Instantiate Mem0 Memory client with default configuration
+        memory = Memory()
+
+        # Add profile and task context to Mem0; wrap in try/except per Req 5.8
+        retrieved_memories: List[str] = []
+        retrieved_context_count = 0
+
+        try:
+            memory.add(profile_text, user_id=method_user_id)
+            memory.add(task_text, user_id=method_user_id)
+        except Exception as exc:
+            logger.warning(
+                "mem0_default: failed to add memories for user_id=%r: %s",
+                method_user_id,
+                exc,
+            )
+            # Proceed with empty context — trial is not failed by Mem0 error alone
+            retrieved_context_count = 0
+            retrieved_memories = []
+        else:
+            # Search for relevant memories using the follow-up query
+            try:
+                search_results = memory.search(follow_up_query, user_id=method_user_id)
+                # search_results is a list of dicts, each with a "memory" key
+                retrieved_memories = [
+                    entry["memory"]
+                    for entry in search_results
+                    if isinstance(entry, dict) and "memory" in entry
+                ]
+                retrieved_context_count = len(retrieved_memories)
+            except Exception as exc:
+                logger.warning(
+                    "mem0_default: failed to search memories for user_id=%r: %s",
+                    method_user_id,
+                    exc,
+                )
+                retrieved_context_count = 0
+                retrieved_memories = []
+
+        # Build the augmented query: prepend retrieved memories if any
+        if retrieved_memories:
+            memories_text = "\n".join(retrieved_memories)
+            augmented_query = (
+                f"--- RETRIEVED MEMORIES ---\n"
+                f"{memories_text}\n\n"
+                f"--- QUERY ---\n"
+                f"{follow_up_query}"
+            )
+        else:
+            # No memories retrieved — pass the follow-up query directly
+            augmented_query = follow_up_query
+
+        # Instantiate AssistantAgent with method-scoped user_id
+        assistant_agent = AssistantAgent("assistant_agent")
+        assistant_agent.user_id = method_user_id
+        assistant_agent.llms = self.assistant_llms
+
+        start_time = time.time()
+        assistant_result = assistant_agent.run(augmented_query)
+        latency_seconds = time.time() - start_time
+
+        assistant_response = assistant_result.get("result", "")
+
+        return PipelineResult(
+            profile_result={},
+            task_result={},
+            assistant_result=assistant_result,
+            assistant_response=assistant_response,
+            latency_seconds=latency_seconds,
+            retrieval_log=None,
+            injection_diagnostics=None,
+            written_memories=[],
+            method="mem0_default",
+            retrieved_context_count=retrieved_context_count,
         )
