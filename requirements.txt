@@ -4,3 +4,6 @@ pydantic
 mcp
 datasets
 tqdm
+scikit-learn>=1.8.0
+mem0ai>=2.0.1
+hypothesis>=6.152.2
