@@ -95,6 +95,22 @@ def _clamp_score(value: Any, name: str) -> int:
     return max(1, min(5, v))
 
 
+def _extract_json_from_text(text: str) -> dict | None:
+    """Try to extract a JSON object from free-form text.
+
+    Looks for the first ``{`` and last ``}`` in the text and attempts
+    to parse the substring as JSON. Returns None if no valid JSON found.
+    """
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
 class LLMJudge:
     """Evaluates assistant responses using a 3-score rubric."""
 
@@ -175,14 +191,17 @@ class LLMJudge:
             "logically follow from them\n"
             "  1 = No integration; response addresses at most one source "
             "or is entirely generic\n\n"
-            "Return your scores and reasoning as JSON."
+            "Respond with ONLY a JSON object (no markdown fences, no explanation, no text before or after). "
+            "Use exactly these keys:\n"
+            '{"profile_usage_score": <int 1-5>, "task_usage_score": <int 1-5>, "integration_score": <int 1-5>, '
+            '"profile_usage_reasoning": "<string>", "task_usage_reasoning": "<string>", "integration_reasoning": "<string>"}'
         )
         return [
             {
                 "role": "system",
                 "content": (
-                    "You are an expert evaluator assessing the quality "
-                    "of an AI assistant's response. "
+                    "You are an expert evaluator. You MUST respond with ONLY a valid JSON object. "
+                    "No markdown code fences. No explanation text. No preamble. Just the raw JSON object. "
                     "The assistant had access to shared memories injected "
                     "by the kernel containing the user's profile and task "
                     "context. A concise response that demonstrates awareness "
@@ -243,8 +262,38 @@ class LLMJudge:
             )
 
             raw = llm_response["response"]["response_message"]
-            data = json.loads(raw) if isinstance(raw, str) else raw
-            data = _normalize_judge_keys(data)
+            logger.debug("Judge raw response_message: %r", raw)
+            if raw is None:
+                logger.warning(
+                    "Judge LLM returned None response_message — "
+                    "model may be unavailable or response_format unsupported. "
+                    "llms=%s kernel=%s",
+                    self.llms,
+                    self.kernel_url,
+                )
+                return JudgeScores()
+            # Try to parse as JSON; if it fails, try to extract JSON from text
+            if isinstance(raw, str):
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    # Try to extract JSON object from free-form text
+                    data = _extract_json_from_text(raw)
+                    if data is None:
+                        logger.warning("Judge LLM returned non-JSON text: %s", raw[:200])
+                        return JudgeScores()
+            else:
+                data = raw
+            if not isinstance(data, dict):
+                logger.warning("Judge LLM returned non-dict data: %r", data)
+                return JudgeScores()
+            logger.debug("Judge parsed data before normalization: %s", data)
+
+            # If the dict already has the exact keys we need, use them directly
+            if all(k in data for k in ("profile_usage_score", "task_usage_score", "integration_score")):
+                pass  # data already has correct keys
+            else:
+                data = _normalize_judge_keys(data)
 
             pu = data.get("profile_usage_score")
             tu = data.get("task_usage_score")
