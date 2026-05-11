@@ -108,7 +108,7 @@ class ResultsWriter:
         os.makedirs(self.output_dir, exist_ok=True)
         output_filename = filename if filename is not None else "results.json"
         file_path = os.path.join(self.output_dir, output_filename)
-        with open(file_path, "w") as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(experiment.model_dump(), f, indent=2)
         return file_path
 
@@ -140,7 +140,7 @@ class ResultsWriter:
             "query",
             "response",
         ]
-        with open(file_path, "w", newline="") as f:
+        with open(file_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(columns)
             for condition_result in experiment.conditions:
