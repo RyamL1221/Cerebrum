@@ -593,8 +593,32 @@ class MethodPipeline:
             f"Next Steps: {', '.join(task_context.next_steps)}"
         )
 
-        # Instantiate Mem0 Memory client with default configuration
-        memory = Memory()
+        # Instantiate Mem0 Memory client configured to use Ollama
+        # (avoids requiring an OpenAI API key)
+        mem0_config = {
+            "llm": {
+                "provider": "ollama",
+                "config": {
+                    "model": "qwen2.5:7b",
+                    "ollama_base_url": "http://localhost:11434",
+                },
+            },
+            "embedder": {
+                "provider": "ollama",
+                "config": {
+                    "model": "nomic-embed-text",
+                    "ollama_base_url": "http://localhost:11434",
+                },
+            },
+            "vector_store": {
+                "provider": "chroma",
+                "config": {
+                    "collection_name": "mem0_benchmark",
+                    "path": ".mem0/benchmark_chroma",
+                },
+            },
+        }
+        memory = Memory.from_config(mem0_config)
 
         # Add profile and task context to Mem0; wrap in try/except per Req 5.8
         retrieved_memories: List[str] = []
@@ -615,7 +639,7 @@ class MethodPipeline:
         else:
             # Search for relevant memories using the follow-up query
             try:
-                search_results = memory.search(follow_up_query, user_id=method_user_id)
+                search_results = memory.search(follow_up_query, filters={"user_id": method_user_id})
                 # search_results is a list of dicts, each with a "memory" key
                 retrieved_memories = [
                     entry["memory"]

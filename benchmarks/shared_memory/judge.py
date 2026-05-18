@@ -264,14 +264,28 @@ class LLMJudge:
             raw = llm_response["response"]["response_message"]
             logger.debug("Judge raw response_message: %r", raw)
             if raw is None:
-                logger.warning(
-                    "Judge LLM returned None response_message — "
-                    "model may be unavailable or response_format unsupported. "
-                    "llms=%s kernel=%s",
-                    self.llms,
-                    self.kernel_url,
+                # Fallback: retry with plain llm_chat (kernel may not support
+                # response_format passthrough for chat_with_json_output)
+                logger.debug(
+                    "Falling back to llm_chat for judge scoring."
                 )
-                return JudgeScores()
+                from cerebrum.llm.apis import llm_chat
+                llm_response = llm_chat(
+                    agent_name=self.agent_name,
+                    messages=messages,
+                    base_url=self.kernel_url,
+                    llms=self.llms,
+                )
+                raw = llm_response["response"]["response_message"]
+                if raw is None:
+                    logger.warning(
+                        "Judge LLM returned None response_message on fallback — "
+                        "model may be unavailable. "
+                        "llms=%s kernel=%s",
+                        self.llms,
+                        self.kernel_url,
+                    )
+                    return JudgeScores()
             # Try to parse as JSON; if it fails, try to extract JSON from text
             if isinstance(raw, str):
                 try:

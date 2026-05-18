@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Dict, Any, List
 
-from cerebrum.llm.apis import llm_chat_with_json_output
+from cerebrum.llm.apis import llm_chat, llm_chat_with_json_output
 from cerebrum.config.config_manager import config
 
 from benchmarks.shared_memory.models import (
@@ -18,6 +18,42 @@ from benchmarks.shared_memory.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _robust_llm_json_call(agent_name, messages, kernel_url, response_format, llms):
+    """Call llm_chat_with_json_output with fallback to llm_chat.
+
+    Some kernel configurations return None for response_message when using
+    the chat_with_json_output action type. This helper falls back to plain
+    llm_chat and extracts JSON from the free-form text response.
+    """
+    llm_response = llm_chat_with_json_output(
+        agent_name=agent_name,
+        messages=messages,
+        base_url=kernel_url,
+        response_format=response_format,
+        llms=llms,
+    )
+
+    raw = llm_response["response"]["response_message"]
+    if raw is not None:
+        return raw
+
+    # Fallback to plain llm_chat
+    logger.debug("llm_chat_with_json_output returned None, falling back to llm_chat.")
+    llm_response = llm_chat(
+        agent_name=agent_name,
+        messages=messages,
+        base_url=kernel_url,
+        llms=llms,
+    )
+    raw = llm_response["response"]["response_message"]
+    if raw is None:
+        raise RuntimeError(
+            f"LLM returned None response_message on both attempts. "
+            f"llms={llms} kernel={kernel_url}"
+        )
+    return raw
 
 
 def _unwrap_nested(data: dict, required_keys: List[str]) -> dict:
@@ -132,15 +168,9 @@ class SyntheticDataGenerator:
             },
         }
 
-        llm_response = llm_chat_with_json_output(
-            agent_name=self.agent_name,
-            messages=messages,
-            base_url=self.kernel_url,
-            response_format=response_format,
-            llms=self.llms,
+        raw = _robust_llm_json_call(
+            self.agent_name, messages, self.kernel_url, response_format, self.llms
         )
-
-        raw = llm_response["response"]["response_message"]
         data = json.loads(raw) if isinstance(raw, str) else raw
         data = _unwrap_nested(data, ["user_name", "preferred_tools", "preferred_language", "response_style"])
         return SyntheticProfile(**data)
