@@ -84,84 +84,20 @@ jobs:
         ollama pull qwen2.5:7b
         ollama pull nomic-embed-text
 
-    # Create a valid AIOS kernel config with at least one reachable model
+    # Provision AIOS kernel config from the shipped example
     - name: Create AIOS kernel config
       run: |
-        mkdir -p aios_root/aios/config
-        cat > aios_root/aios/config/config.yaml << 'EOF'
-        api_keys:
-          openai: ""
-          gemini: ""
-          groq: ""
-          anthropic: ""
-
-        huggingface:
-          auth_token: ""
-          cache_dir: ""
-
-        llms:
-          models:
-            - name: "qwen2.5:7b"
-              backend: "ollama"
-              hostname: "http://localhost:11434"
-          router:
-            strategy: "sequential"
-          bootstrap_url: ""
-          log_mode: "console"
-          use_context_manager: false
-
-        memory:
-          log_mode: "console"
-          provider: "mem0"
-          auto_extract: true
-          auto_inject: true
-          relevance_threshold: 0.3
-          max_injected_memories: 10
-          max_memory_tokens: 2000
-          mem0:
-            api_key: ""
-            user_id: "default"
-            llm:
-              provider: "ollama"
-              config:
-                model: "qwen2.5:7b"
-                ollama_base_url: "http://localhost:11434"
-            embedder:
-              provider: "ollama"
-              config:
-                model: "nomic-embed-text"
-                ollama_base_url: "http://localhost:11434"
-            vector_store:
-              provider: "chroma"
-              config:
-                collection_name: "mem0_memories"
-                path: ".mem0/chroma"
-
-        storage:
-          root_dir: "root"
-          use_vector_db: true
-          vector_db_backend: "chroma"
-          qdrant_host: "localhost"
-          qdrant_port: 6333
-          qdrant_api_key: ""
-          qdrant_model_name: "sentence-transformers/all-MiniLM-L6-v2"
-
-        tool:
-          mcp_server_script_path: "aios/tool/mcp_server.py"
-
-        scheduler:
-          log_mode: "console"
-
-        agent_factory:
-          log_mode: "console"
-
-        max_workers: 64
-
-        server:
-          host: "localhost"
-          port: 8000
-        EOF
-        echo "Created config.yaml with qwen2.5:7b model entry"
+        EXAMPLE_PATH=$(find aios_root -name "config.yaml.example" -type f | head -n 1)
+        if [ -z "$EXAMPLE_PATH" ]; then
+          echo "ERROR: config.yaml.example not found in AIOS repo"
+          find aios_root -name "config.yaml*" -type f
+          exit 1
+        fi
+        TARGET_PATH="$(dirname "$EXAMPLE_PATH")/config.yaml"
+        cp "$EXAMPLE_PATH" "$TARGET_PATH"
+        echo "Copied $EXAMPLE_PATH to $TARGET_PATH"
+        echo "=== config.yaml contents ==="
+        cat "$TARGET_PATH"
 
     # Run AIOS kernel
     - name: Run AIOS kernel in background
