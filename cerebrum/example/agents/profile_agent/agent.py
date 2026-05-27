@@ -127,6 +127,7 @@ class ProfileAgent:
             agent_name=self.agent_name,
             messages=self.messages,
             base_url=aios_kernel_url,
+            llms=getattr(self, 'llms', None),
             response_format=response_format,
         )
 

@@ -106,14 +106,39 @@ class AgentPipeline:
             profile_agent = ProfileAgent("profile_agent")
             profile_agent.share_memory = self.share_memory
             profile_agent.user_id = trial_data.user_id
+            profile_agent.llms = self.assistant_llms
             profile_result = profile_agent.run(
                 json.dumps(trial_data.profile.model_dump())
             )
+
+            # Diagnostic: verify Mem0 actually stored profile memories
+            if self.share_memory:
+                diag_response = search_memories(
+                    agent_name="profile_agent",
+                    query=f"profile {trial_data.user_id}",
+                )
+                diag_results = []
+                if diag_response and isinstance(diag_response, dict):
+                    resp = diag_response.get("response", {})
+                    if resp and isinstance(resp, dict):
+                        diag_results = resp.get("search_results", []) or []
+                if diag_results:
+                    logger.info(
+                        "Mem0 diagnostic: found %d results for user_id=%s after ProfileAgent write",
+                        len(diag_results), trial_data.user_id
+                    )
+                else:
+                    logger.warning(
+                        "Mem0 diagnostic: 0 results for user_id=%s after ProfileAgent write. "
+                        "Mem0 fact extraction may have failed silently.",
+                        trial_data.user_id
+                    )
 
             # Step 2: Run TaskAgent with synthetic task context data
             task_agent = TaskAgent("task_agent")
             task_agent.share_memory = self.share_memory
             task_agent.user_id = trial_data.user_id
+            task_agent.llms = self.assistant_llms
             task_result = task_agent.run(
                 json.dumps(trial_data.task_context.model_dump())
             )
@@ -595,11 +620,13 @@ class MethodPipeline:
 
         # Instantiate Mem0 Memory client configured to use Ollama
         # (avoids requiring an OpenAI API key)
+        # Use the same model as the assistant for fact extraction
+        mem0_model = self.assistant_llms[0]["name"] if self.assistant_llms else "qwen2.5:7b"
         mem0_config = {
             "llm": {
                 "provider": "ollama",
                 "config": {
-                    "model": "qwen2.5:7b",
+                    "model": mem0_model,
                     "ollama_base_url": "http://localhost:11434",
                 },
             },
