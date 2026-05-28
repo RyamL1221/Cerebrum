@@ -385,6 +385,8 @@ def keyword_score(response: str, keywords: list) -> int:
     """
     if not keywords:
         return 1
+    if not response:
+        return 1
     response_lower = response.lower()
     hits = sum(1 for kw in keywords if kw in response_lower)
     ratio = hits / len(keywords)

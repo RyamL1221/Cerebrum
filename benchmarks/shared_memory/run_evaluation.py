@@ -317,7 +317,7 @@ class EvaluationOrchestrator:
             retrieved_context_count=pipeline_result.retrieved_context_count,
             latency_seconds=pipeline_result.latency_seconds,
             follow_up_query=trial_data.follow_up_query,
-            assistant_response=pipeline_result.assistant_response,
+            assistant_response=pipeline_result.assistant_response or "",
             synthetic_profile=trial_data.profile,
             synthetic_task_context=trial_data.task_context,
             retrieval_log=retrieval_log,
