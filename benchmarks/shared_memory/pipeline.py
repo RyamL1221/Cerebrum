@@ -164,7 +164,9 @@ class AgentPipeline:
             retrieval_log = self._retrieval_log_from_diagnostics(injection_diagnostics)
             # injection_status defaults to "confirmed"
         else:
-            retrieval_log = self._audit_shared_memories(trial_data.user_id)
+            retrieval_log = self._audit_shared_memories(
+                trial_data.user_id, trial_data.follow_up_query
+            )
             if retrieval_log.shared_memory_count > 0:
                 retrieval_log.injection_status = "audit_inferred"
             elif self.share_memory:
@@ -244,16 +246,24 @@ class AgentPipeline:
             cross_agent_found=cross_agent,
         )
 
-    def _audit_shared_memories(self, user_id: str) -> RetrievalLog:
+    # Kernel context injector defaults (must match AIOS config.yaml)
+    RELEVANCE_THRESHOLD = 0.5
+    MAX_INJECTED_MEMORIES = 5  # memory.max_injected_memories default
+    # Kernel over-fetches 4× to compensate for post-retrieval filtering
+    AUDIT_TOP_K = MAX_INJECTED_MEMORIES * 4  # = 20
+
+    def _audit_shared_memories(self, user_id: str, query_text: str) -> RetrievalLog:
         """Query search_memories from the harness side to audit shared memories.
 
-        When the kernel does not return injection diagnostics (e.g.,
-        auto_inject is off or the kernel version doesn't support it),
-        the harness performs its own audit query to check what shared
-        memories exist for the user.
+        Mirrors the kernel context injector's cross-agent retrieval path:
+        same query text (the user's follow-up query), same top-k (4× over-fetch),
+        same scope filters (user_id + sharing_policy="shared"), and applies
+        the same relevance threshold (0.5) in post-filtering.
 
         Args:
             user_id: The user identifier to scope the audit query.
+            query_text: The actual user message (follow-up query) — matches
+                the kernel injector's ``content`` parameter.
 
         Returns:
             RetrievalLog built from the audit query results.
@@ -264,8 +274,8 @@ class AgentPipeline:
         try:
             result = search_memories(
                 agent_name="assistant_agent",
-                query="user context",
-                k=20,
+                query=query_text,
+                k=self.AUDIT_TOP_K,
                 user_id=user_id,
                 sharing_policy="shared",
             )
@@ -279,12 +289,17 @@ class AgentPipeline:
     ) -> RetrievalLog:
         """Build a RetrievalLog from a raw search_memories response.
 
+        Applies the same post-retrieval relevance filter as the kernel
+        context injector: memories with score < RELEVANCE_THRESHOLD (0.5)
+        are dropped, while memories with score=None are kept (matching
+        the kernel's behavior for unscored results).
+
         Args:
             search_result: Raw result dict from search_memories.
 
         Returns:
             RetrievalLog with shared_memory_count, retrieved_memories,
-            and cross_agent_found populated from the search results.
+            and cross_agent_found populated from the filtered results.
         """
         entries = []
         shared_count = 0
@@ -299,6 +314,12 @@ class AgentPipeline:
 
         search_results = resp.get("search_results", []) or []
         for mem in search_results:
+            # Apply kernel relevance threshold: drop below threshold,
+            # keep None-scored memories (matches kernel behavior)
+            score = mem.get("score")
+            if score is not None and score < self.RELEVANCE_THRESHOLD:
+                continue
+
             meta = mem.get("metadata", {})
             if not meta:
                 continue
