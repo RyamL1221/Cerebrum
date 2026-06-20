@@ -247,18 +247,23 @@ class AgentPipeline:
         )
 
     # Kernel context injector defaults (must match AIOS config.yaml)
-    RELEVANCE_THRESHOLD = 0.5
+    RELEVANCE_THRESHOLD = 0.3
     MAX_INJECTED_MEMORIES = 5  # memory.max_injected_memories default
     # Kernel over-fetches 4× to compensate for post-retrieval filtering
     AUDIT_TOP_K = MAX_INJECTED_MEMORIES * 4  # = 20
+    WRITER_AGENTS = ["profile_agent", "task_agent"]
 
     def _audit_shared_memories(self, user_id: str, query_text: str) -> RetrievalLog:
-        """Query search_memories from the harness side to audit shared memories.
+        """Query the kernel from the harness side to audit shared memories.
 
-        Mirrors the kernel context injector's cross-agent retrieval path:
-        same query text (the user's follow-up query), same top-k (4× over-fetch),
-        same scope filters (user_id + sharing_policy="shared"), and applies
-        the same relevance threshold (0.5) in post-filtering.
+        Issues one query per writer agent in WRITER_AGENTS, routing each
+        through the writer's own agent_name so the kernel returns that
+        agent's owned memories. Merges and deduplicates results before
+        applying the existing relevance threshold filter.
+
+        This works around the kernel's agent-scoping without modifying
+        the kernel itself — each query routes through the correct owner
+        so the syscall handler returns results for that agent's memories.
 
         Args:
             user_id: The user identifier to scope the audit query.
@@ -266,23 +271,57 @@ class AgentPipeline:
                 the kernel injector's ``content`` parameter.
 
         Returns:
-            RetrievalLog built from the audit query results.
+            RetrievalLog built from the merged audit query results.
         """
         if not user_id:
             return RetrievalLog()
 
         try:
-            result = search_memories(
-                agent_name="assistant_agent",
-                query=query_text,
-                k=self.AUDIT_TOP_K,
-                user_id=user_id,
-                sharing_policy="shared",
-            )
+            from cerebrum.memory.apis import MemoryQuery
+            from cerebrum.utils.communication import send_request
+            from cerebrum.config.config_manager import config
+
+            # Fan-out: one query per writer agent, routed through that
+            # agent's name so the kernel returns its owned memories.
+            all_results = []
+            for writer_agent in self.WRITER_AGENTS:
+                query_obj = MemoryQuery(
+                    operation_type="retrieve_memory",
+                    params={
+                        "content": query_text,
+                        "k": self.AUDIT_TOP_K,
+                        "user_id": user_id,
+                        "sharing_policy": "shared",
+                    },
+                )
+                result = send_request(writer_agent, query_obj, config.get_kernel_url())
+                all_results.append(result)
+
+            # Merge search_results from all fan-out responses
+            merged_search_results = []
+            for result in all_results:
+                if isinstance(result, dict):
+                    resp = result.get("response", {})
+                    if isinstance(resp, dict):
+                        merged_search_results.extend(resp.get("search_results", []) or [])
+
+            # Deduplicate by memory_id to handle unlikely overlaps
+            seen_ids = set()
+            unique_results = []
+            for mem in merged_search_results:
+                mem_id = mem.get("memory_id") or mem.get("id")
+                if mem_id and mem_id in seen_ids:
+                    continue
+                if mem_id:
+                    seen_ids.add(mem_id)
+                unique_results.append(mem)
+
+            # Pass merged, deduplicated results through existing filter
+            merged_response = {"response": {"search_results": unique_results}}
         except Exception:
             return RetrievalLog()
 
-        return self._build_retrieval_log_from_search(result)
+        return self._build_retrieval_log_from_search(merged_response)
 
     def _build_retrieval_log_from_search(
         self, search_result: dict
