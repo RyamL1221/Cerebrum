@@ -104,6 +104,62 @@ The user's name is Alice. They prefer using VS Code and Git as their tools. Thei
 
 This formatting should happen in the context injector, not at write time (keep storage as JSON for structured queries).
 
+## Write Barrier Guarantee
+
+The kernel MUST invoke a write barrier before executing cross-agent retrieval when pending shared writes exist for the resolved `user_id`. This guarantee eliminates the timing-dependent race between Mem0 write indexing and cross-agent retrieval, ensuring injection results are deterministic regardless of inference latency, scheduler timing, or Mem0 indexing speed.
+
+This is a **kernel-side guarantee**. Cerebrum agents do not call the barrier directly; the SDK observes the post-barrier retrieval result through the existing `auto_inject` path. No SDK-side code changes are required.
+
+### Gating Predicate
+
+The barrier activates only when all of the following conditions hold:
+
+1. `auto_inject` is enabled in the kernel config (`memory.auto_inject: true`)
+2. The retrieval scope is cross-agent (i.e., the injector is searching for memories written by agents other than the calling agent)
+3. The `PendingWritesTracker` has at least one pending write for the resolved `user_id`
+4. At least one of those pending writes has `sharing_policy = "shared"` and `owner_agent != calling_agent`
+
+The barrier **short-circuits** (does not activate) when any of these conditions is false:
+
+- `auto_inject = false` → the ContextInjector is bypassed entirely (preservation clause 3.4)
+- Retrieval is single-agent only → no cross-agent search needed (preservation clause 3.3)
+- No pending writes for the `user_id` → nothing to wait on (preservation clause 3.1)
+- All pending writes are `sharing_policy = "private"` or belong to the calling agent → cross-agent retrieval would exclude them regardless (preservation clause 3.5)
+
+### Bounded-Wait Semantics
+
+When the gating predicate returns true, the kernel executes a hybrid wait strategy:
+
+1. **Explicit flush** (preferred path): If the Mem0 provider exposes a synchronous `flush(user_id, timeout_ms)`, the kernel calls it first. This blocks until writes are acknowledged by the underlying store.
+2. **Visibility poll** (always runs): The kernel polls `get_all(user_id)` at `poll_interval_ms` intervals, reconciling results against the pending writes tracker. Polling continues until all pending shared cross-agent writes are visible or the hard timeout is reached.
+3. **Hard timeout**: If pending writes are not visible within `timeout_ms`, the barrier returns and retrieval proceeds against whatever state Mem0 has committed. The pipeline never blocks indefinitely.
+
+The barrier returns a `status` indicating the outcome:
+
+| Status | Meaning |
+|--------|---------|
+| `ok` | All pending writes became visible within the timeout |
+| `timeout` | Hard timeout elapsed; retrieval proceeds against partial state. A structured `write_barrier_timeout` warning is emitted with the `user_id` and residual pending count |
+| `noop` | No pending writes existed at barrier entry (happy path — zero wait) |
+
+On `status = "timeout"`, retrieval still runs. The kernel emits a warning but does not raise or stall the pipeline. Post-barrier retrieval results pass through the existing ranking, sharing-policy filter, `relevance_threshold`, `max_injected_memories`, and `max_memory_tokens` code paths unchanged (preservation clause 3.7).
+
+### Kernel Config Keys
+
+The write barrier is controlled by the following config keys under `memory.write_barrier`:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `memory.write_barrier.enabled` | bool | `true` | Master kill-switch. When `false`, the gating predicate returns false unconditionally and no barrier logic runs |
+| `memory.write_barrier.timeout_ms` | int | `2000` | Maximum time (ms) the barrier will wait for pending writes to become visible before allowing retrieval to proceed |
+| `memory.write_barrier.poll_interval_ms` | int | `25` | Interval (ms) between visibility polls during the bounded-wait loop |
+
+These keys are additive — existing kernel config values (`relevance_threshold`, `max_injected_memories`, `max_memory_tokens`, `auto_inject`, `auto_extract`) are unchanged.
+
+### Relationship to Existing Bugs
+
+The write barrier sits in the ContextInjector pipeline **after** the Bug 1 fix (correct `user_id` resolution) and **before** the existing retrieval + formatting steps (Bugs 2–4). It addresses the write-read ordering gap that those fixes did not cover: even with correct `user_id` resolution and proper sharing-policy filtering, retrieval can return empty results if writes have not yet been indexed.
+
 ## Verification
 
 After applying these fixes, the Cerebrum benchmark should show:
@@ -121,8 +177,15 @@ memory:
   relevance_threshold: 0.3
   max_injected_memories: 10
   max_memory_tokens: 2000
+  write_barrier:
+    enabled: true
+    timeout_ms: 2000
+    poll_interval_ms: 25
 ```
 
 - `relevance_threshold: 0.3` — lowered from default because synthetic benchmark queries score low against structured memories
 - `max_injected_memories: 10` — prevents profile/task memories from being crowded out by conversation memories
 - `max_memory_tokens: 2000` — accommodates natural language formatted memories which are longer than raw JSON
+- `write_barrier.enabled: true` — activates the write barrier on the cross-agent retrieval path (see [Write Barrier Guarantee](#write-barrier-guarantee))
+- `write_barrier.timeout_ms: 2000` — caps barrier wait at 2 seconds; prevents pipeline stall on a wedged Mem0 indexer
+- `write_barrier.poll_interval_ms: 25` — fast enough to feel instantaneous on the happy path; slow enough to avoid hammering Mem0
