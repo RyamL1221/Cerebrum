@@ -232,23 +232,73 @@ class EvaluationOrchestrator:
 
         self.writer = ResultsWriter(output_dir=output_dir, write_csv=write_csv)
 
-        # Kernel log cross-reference: parse injection counts if path provided
+        # Kernel log cross-reference: deferred to after trials complete.
+        # The log file is written by the kernel DURING the run, so we parse
+        # it after all trials finish and retroactively update injection_status.
+        self.kernel_logs_path = kernel_logs_path
         self.kernel_log_counts: dict[str, int] | None = None
-        if kernel_logs_path:
-            from benchmarks.shared_memory.kernel_log_parser import parse_injection_lines
-            try:
-                self.kernel_log_counts = parse_injection_lines(kernel_logs_path)
+
+    def _cross_reference_kernel_logs(self, trials: list[TrialResult]) -> None:
+        """Parse kernel logs after trials complete and update injection_status.
+
+        The kernel appends injection lines to the log file DURING the run,
+        so this must be called AFTER all trials finish. It retroactively
+        updates each trial's retrieval_log.injection_status based on the
+        kernel's ground truth.
+        """
+        if not self.kernel_logs_path:
+            return
+
+        from benchmarks.shared_memory.kernel_log_parser import parse_injection_lines
+        try:
+            self.kernel_log_counts = parse_injection_lines(self.kernel_logs_path)
+            logger.info(
+                "Post-run kernel log cross-reference: %d user_ids with injection data from %s",
+                len(self.kernel_log_counts), self.kernel_logs_path,
+            )
+        except (FileNotFoundError, OSError) as e:
+            logger.warning(
+                "Failed to load kernel logs from %s: %s. "
+                "Skipping post-run cross-reference.",
+                self.kernel_logs_path, e,
+            )
+            return
+
+        for trial in trials:
+            if trial.failed or not trial.retrieval_log:
+                continue
+            # Look up user_id from the trial's synthetic data
+            user_id = getattr(trial, "_user_id", None)
+            if not user_id and trial.synthetic_profile:
+                # Reconstruct from profile — but we don't have run_id here.
+                # Use retrieval_log metadata or fall back to scanning all keys.
+                pass
+            # Try matching by checking all kernel log user_ids against trial index
+            # The most reliable approach: check if any kernel log user_id
+            # is a substring match for this trial's profile name.
+            profile_name = ""
+            if trial.synthetic_profile:
+                profile_name = trial.synthetic_profile.user_name.lower().replace(" ", "_")
+
+            kernel_count = 0
+            for uid, count in self.kernel_log_counts.items():
+                if profile_name and profile_name in uid:
+                    kernel_count = count
+                    break
+
+            audit_count = trial.retrieval_log.shared_memory_count
+            if kernel_count > 0 and audit_count == 0:
                 logger.info(
-                    "Loaded kernel log: %d user_ids with injection data from %s",
-                    len(self.kernel_log_counts), kernel_logs_path,
+                    "Trial %d: Kernel log confirms %d injections for '%s' "
+                    "but audit returned 0. Updating injection_status.",
+                    trial.trial_index, kernel_count, profile_name,
                 )
-            except (FileNotFoundError, OSError) as e:
-                logger.warning(
-                    "Failed to load kernel logs from %s: %s. "
-                    "Continuing without kernel log cross-reference.",
-                    kernel_logs_path, e,
+                trial.retrieval_log.injection_status = "kernel_confirmed_audit_missed"
+            elif kernel_count > 0 and audit_count > 0:
+                logger.info(
+                    "Trial %d: Kernel log (%d) and audit (%d) agree for '%s'.",
+                    trial.trial_index, kernel_count, audit_count, profile_name,
                 )
-                self.kernel_log_counts = None
 
     def run_single_trial(
         self,
@@ -327,23 +377,8 @@ class EvaluationOrchestrator:
                 trial_index, retrieval_log.shared_memory_count, entries,
             )
 
-        # Kernel log cross-reference: verify audit results against ground truth
-        if self.kernel_log_counts is not None and retrieval_log:
-            kernel_count = self.kernel_log_counts.get(trial_data.user_id, 0)
-            audit_count = retrieval_log.shared_memory_count
-            if kernel_count > 0 and audit_count == 0:
-                logger.warning(
-                    "Trial %d: Kernel log confirms %d injections for user_id=%s "
-                    "but audit query returned 0. Setting injection_status="
-                    "'kernel_confirmed_audit_missed'.",
-                    trial_index, kernel_count, trial_data.user_id,
-                )
-                retrieval_log.injection_status = "kernel_confirmed_audit_missed"
-            elif kernel_count > 0 and audit_count > 0:
-                logger.info(
-                    "Trial %d: Kernel log (%d) and audit (%d) agree for user_id=%s.",
-                    trial_index, kernel_count, audit_count, trial_data.user_id,
-                )
+        # Kernel log cross-reference is now handled post-run by
+        # _cross_reference_kernel_logs() after all trials complete.
 
         # Step 3: Judge the assistant response
         try:
@@ -438,6 +473,10 @@ class EvaluationOrchestrator:
                 ConditionResults(condition=cond, trials=trials, summary=summary)
             )
 
+        # Post-run kernel log cross-reference
+        all_trials = [t for cr in condition_results for t in cr.trials]
+        self._cross_reference_kernel_logs(all_trials)
+
         metadata = ExperimentMetadata(
             trials_per_condition=self.trials,
             timestamp=datetime.now().isoformat(),
@@ -518,6 +557,10 @@ class EvaluationOrchestrator:
             condition_results.append(
                 ConditionResults(condition=method_name, trials=trials, summary=summary)
             )
+
+        # Post-run kernel log cross-reference
+        all_trials = [t for cr in condition_results for t in cr.trials]
+        self._cross_reference_kernel_logs(all_trials)
 
         # Determine output filename
         if self.method == "all":
