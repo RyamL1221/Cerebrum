@@ -276,15 +276,16 @@ class AgentPipeline:
         if not user_id:
             return RetrievalLog()
 
-        try:
-            from cerebrum.memory.apis import MemoryQuery
-            from cerebrum.utils.communication import send_request
-            from cerebrum.config.config_manager import config
+        from cerebrum.memory.apis import MemoryQuery
+        from cerebrum.utils.communication import send_request
+        from cerebrum.config.config_manager import config
 
-            # Fan-out: one query per writer agent, routed through that
-            # agent's name so the kernel returns its owned memories.
-            all_results = []
-            for writer_agent in self.WRITER_AGENTS:
+        # Fan-out: one query per writer agent, routed through that
+        # agent's name so the kernel returns its owned memories.
+        # Each writer gets its own try/except for per-writer isolation.
+        all_results = []
+        for writer_agent in self.WRITER_AGENTS:
+            try:
                 query_obj = MemoryQuery(
                     operation_type="retrieve_memory",
                     params={
@@ -292,34 +293,76 @@ class AgentPipeline:
                         "k": self.AUDIT_TOP_K,
                         "user_id": user_id,
                         "sharing_policy": "shared",
+                        "agent_name": writer_agent,
                     },
                 )
                 result = send_request(writer_agent, query_obj, config.get_kernel_url())
-                all_results.append(result)
-
-            # Merge search_results from all fan-out responses
-            merged_search_results = []
-            for result in all_results:
+                # Per-writer instrumentation: raw result count before filtering
+                raw_count = 0
                 if isinstance(result, dict):
                     resp = result.get("response", {})
                     if isinstance(resp, dict):
-                        merged_search_results.extend(resp.get("search_results", []) or [])
+                        raw_count = len(resp.get("search_results", []) or [])
+                logger.debug(
+                    "Audit fan-out [%s]: raw_count=%d", writer_agent, raw_count
+                )
+                all_results.append(result)
+            except Exception as e:
+                logger.warning("Audit query for %s failed: %s", writer_agent, e)
+                continue
 
-            # Deduplicate by memory_id to handle unlikely overlaps
-            seen_ids = set()
-            unique_results = []
-            for mem in merged_search_results:
-                mem_id = mem.get("memory_id") or mem.get("id")
-                if mem_id and mem_id in seen_ids:
-                    continue
-                if mem_id:
-                    seen_ids.add(mem_id)
-                unique_results.append(mem)
-
-            # Pass merged, deduplicated results through existing filter
-            merged_response = {"response": {"search_results": unique_results}}
-        except Exception:
+        # If ALL writers failed, return empty RetrievalLog gracefully
+        if not all_results:
             return RetrievalLog()
+
+        # Merge search_results from all fan-out responses
+        merged_search_results = []
+        for result in all_results:
+            if isinstance(result, dict):
+                resp = result.get("response", {})
+                if isinstance(resp, dict):
+                    merged_search_results.extend(resp.get("search_results", []) or [])
+
+        # Post-merge instrumentation: total merged count before dedup
+        logger.info(
+            "Audit post-merge: merged_count=%d (before dedup)", len(merged_search_results)
+        )
+
+        # Deduplicate by memory_id only (stable provider key).
+        # Entries with null/empty memory_id skip dedup entirely — always included.
+        seen_ids = set()
+        unique_results = []
+        dropped_ids = []
+        for mem in merged_search_results:
+            mem_id = mem.get("memory_id")
+            if not mem_id:
+                # Null/empty memory_id: skip dedup, always include
+                unique_results.append(mem)
+                continue
+            if mem_id in seen_ids:
+                dropped_ids.append(mem_id)
+                continue
+            seen_ids.add(mem_id)
+            unique_results.append(mem)
+
+        # Post-dedup instrumentation: deduplicated count and dropped entries
+        logger.info(
+            "Audit post-dedup: unique_count=%d, dropped=%d",
+            len(unique_results), len(dropped_ids),
+        )
+        if dropped_ids:
+            logger.debug(
+                "Audit dedup dropped memory_ids: %s", dropped_ids
+            )
+
+        # Pass merged, deduplicated results through existing filter
+        merged_response = {"response": {"search_results": unique_results}}
+
+        # Post-threshold instrumentation: final count passed to filter
+        logger.info(
+            "Audit post-threshold: passing %d entries to _build_retrieval_log_from_search",
+            len(unique_results),
+        )
 
         return self._build_retrieval_log_from_search(merged_response)
 

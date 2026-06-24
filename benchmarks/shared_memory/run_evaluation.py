@@ -159,6 +159,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Defaults to the same model as --assistant-model."
         ),
     )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help=(
+            "Run-specific discriminator appended to user_id for namespace "
+            "isolation. Prevents residual memories from prior runs from "
+            "polluting current run results. When not specified, a random "
+            "UUID suffix is generated automatically."
+        ),
+    )
+    parser.add_argument(
+        "--kernel-logs",
+        type=str,
+        default=None,
+        help=(
+            "Path to captured AIOS kernel stdout file. When provided, the "
+            "orchestrator parses injection log lines and cross-references "
+            "them with harness-side audit results for ground truth verification."
+        ),
+    )
     return parser
 
 
@@ -187,6 +208,8 @@ class EvaluationOrchestrator:
         assistant_llms: list | None = None,
         judge_llms: list | None = None,
         kernel_url: str | None = None,
+        run_id: str | None = None,
+        kernel_logs_path: str | None = None,
     ):
         self.trials = trials
         self.output_dir = output_dir
@@ -195,18 +218,37 @@ class EvaluationOrchestrator:
         self.method = method
         self.assistant_llms = assistant_llms  # passed to AssistantAgent and SyntheticDataGenerator
         self.judge_llms = judge_llms or assistant_llms  # falls back to assistant model if not set
+        self.run_id = run_id  # None → SyntheticDataGenerator auto-generates UUID
 
         # Resolve kernel URL: CLI arg > config default
         resolved_url = kernel_url or config.get_kernel_url()
         self.kernel_url = resolved_url
 
-        self.generator = SyntheticDataGenerator(llms=self.assistant_llms)
+        self.generator = SyntheticDataGenerator(llms=self.assistant_llms, run_id=self.run_id)
         self.generator.kernel_url = resolved_url
 
         self.judge = HybridJudge(llms=self.judge_llms)
         self.judge.llm_judge.kernel_url = resolved_url
 
         self.writer = ResultsWriter(output_dir=output_dir, write_csv=write_csv)
+
+        # Kernel log cross-reference: parse injection counts if path provided
+        self.kernel_log_counts: dict[str, int] | None = None
+        if kernel_logs_path:
+            from benchmarks.shared_memory.kernel_log_parser import parse_injection_lines
+            try:
+                self.kernel_log_counts = parse_injection_lines(kernel_logs_path)
+                logger.info(
+                    "Loaded kernel log: %d user_ids with injection data from %s",
+                    len(self.kernel_log_counts), kernel_logs_path,
+                )
+            except (FileNotFoundError, OSError) as e:
+                logger.warning(
+                    "Failed to load kernel logs from %s: %s. "
+                    "Continuing without kernel log cross-reference.",
+                    kernel_logs_path, e,
+                )
+                self.kernel_log_counts = None
 
     def run_single_trial(
         self,
@@ -284,6 +326,24 @@ class EvaluationOrchestrator:
                 "Trial %d: Retrieved %d shared memories. Entries: %s",
                 trial_index, retrieval_log.shared_memory_count, entries,
             )
+
+        # Kernel log cross-reference: verify audit results against ground truth
+        if self.kernel_log_counts is not None and retrieval_log:
+            kernel_count = self.kernel_log_counts.get(trial_data.user_id, 0)
+            audit_count = retrieval_log.shared_memory_count
+            if kernel_count > 0 and audit_count == 0:
+                logger.warning(
+                    "Trial %d: Kernel log confirms %d injections for user_id=%s "
+                    "but audit query returned 0. Setting injection_status="
+                    "'kernel_confirmed_audit_missed'.",
+                    trial_index, kernel_count, trial_data.user_id,
+                )
+                retrieval_log.injection_status = "kernel_confirmed_audit_missed"
+            elif kernel_count > 0 and audit_count > 0:
+                logger.info(
+                    "Trial %d: Kernel log (%d) and audit (%d) agree for user_id=%s.",
+                    trial_index, kernel_count, audit_count, trial_data.user_id,
+                )
 
         # Step 3: Judge the assistant response
         try:
@@ -509,6 +569,8 @@ def main():
         method=args.method,
         assistant_llms=_parse_model_arg(args.assistant_model),
         judge_llms=_parse_model_arg(args.judge_model),
+        run_id=args.run_id,
+        kernel_logs_path=args.kernel_logs,
     )
 
     experiment = orchestrator.run()

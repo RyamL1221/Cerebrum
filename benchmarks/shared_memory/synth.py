@@ -6,6 +6,7 @@ synthetic profiles, task contexts, and follow-up queries for each trial.
 
 import json
 import logging
+import uuid
 from typing import Dict, Any, List
 
 from cerebrum.llm.apis import llm_chat, llm_chat_with_json_output
@@ -92,16 +93,21 @@ def _validate_vague_query(
 class SyntheticDataGenerator:
     """Generates synthetic trial data (profile, task context, query) via LLM."""
 
-    def __init__(self, agent_name: str = "eval_harness", llms: list | None = None):
+    def __init__(self, agent_name: str = "eval_harness", llms: list | None = None, run_id: str | None = None):
         """Initialise the generator.
 
         Args:
             agent_name: Agent identity used for SDK LLM calls.
             llms: Optional model override, e.g. [{"name": "qwen2.5:7b", "backend": "ollama"}].
+            run_id: Optional run-specific discriminator appended to user_id
+                for namespace isolation. When None, a UUID4 short suffix is
+                generated automatically to prevent residual state pollution
+                from prior runs.
         """
         self.agent_name = agent_name
         self.kernel_url = config.get_kernel_url()
         self.llms = llms
+        self.run_id = run_id or uuid.uuid4().hex[:8]
 
     # ------------------------------------------------------------------
     # Profile generation
@@ -459,20 +465,26 @@ class SyntheticDataGenerator:
         """Generate all synthetic data for a single trial.
 
         Orchestrates profile → task context → plausible actions → follow-up
-        query generation, and derives a stable user_id from the profile.
+        query generation, and derives a stable user_id from the profile scoped
+        to the current run to prevent residual state pollution.
+
+        The user_id format is ``{name}_{run_id}`` where name is the lowercase
+        underscore-separated profile name and run_id is the run-specific
+        discriminator passed at construction time (or auto-generated UUID).
 
         Args:
             trial_index: Zero-based trial number.
 
         Returns:
             A ``SyntheticTrialData`` bundle with profile, task context,
-            follow-up query, plausible actions, and user_id.
+            follow-up query, plausible actions, and run-scoped user_id.
         """
         profile = self.generate_profile(trial_index)
         task_context = self.generate_task_context(trial_index, profile)
         plausible_actions = self.generate_plausible_actions(profile, task_context)
         follow_up_query = self.generate_vague_query(profile, task_context)
-        user_id = profile.user_name.lower().replace(" ", "_")
+        base_name = profile.user_name.lower().replace(" ", "_")
+        user_id = f"{base_name}_{self.run_id}"
 
         return SyntheticTrialData(
             profile=profile,
