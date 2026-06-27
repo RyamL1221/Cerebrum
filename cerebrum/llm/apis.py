@@ -222,7 +222,8 @@ def llm_chat(
         agent_name: str, 
         messages: List[Dict[str, Any]], 
         base_url: str = aios_kernel_url,
-        llms: List[Dict[str, Any]] = None
+        llms: List[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> LLMResponse:
     """
     Perform a chat interaction with the LLM.
@@ -291,7 +292,8 @@ def llm_chat(
         llms=llms,
         messages=messages,
         tools=None,
-        action_type="chat"
+        action_type="chat",
+        user_id=user_id,
     )
     return send_request(agent_name, query, base_url)
 
