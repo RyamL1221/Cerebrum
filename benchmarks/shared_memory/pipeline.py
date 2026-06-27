@@ -746,6 +746,33 @@ class MethodPipeline:
                 exc,
             )
 
+        # Retrieve memories from kernel using the follow-up query
+        try:
+            search_response = search_memories(
+                agent_name="mem0_default_agent",
+                query=follow_up_query,
+                k=5,
+                user_id=method_user_id,
+            )
+
+            if search_response and isinstance(search_response, dict):
+                resp = search_response.get("response", {})
+                if isinstance(resp, dict):
+                    results = resp.get("search_results", []) or []
+                    retrieved_memories = [
+                        r.get("memory", r.get("content", ""))
+                        for r in results
+                        if isinstance(r, dict)
+                    ]
+
+            retrieved_context_count = len(retrieved_memories)
+        except Exception as exc:
+            logger.warning(
+                "mem0_default: failed to search memories for user_id=%r: %s",
+                method_user_id,
+                exc,
+            )
+
         # Build the augmented query: prepend retrieved memories if any
         if retrieved_memories:
             memories_text = "\n".join(retrieved_memories)
