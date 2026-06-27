@@ -523,6 +523,116 @@ def test_profile_agent_fallback_does_not_use_agent_name_for_retrieval(query_text
 
 
 # ---------------------------------------------------------------------------
+# Test 7: ProfileAgent without self.user_id skips memory write entirely
+# ---------------------------------------------------------------------------
+
+def test_profile_agent_no_user_id_skips_memory_write():
+    """ProfileAgent without self.user_id must skip memory write.
+
+    When self.user_id is not set (or is None), ProfileAgent must NOT:
+    - Use profile_data["user_name"] as user_id
+    - Use self.agent_name ("profile_agent") as user_id
+    - Call create_memory or update_memory at all
+
+    The agent should still extract profile data (LLM call) but skip
+    the memory upsert step entirely.
+    """
+    from cerebrum.example.agents.profile_agent.agent import ProfileAgent
+
+    memory_calls = []
+
+    def mock_send_request(agent_name, query_obj, base_url):
+        if hasattr(query_obj, 'query_class'):
+            if query_obj.query_class == "llm":
+                return {
+                    "response": {
+                        "response_message": '{"user_name": "alice_from_llm", "preferred_tools": ["vim", "tmux"], "preferred_language": "rust", "response_style": "detailed"}'
+                    }
+                }
+            elif query_obj.query_class == "memory":
+                memory_calls.append((agent_name, query_obj.operation_type, query_obj.params))
+                if query_obj.operation_type == "retrieve_memory":
+                    return {"response": {"search_results": []}}
+                elif query_obj.operation_type == "add_memory":
+                    return {"response": {"memory_id": "mem_should_not_exist", "success": True}}
+        return {"response": {}}
+
+    # Instantiate WITHOUT setting self.user_id
+    agent = ProfileAgent("profile_agent")
+    # Deliberately do NOT set agent.user_id
+
+    with patch("cerebrum.memory.apis.send_request", mock_send_request):
+        with patch("cerebrum.llm.apis.send_request", mock_send_request):
+            result = agent.run('{"user_name": "alice_from_llm", "preferred_tools": ["vim", "tmux"], "preferred_language": "rust", "response_style": "detailed"}')
+
+    # ASSERT: No memory operations occurred
+    assert len(memory_calls) == 0, (
+        f"Expected 0 memory calls without self.user_id, but got {len(memory_calls)}: "
+        f"{[(op, params.get('metadata', {}).get('user_id', 'N/A')) for _, op, params in memory_calls]}. "
+        f"Agent derived user_id from profile data or agent_name."
+    )
+
+    # ASSERT: Agent returned a result (didn't crash)
+    assert result["agent_name"] == "profile_agent"
+    assert "Error" not in result["result"]
+
+
+# ---------------------------------------------------------------------------
+# Test 8: TaskAgent without self.user_id skips memory write entirely
+# ---------------------------------------------------------------------------
+
+def test_task_agent_no_user_id_skips_memory_write():
+    """TaskAgent without self.user_id must skip memory write.
+
+    When self.user_id is not set (or is None), TaskAgent must NOT:
+    - Use context_data["current_project"] as user_id
+    - Use self.agent_name ("task_agent") as user_id
+    - Call create_memory or update_memory at all
+
+    The agent should still extract task context (LLM call) but skip
+    the memory upsert step entirely.
+    """
+    from cerebrum.example.agents.task_agent.agent import TaskAgent
+
+    memory_calls = []
+
+    def mock_send_request(agent_name, query_obj, base_url):
+        if hasattr(query_obj, 'query_class'):
+            if query_obj.query_class == "llm":
+                return {
+                    "response": {
+                        "response_message": '{"current_project": "project_x", "active_experiment": "exp1", "goals": ["ship feature"], "blockers": ["ci broken"], "next_steps": ["fix ci"]}'
+                    }
+                }
+            elif query_obj.query_class == "memory":
+                memory_calls.append((agent_name, query_obj.operation_type, query_obj.params))
+                if query_obj.operation_type == "retrieve_memory":
+                    return {"response": {"search_results": []}}
+                elif query_obj.operation_type == "add_memory":
+                    return {"response": {"memory_id": "mem_should_not_exist", "success": True}}
+        return {"response": {}}
+
+    # Instantiate WITHOUT setting self.user_id
+    agent = TaskAgent("task_agent")
+    # Deliberately do NOT set agent.user_id
+
+    with patch("cerebrum.memory.apis.send_request", mock_send_request):
+        with patch("cerebrum.llm.apis.send_request", mock_send_request):
+            result = agent.run('{"current_project": "project_x", "active_experiment": "exp1", "goals": ["ship feature"], "blockers": ["ci broken"], "next_steps": ["fix ci"]}')
+
+    # ASSERT: No memory operations occurred
+    assert len(memory_calls) == 0, (
+        f"Expected 0 memory calls without self.user_id, but got {len(memory_calls)}: "
+        f"{[(op, params.get('metadata', {}).get('user_id', 'N/A')) for _, op, params in memory_calls]}. "
+        f"Agent derived user_id from task data or agent_name."
+    )
+
+    # ASSERT: Agent returned a result (didn't crash)
+    assert result["agent_name"] == "task_agent"
+    assert "Error" not in result["result"]
+
+
+# ---------------------------------------------------------------------------
 # Main runner (matches project convention)
 # ---------------------------------------------------------------------------
 
@@ -593,6 +703,22 @@ def run_all():
         record("profile_agent_explicit_user_id_precedence", True)
     except Exception as e:
         record("profile_agent_explicit_user_id_precedence", False, str(e)[:200])
+
+    # Test 7
+    print("\n--- Test 7: ProfileAgent without user_id skips memory write ---")
+    try:
+        test_profile_agent_no_user_id_skips_memory_write()
+        record("profile_agent_no_user_id_skips_write", True)
+    except Exception as e:
+        record("profile_agent_no_user_id_skips_write", False, str(e)[:200])
+
+    # Test 8
+    print("\n--- Test 8: TaskAgent without user_id skips memory write ---")
+    try:
+        test_task_agent_no_user_id_skips_memory_write()
+        record("task_agent_no_user_id_skips_write", True)
+    except Exception as e:
+        record("task_agent_no_user_id_skips_write", False, str(e)[:200])
 
     # Summary
     print("\n" + "=" * 70)
