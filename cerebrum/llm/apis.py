@@ -159,6 +159,7 @@ class LLMQuery(Query):
     max_new_tokens: int = Field(default=1000)
     message_return_type: Literal["text", "json"] = Field(default="text")
     response_format: Optional[Dict[str, Any]] = Field(default=None)
+    user_id: Optional[str] = Field(default=None)
 
     class Config:
         arbitrary_types_allowed = True
