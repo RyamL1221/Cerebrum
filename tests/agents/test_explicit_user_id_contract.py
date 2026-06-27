@@ -523,6 +523,89 @@ def test_profile_agent_fallback_does_not_use_agent_name_for_retrieval(query_text
 
 
 # ---------------------------------------------------------------------------
+# Test 6b: search_memories with user_id=None does not send user_id to kernel
+# ---------------------------------------------------------------------------
+
+def test_search_memories_none_user_id_no_kernel_user_scope():
+    """search_memories(user_id=None) must not include user_id in kernel params.
+
+    This proves the SDK API layer does not inject a user_id from any
+    fallback source (global state, latest writer, etc.) when the caller
+    does not provide one.
+    """
+    captured_queries = []
+
+    def mock_send_request(agent_name, query_obj, base_url):
+        captured_queries.append(query_obj)
+        return {"response": {"search_results": []}}
+
+    with patch("cerebrum.memory.apis.send_request", mock_send_request):
+        result = search_memories(
+            agent_name="assistant_agent",
+            query="some query",
+            k=5,
+            # user_id deliberately omitted (defaults to None)
+        )
+
+    assert len(captured_queries) == 1
+    params = captured_queries[0].params
+
+    # ASSERT: No user_id in params — SDK did not inject one
+    assert "user_id" not in params, (
+        f"search_memories(user_id=None) injected user_id={params.get('user_id')!r} "
+        f"into kernel query params. No fallback identity should be used."
+    )
+
+    # ASSERT: Result is the standard empty response shape
+    resp = result.get("response", {})
+    assert resp.get("search_results") == []
+
+
+def test_search_memories_whitespace_user_id_raises():
+    """search_memories with whitespace-only user_id must raise ValueError.
+
+    This ensures callers cannot accidentally pass empty/whitespace user_id
+    and get a silent default behavior.
+    """
+    try:
+        search_memories(
+            agent_name="assistant_agent",
+            query="test",
+            user_id="   ",  # whitespace-only
+        )
+        assert False, "Expected ValueError for whitespace-only user_id"
+    except ValueError as e:
+        assert "non-empty" in str(e).lower() or "user_id" in str(e).lower()
+
+
+def test_search_memories_strips_user_id_whitespace():
+    """search_memories must strip whitespace from a valid user_id before
+    passing it to the kernel.
+
+    This ensures " alice " becomes "alice" in the kernel query params.
+    """
+    captured_queries = []
+
+    def mock_send_request(agent_name, query_obj, base_url):
+        captured_queries.append(query_obj)
+        return {"response": {"search_results": []}}
+
+    with patch("cerebrum.memory.apis.send_request", mock_send_request):
+        search_memories(
+            agent_name="assistant_agent",
+            query="test",
+            user_id="  alice_123  ",  # has leading/trailing whitespace
+        )
+
+    assert len(captured_queries) == 1
+    params = captured_queries[0].params
+    assert params["user_id"] == "alice_123", (
+        f"Expected stripped user_id='alice_123', got {params['user_id']!r}. "
+        f"SDK must normalize user_id before sending to kernel."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test 7: ProfileAgent without self.user_id skips memory write entirely
 # ---------------------------------------------------------------------------
 
@@ -703,6 +786,28 @@ def run_all():
         record("profile_agent_explicit_user_id_precedence", True)
     except Exception as e:
         record("profile_agent_explicit_user_id_precedence", False, str(e)[:200])
+
+    # Test 6b: SDK-level guards
+    print("\n--- Test 6b: search_memories(user_id=None) no kernel user scope ---")
+    try:
+        test_search_memories_none_user_id_no_kernel_user_scope()
+        record("search_memories_none_user_id_no_scope", True)
+    except Exception as e:
+        record("search_memories_none_user_id_no_scope", False, str(e)[:200])
+
+    print("\n--- Test 6c: search_memories whitespace user_id raises ---")
+    try:
+        test_search_memories_whitespace_user_id_raises()
+        record("search_memories_whitespace_raises", True)
+    except Exception as e:
+        record("search_memories_whitespace_raises", False, str(e)[:200])
+
+    print("\n--- Test 6d: search_memories strips user_id whitespace ---")
+    try:
+        test_search_memories_strips_user_id_whitespace()
+        record("search_memories_strips_whitespace", True)
+    except Exception as e:
+        record("search_memories_strips_whitespace", False, str(e)[:200])
 
     # Test 7
     print("\n--- Test 7: ProfileAgent without user_id skips memory write ---")
