@@ -176,6 +176,7 @@ class ProfileAgent:
             agent_name=self.agent_name,
             query=f"profile {user_id}",
             base_url=aios_kernel_url,
+            user_id=user_id,
         )
 
         existing_results = []
