@@ -765,6 +765,8 @@ class MethodPipeline:
                         if isinstance(r, dict)
                     ]
 
+            # Filter out empty strings from retrieval
+            retrieved_memories = [m for m in retrieved_memories if m]
             retrieved_context_count = len(retrieved_memories)
         except Exception as exc:
             logger.warning(
