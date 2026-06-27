@@ -294,8 +294,26 @@ class ContextInjector:
             An InjectionResult containing the filtered memories and
             diagnostics (including BarrierResult when the barrier ran).
         """
-        # Step 1: Resolve user_id (pass-through, post-Bug-1 fix)
+        # Step 1: Resolve user_id (request-scoped only, no fallbacks)
         resolved_user_id = self._resolve_user_id(user_id)
+
+        # Early guard: skip user-scoped retrieval when no user_id provided
+        if not resolved_user_id:
+            return InjectionResult(
+                memories=[],
+                total_retrieved=0,
+                barrier_result=None,
+                diagnostics={
+                    "user_id": None,
+                    "calling_agent": calling_agent,
+                    "cross_agent": cross_agent,
+                    "barrier_invoked": False,
+                    "barrier_result": None,
+                    "total_retrieved": 0,
+                    "post_filter_count": 0,
+                    "skipped_reason": "no_request_scoped_user_id",
+                },
+            )
 
         # Step 2: Gating predicate
         barrier_result: BarrierResult | None = None
@@ -360,20 +378,24 @@ class ContextInjector:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _resolve_user_id(self, user_id: str) -> str:
-        """Resolve the user_id for retrieval (post-Bug-1 fix: pass-through).
+    def _resolve_user_id(self, user_id: str) -> str | None:
+        """Resolve the request-scoped user_id for retrieval.
 
-        In the post-Bug-1 kernel, user_id is already resolved from memory
-        metadata rather than from the agent name. This method is a
-        pass-through but retained for pipeline clarity.
+        Returns the stripped user_id if it is a non-empty string, or None
+        if the caller did not provide a valid request-scoped identity.
+        No fallback logic is applied — there is no lookup of
+        latest_user_id, known_user_ids, agent_name, or any other
+        process-global state.
 
         Args:
             user_id: The user_id as provided by the caller.
 
         Returns:
-            The resolved user_id (unchanged).
+            The stripped user_id string, or None if missing/empty/whitespace.
         """
-        return user_id
+        if not user_id or not str(user_id).strip():
+            return None
+        return str(user_id).strip()
 
     def _apply_relevance_threshold(
         self, memories: list[dict[str, Any]]
