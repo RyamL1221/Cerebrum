@@ -37,18 +37,20 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 # Pattern for detailed format:
-# "Injected 5 memories (3 own + 2 shared) for user_id=elena_mitchell from agents: ['profile_agent', 'task_agent']"
+# "Injected 5 memories (3 own + 2 shared) for agent=assistant_agent, user_id=elena_mitchell"
+# Also matches legacy: "Injected 5 memories (3 own + 2 shared) for user_id=elena_mitchell from agents: [...]"
 _DETAILED_PATTERN = re.compile(
     r"Injected\s+(\d+)\s+(?:memories|memory)\s+"
     r"\((\d+)\s+own\s*\+\s*(\d+)\s+shared\)\s+"
-    r"for\s+user_id=(\S+)"
+    r"for\s+(?:agent=\S+,\s*)?user_id=(\S+)"
     r"(?:\s+from\s+agents?:\s*\[([^\]]*)\])?"
 )
 
 # Pattern for simple format:
 # "Injected 3 memories for user_id=jordan_mitchell"
+# Also matches: "Injected 3 memories for agent=assistant_agent, user_id=jordan_mitchell"
 _SIMPLE_PATTERN = re.compile(
-    r"Injected\s+(\d+)\s+(?:memories|memory)\s+for\s+user_id=(\S+)"
+    r"Injected\s+(\d+)\s+(?:memories|memory)\s+for\s+(?:agent=\S+,\s*)?user_id=(\S+)"
 )
 
 
