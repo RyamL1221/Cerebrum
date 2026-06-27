@@ -55,6 +55,7 @@ class AssistantAgent:
                 messages=self.messages,
                 base_url=aios_kernel_url,
                 llms=self.llms,
+                user_id=getattr(self, "user_id", None),
             )
 
             result_text = response["response"]["response_message"] if response else ""
