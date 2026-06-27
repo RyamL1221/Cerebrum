@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
 from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.example.agents.assistant_agent.agent import AssistantAgent
-from cerebrum.memory.apis import search_memories
+from cerebrum.memory.apis import search_memories, create_memory
 
 from benchmarks.shared_memory.models import (
     InjectedMemoryEntry,
@@ -691,14 +691,6 @@ class MethodPipeline:
             PipelineResult with method="mem0_default" and retrieved_context_count
             set to the number of entries returned by memory.search().
         """
-        try:
-            from mem0 import Memory
-        except ImportError:
-            raise ImportError(
-                "mem0ai is required for the mem0_default method. "
-                "Install it with: pip install mem0ai"
-            )
-
         profile = trial_data.profile
         task_context = trial_data.task_context
         follow_up_query = trial_data.follow_up_query
@@ -721,70 +713,38 @@ class MethodPipeline:
             f"Next Steps: {', '.join(task_context.next_steps)}"
         )
 
-        # Instantiate Mem0 Memory client configured to use Ollama
-        # (avoids requiring an OpenAI API key)
-        # Use the same model as the assistant for fact extraction
-        mem0_model = self.assistant_llms[0]["name"] if self.assistant_llms else "qwen2.5:7b"
-        mem0_config = {
-            "llm": {
-                "provider": "ollama",
-                "config": {
-                    "model": mem0_model,
-                    "ollama_base_url": "http://localhost:11434",
-                },
-            },
-            "embedder": {
-                "provider": "ollama",
-                "config": {
-                    "model": "nomic-embed-text",
-                    "ollama_base_url": "http://localhost:11434",
-                },
-            },
-            "vector_store": {
-                "provider": "chroma",
-                "config": {
-                    "collection_name": "mem0_benchmark",
-                    "path": ".mem0/benchmark_chroma",
-                },
-            },
-        }
-        memory = Memory.from_config(mem0_config)
-
-        # Add profile and task context to Mem0; wrap in try/except per Req 5.8
+        # Write profile and task context as memories via kernel API
         retrieved_memories: List[str] = []
         retrieved_context_count = 0
 
         try:
-            memory.add(profile_text, user_id=method_user_id)
-            memory.add(task_text, user_id=method_user_id)
+            create_memory(
+                agent_name="mem0_default_agent",
+                content=profile_text,
+                metadata={
+                    "user_id": method_user_id,
+                    "owner_agent": "mem0_default_agent",
+                    "memory_type": "profile",
+                    "sharing_policy": "shared",
+                },
+            )
+
+            create_memory(
+                agent_name="mem0_default_agent",
+                content=task_text,
+                metadata={
+                    "user_id": method_user_id,
+                    "owner_agent": "mem0_default_agent",
+                    "memory_type": "task_context",
+                    "sharing_policy": "shared",
+                },
+            )
         except Exception as exc:
             logger.warning(
-                "mem0_default: failed to add memories for user_id=%r: %s",
+                "mem0_default: failed to write memories for user_id=%r: %s",
                 method_user_id,
                 exc,
             )
-            # Proceed with empty context — trial is not failed by Mem0 error alone
-            retrieved_context_count = 0
-            retrieved_memories = []
-        else:
-            # Search for relevant memories using the follow-up query
-            try:
-                search_results = memory.search(follow_up_query, filters={"user_id": method_user_id})
-                # search_results is a list of dicts, each with a "memory" key
-                retrieved_memories = [
-                    entry["memory"]
-                    for entry in search_results
-                    if isinstance(entry, dict) and "memory" in entry
-                ]
-                retrieved_context_count = len(retrieved_memories)
-            except Exception as exc:
-                logger.warning(
-                    "mem0_default: failed to search memories for user_id=%r: %s",
-                    method_user_id,
-                    exc,
-                )
-                retrieved_context_count = 0
-                retrieved_memories = []
 
         # Build the augmented query: prepend retrieved memories if any
         if retrieved_memories:
