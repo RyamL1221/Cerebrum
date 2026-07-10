@@ -675,139 +675,26 @@ class MethodPipeline:
     def _run_mem0_default(
         self, trial_data: SyntheticTrialData, method_user_id: str
     ) -> PipelineResult:
-        """Mem0 default baseline — add/search via Mem0 client.
+        """Private-memory baseline using the same 3-agent pipeline.
 
-        Instantiates a Mem0 Memory client with default configuration, adds the
-        synthetic profile and task context as memory entries under the
-        Method_User_ID, searches for relevant memories using the follow-up
-        query, and injects the retrieved memory text into the AssistantAgent
-        prompt. No AIOS kernel memory APIs are used.
+        Uses the identical AgentPipeline as kernel_shared, but with
+        share_memory=False. ProfileAgent and TaskAgent still write memories,
+        but with sharing_policy="private", so the kernel's auto_inject will
+        NOT surface them cross-agent to AssistantAgent.
+
+        This ensures the only variable between kernel_shared and mem0_default
+        is whether memories are shared or private.
 
         Args:
-            trial_data: The synthetic data for this trial.
+            trial_data: Original trial data.
             method_user_id: Method-scoped user ID (e.g. ``alice__mem0_default``).
 
         Returns:
-            PipelineResult with method="mem0_default" and retrieved_context_count
-            set to the number of entries returned by memory.search().
+            PipelineResult from AgentPipeline with method set to
+            ``"mem0_default"``.
         """
-        profile = trial_data.profile
-        task_context = trial_data.task_context
-        follow_up_query = trial_data.follow_up_query
-
-        # Build plain-text representations of profile and task context
-        profile_text = (
-            f"User Profile:\n"
-            f"Name: {profile.user_name}\n"
-            f"Preferred Tools: {', '.join(profile.preferred_tools)}\n"
-            f"Preferred Language: {profile.preferred_language}\n"
-            f"Response Style: {profile.response_style}"
-        )
-
-        task_text = (
-            f"Task Context:\n"
-            f"Current Project: {task_context.current_project}\n"
-            f"Active Experiment: {task_context.active_experiment}\n"
-            f"Goals: {', '.join(task_context.goals)}\n"
-            f"Blockers: {', '.join(task_context.blockers)}\n"
-            f"Next Steps: {', '.join(task_context.next_steps)}"
-        )
-
-        # Write profile and task context as memories via kernel API
-        retrieved_memories: List[str] = []
-        retrieved_context_count = 0
-
-        try:
-            create_memory(
-                agent_name="mem0_default_agent",
-                content=profile_text,
-                metadata={
-                    "user_id": method_user_id,
-                    "owner_agent": "mem0_default_agent",
-                    "memory_type": "profile",
-                    "sharing_policy": "shared",
-                },
-            )
-
-            create_memory(
-                agent_name="mem0_default_agent",
-                content=task_text,
-                metadata={
-                    "user_id": method_user_id,
-                    "owner_agent": "mem0_default_agent",
-                    "memory_type": "task_context",
-                    "sharing_policy": "shared",
-                },
-            )
-        except Exception as exc:
-            logger.warning(
-                "mem0_default: failed to write memories for user_id=%r: %s",
-                method_user_id,
-                exc,
-            )
-
-        # Retrieve memories from kernel using the follow-up query
-        try:
-            search_response = search_memories(
-                agent_name="mem0_default_agent",
-                query=follow_up_query,
-                k=5,
-                user_id=method_user_id,
-            )
-
-            if search_response and isinstance(search_response, dict):
-                resp = search_response.get("response", {})
-                if isinstance(resp, dict):
-                    results = resp.get("search_results", []) or []
-                    retrieved_memories = [
-                        r.get("memory", r.get("content", ""))
-                        for r in results
-                        if isinstance(r, dict)
-                    ]
-
-            # Filter out empty strings from retrieval
-            retrieved_memories = [m for m in retrieved_memories if m]
-            retrieved_context_count = len(retrieved_memories)
-        except Exception as exc:
-            logger.warning(
-                "mem0_default: failed to search memories for user_id=%r: %s",
-                method_user_id,
-                exc,
-            )
-
-        # Build the augmented query: prepend retrieved memories if any
-        if retrieved_memories:
-            memories_text = "\n".join(retrieved_memories)
-            augmented_query = (
-                f"--- RETRIEVED MEMORIES ---\n"
-                f"{memories_text}\n\n"
-                f"--- QUERY ---\n"
-                f"{follow_up_query}"
-            )
-        else:
-            # No memories retrieved — pass the follow-up query directly
-            augmented_query = follow_up_query
-
-        # Instantiate AssistantAgent with method-scoped user_id
-        assistant_agent = AssistantAgent("assistant_agent")
-        assistant_agent.user_id = method_user_id
-        assistant_agent.llms = self.assistant_llms
-
-        start_time = time.time()
-        assistant_result = assistant_agent.run(augmented_query)
-        latency_seconds = time.time() - start_time
-
-        assistant_response = assistant_result.get("result", "")
-
-        return PipelineResult(
-            profile_result={},
-            task_result={},
-            assistant_result=assistant_result,
-            assistant_response=assistant_response,
-            latency_seconds=latency_seconds,
-            retrieval_log=None,
-            injection_diagnostics=None,
-            written_memories=[],
-            method="mem0_default",
-            retrieved_context_count=retrieved_context_count,
-        )
+        scoped_trial = trial_data.model_copy(update={"user_id": method_user_id})
+        pipeline = AgentPipeline(share_memory=False, assistant_llms=self.assistant_llms)
+        result = pipeline.run_trial(scoped_trial)
+        result.method = "mem0_default"
+        return result

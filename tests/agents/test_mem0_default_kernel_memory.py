@@ -1,10 +1,10 @@
-"""Regression tests: mem0_default uses kernel memory APIs.
+"""Regression tests: mem0_default uses the 3-agent pipeline with share_memory=False.
 
 Verifies that _run_mem0_default:
-1. Calls create_memory twice (profile + task context) with correct metadata
-2. Calls search_memories with user_id=method_user_id
-3. Manually prepends retrieved memories into the assistant prompt
-4. Handles write/search failures gracefully without crashing
+1. Delegates to AgentPipeline(share_memory=False) — same pathway as kernel_shared
+2. ProfileAgent and TaskAgent write memories with sharing_policy="private"
+3. AssistantAgent runs without cross-agent memory injection
+4. Result method is set to "mem0_default"
 
 No running kernel, Ollama, ChromaDB, or real LLM required.
 """
@@ -12,13 +12,13 @@ No running kernel, Ollama, ChromaDB, or real LLM required.
 import sys
 sys.path.insert(0, ".")
 
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
-from benchmarks.shared_memory.pipeline import MethodPipeline
+from benchmarks.shared_memory.pipeline import MethodPipeline, AgentPipeline
 from benchmarks.shared_memory.models import SyntheticTrialData, SyntheticProfile, SyntheticTaskContext
 
 
-def _make_trial_data(user_id="test_user_abc__mem0_default"):
+def _make_trial_data(user_id="test_user_abc"):
     """Build minimal SyntheticTrialData for testing."""
     return SyntheticTrialData(
         profile=SyntheticProfile(
@@ -35,17 +35,107 @@ def _make_trial_data(user_id="test_user_abc__mem0_default"):
             next_steps=["Fix CI", "Deploy"],
         ),
         follow_up_query="What should I focus on next?",
-        user_id="test_user_abc",
+        user_id=user_id,
     )
 
 
-def test_mem0_default_calls_create_memory_twice_with_correct_metadata():
-    """mem0_default writes profile and task memories via kernel create_memory."""
+def test_mem0_default_delegates_to_agent_pipeline_with_share_memory_false():
+    """mem0_default creates AgentPipeline(share_memory=False) and calls run_trial."""
+    trial_data = _make_trial_data()
+
+    captured_args = {}
+
+    original_init = AgentPipeline.__init__
+
+    def capturing_init(self, share_memory=True, assistant_llms=None):
+        captured_args["share_memory"] = share_memory
+        captured_args["assistant_llms"] = assistant_llms
+        original_init(self, share_memory=share_memory, assistant_llms=assistant_llms)
+
+    mock_result = MagicMock()
+    mock_result.method = "mem0_default"
+
+    with patch.object(AgentPipeline, "__init__", capturing_init), \
+         patch.object(AgentPipeline, "run_trial", return_value=mock_result):
+        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline._run_mem0_default(trial_data, f"{trial_data.user_id}__mem0_default")
+
+    assert captured_args["share_memory"] is False, (
+        f"Expected share_memory=False, got {captured_args['share_memory']}"
+    )
+
+
+def test_mem0_default_scopes_user_id_with_method_suffix():
+    """mem0_default passes method-scoped user_id to AgentPipeline."""
+    trial_data = _make_trial_data(user_id="alice")
+    method_user_id = "alice__mem0_default"
+
+    captured_trial = {}
+
+    def capturing_run_trial(self, scoped_trial):
+        captured_trial["user_id"] = scoped_trial.user_id
+        result = MagicMock()
+        result.method = "kernel_shared"  # Will be overwritten
+        return result
+
+    with patch.object(AgentPipeline, "run_trial", capturing_run_trial):
+        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline._run_mem0_default(trial_data, method_user_id)
+
+    assert captured_trial["user_id"] == method_user_id, (
+        f"Expected user_id='{method_user_id}', got '{captured_trial['user_id']}'"
+    )
+
+
+def test_mem0_default_sets_method_to_mem0_default():
+    """mem0_default sets result.method='mem0_default' regardless of AgentPipeline output."""
+    trial_data = _make_trial_data()
+
+    mock_result = MagicMock()
+    mock_result.method = "kernel_shared"  # AgentPipeline doesn't set method
+
+    with patch.object(AgentPipeline, "run_trial", return_value=mock_result):
+        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline._run_mem0_default(trial_data, f"{trial_data.user_id}__mem0_default")
+
+    assert result.method == "mem0_default", (
+        f"Expected method='mem0_default', got {result.method!r}"
+    )
+
+
+def test_mem0_default_passes_assistant_llms():
+    """mem0_default forwards assistant_llms to AgentPipeline."""
+    trial_data = _make_trial_data()
+    llms = [{"name": "gpt-4o", "backend": "azure"}]
+
+    captured_args = {}
+
+    original_init = AgentPipeline.__init__
+
+    def capturing_init(self, share_memory=True, assistant_llms=None):
+        captured_args["assistant_llms"] = assistant_llms
+        original_init(self, share_memory=share_memory, assistant_llms=assistant_llms)
+
+    mock_result = MagicMock()
+    mock_result.method = "mem0_default"
+
+    with patch.object(AgentPipeline, "__init__", capturing_init), \
+         patch.object(AgentPipeline, "run_trial", return_value=mock_result):
+        pipeline = MethodPipeline(method="mem0_default", assistant_llms=llms)
+        pipeline._run_mem0_default(trial_data, f"{trial_data.user_id}__mem0_default")
+
+    assert captured_args["assistant_llms"] == llms, (
+        f"Expected assistant_llms={llms}, got {captured_args['assistant_llms']}"
+    )
+
+
+def test_mem0_default_full_pipeline_writes_private_memories():
+    """End-to-end: mem0_default pipeline writes memories with sharing_policy='private'."""
     trial_data = _make_trial_data()
     method_user_id = f"{trial_data.user_id}__mem0_default"
 
     create_calls = []
-    
+
     def mock_create_memory(agent_name, content, metadata=None, base_url=None):
         create_calls.append({"agent_name": agent_name, "content": content, "metadata": metadata})
         return {"response": {"memory_id": f"mem_{len(create_calls)}", "success": True}}
@@ -53,166 +143,30 @@ def test_mem0_default_calls_create_memory_twice_with_correct_metadata():
     def mock_search_memories(agent_name, query, k=5, base_url=None, *, user_id=None, sharing_policy=None):
         return {"response": {"search_results": []}}
 
-    def mock_assistant_run(self, task_input):
-        return {"agent_name": "assistant_agent", "result": "mocked", "rounds": 1}
-
-    with patch("benchmarks.shared_memory.pipeline.create_memory", side_effect=mock_create_memory):
-        with patch("benchmarks.shared_memory.pipeline.search_memories", side_effect=mock_search_memories):
-            with patch("cerebrum.example.agents.assistant_agent.agent.llm_chat", return_value={"response": {"response_message": "mocked"}}):
-                pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-                result = pipeline.run_trial(trial_data)
-
-    # ASSERT: create_memory called twice
-    assert len(create_calls) == 2, f"Expected 2 create_memory calls, got {len(create_calls)}"
-
-    # ASSERT: First call is profile
-    profile_call = create_calls[0]
-    assert profile_call["agent_name"] == "mem0_default_agent"
-    assert profile_call["metadata"]["user_id"] == method_user_id
-    assert profile_call["metadata"]["owner_agent"] == "mem0_default_agent"
-    assert profile_call["metadata"]["memory_type"] == "profile"
-    assert profile_call["metadata"]["sharing_policy"] == "shared"
-    assert "Test User" in profile_call["content"]
-
-    # ASSERT: Second call is task_context
-    task_call = create_calls[1]
-    assert task_call["agent_name"] == "mem0_default_agent"
-    assert task_call["metadata"]["user_id"] == method_user_id
-    assert task_call["metadata"]["owner_agent"] == "mem0_default_agent"
-    assert task_call["metadata"]["memory_type"] == "task_context"
-    assert task_call["metadata"]["sharing_policy"] == "shared"
-    assert "Test Project" in task_call["content"]
-
-
-def test_mem0_default_calls_search_memories_with_user_id():
-    """mem0_default retrieves memories using search_memories with explicit user_id."""
-    trial_data = _make_trial_data()
-    method_user_id = f"{trial_data.user_id}__mem0_default"
-
-    search_calls = []
-
-    def mock_create_memory(agent_name, content, metadata=None, base_url=None):
-        return {"response": {"memory_id": "mem_1", "success": True}}
-
-    def mock_search_memories(agent_name, query, k=5, base_url=None, *, user_id=None, sharing_policy=None):
-        search_calls.append({
-            "agent_name": agent_name,
-            "query": query,
-            "k": k,
-            "user_id": user_id,
-        })
-        return {
-            "response": {
-                "search_results": [
-                    {"memory": "User prefers concise technical answers."},
-                    {"content": "User is working on Test Project."},
-                ]
-            }
-        }
-
-    with patch("benchmarks.shared_memory.pipeline.create_memory", side_effect=mock_create_memory):
-        with patch("benchmarks.shared_memory.pipeline.search_memories", side_effect=mock_search_memories):
-            with patch("cerebrum.example.agents.assistant_agent.agent.llm_chat", return_value={"response": {"response_message": "mocked"}}):
-                pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-                result = pipeline.run_trial(trial_data)
-
-    # ASSERT: search_memories called once
-    assert len(search_calls) == 1, f"Expected 1 search call, got {len(search_calls)}"
-
-    sc = search_calls[0]
-    assert sc["agent_name"] == "mem0_default_agent"
-    assert sc["query"] == trial_data.follow_up_query
-    assert sc["k"] == 5
-    assert sc["user_id"] == method_user_id
-
-    # ASSERT: retrieved_context_count reflects search results
-    assert result.retrieved_context_count == 2
-
-
-def test_mem0_default_prepends_memories_to_prompt():
-    """mem0_default manually prepends retrieved memories into the assistant prompt."""
-    trial_data = _make_trial_data()
-
-    captured_prompts = []
-
-    def mock_create_memory(agent_name, content, metadata=None, base_url=None):
-        return {"response": {"memory_id": "mem_1", "success": True}}
-
-    def mock_search_memories(agent_name, query, k=5, base_url=None, *, user_id=None, sharing_policy=None):
-        return {
-            "response": {
-                "search_results": [
-                    {"memory": "User prefers Python and VS Code."},
-                    {"content": "Current project is Test Project with flaky CI."},
-                ]
-            }
-        }
-
     def mock_llm_chat(agent_name, messages, base_url=None, llms=None, user_id=None):
-        # Capture what the assistant receives
-        for msg in messages:
-            if msg.get("role") == "user":
-                captured_prompts.append(msg["content"])
-        return {"response": {"response_message": "personalized answer"}}
+        return {"response": {"response_message": "mocked response"}}
 
-    with patch("benchmarks.shared_memory.pipeline.create_memory", side_effect=mock_create_memory):
-        with patch("benchmarks.shared_memory.pipeline.search_memories", side_effect=mock_search_memories):
-            with patch("cerebrum.example.agents.assistant_agent.agent.llm_chat", side_effect=mock_llm_chat):
-                pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-                result = pipeline.run_trial(trial_data)
+    def mock_llm_chat_json(agent_name, messages, base_url=None, llms=None, user_id=None):
+        return {"response": {"response_message": "{}"}}
 
-    # ASSERT: The prompt includes the retrieved memories section
-    assert len(captured_prompts) >= 1
-    prompt = captured_prompts[-1]
-    assert "--- RETRIEVED MEMORIES ---" in prompt
-    assert "User prefers Python and VS Code." in prompt
-    assert "Current project is Test Project with flaky CI." in prompt
-    assert "--- QUERY ---" in prompt
-    assert trial_data.follow_up_query in prompt
+    with patch("benchmarks.shared_memory.pipeline.create_memory", side_effect=mock_create_memory), \
+         patch("benchmarks.shared_memory.pipeline.search_memories", side_effect=mock_search_memories), \
+         patch("cerebrum.example.agents.assistant_agent.agent.llm_chat", side_effect=mock_llm_chat), \
+         patch("cerebrum.example.agents.profile_agent.agent.llm_chat_with_json_output", side_effect=mock_llm_chat_json), \
+         patch("cerebrum.example.agents.task_agent.agent.llm_chat_with_json_output", side_effect=mock_llm_chat_json), \
+         patch("cerebrum.memory.apis.create_memory", side_effect=mock_create_memory), \
+         patch("cerebrum.memory.apis.search_memories", side_effect=mock_search_memories):
+        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline.run_trial(trial_data)
 
-
-def test_mem0_default_handles_write_failure_gracefully():
-    """mem0_default does not crash if create_memory raises an exception."""
-    trial_data = _make_trial_data()
-
-    def mock_create_memory(agent_name, content, metadata=None, base_url=None):
-        raise ConnectionError("Kernel unavailable")
-
-    def mock_search_memories(agent_name, query, k=5, base_url=None, *, user_id=None, sharing_policy=None):
-        return {"response": {"search_results": []}}
-
-    with patch("benchmarks.shared_memory.pipeline.create_memory", side_effect=mock_create_memory):
-        with patch("benchmarks.shared_memory.pipeline.search_memories", side_effect=mock_search_memories):
-            with patch("cerebrum.example.agents.assistant_agent.agent.llm_chat", return_value={"response": {"response_message": "mocked"}}):
-                pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-                result = pipeline.run_trial(trial_data)
-
-    # ASSERT: Trial did not crash
     assert result.method == "mem0_default"
-    assert result.assistant_response is not None
-    assert result.retrieved_context_count == 0
 
-
-def test_mem0_default_handles_search_failure_gracefully():
-    """mem0_default does not crash if search_memories raises an exception."""
-    trial_data = _make_trial_data()
-
-    def mock_create_memory(agent_name, content, metadata=None, base_url=None):
-        return {"response": {"memory_id": "mem_1", "success": True}}
-
-    def mock_search_memories(agent_name, query, k=5, base_url=None, *, user_id=None, sharing_policy=None):
-        raise ConnectionError("Kernel search unavailable")
-
-    with patch("benchmarks.shared_memory.pipeline.create_memory", side_effect=mock_create_memory):
-        with patch("benchmarks.shared_memory.pipeline.search_memories", side_effect=mock_search_memories):
-            with patch("cerebrum.example.agents.assistant_agent.agent.llm_chat", return_value={"response": {"response_message": "mocked"}}):
-                pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-                result = pipeline.run_trial(trial_data)
-
-    # ASSERT: Trial did not crash
-    assert result.method == "mem0_default"
-    assert result.assistant_response is not None
-    assert result.retrieved_context_count == 0
+    # All memories should be private since share_memory=False
+    for c in create_calls:
+        if c["metadata"]:
+            assert c["metadata"]["sharing_policy"] == "private", (
+                f"Expected sharing_policy='private', got '{c['metadata']['sharing_policy']}'"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -232,44 +186,25 @@ def record(name: str, passed: bool, detail: str = ""):
 
 def run_all():
     print("=" * 70)
-    print("mem0_default Kernel Memory — Regression Tests")
-    print("Confirms mem0_default uses kernel APIs, not local Mem0 client.")
+    print("mem0_default Pipeline Delegation — Regression Tests")
+    print("Confirms mem0_default uses AgentPipeline(share_memory=False).")
     print("=" * 70)
 
-    print("\n--- create_memory called twice with correct metadata ---")
-    try:
-        test_mem0_default_calls_create_memory_twice_with_correct_metadata()
-        record("create_memory_calls", True)
-    except Exception as e:
-        record("create_memory_calls", False, str(e)[:200])
+    tests = [
+        ("delegates_share_memory_false", test_mem0_default_delegates_to_agent_pipeline_with_share_memory_false),
+        ("scopes_user_id", test_mem0_default_scopes_user_id_with_method_suffix),
+        ("sets_method_mem0_default", test_mem0_default_sets_method_to_mem0_default),
+        ("passes_assistant_llms", test_mem0_default_passes_assistant_llms),
+        ("full_pipeline_private_memories", test_mem0_default_full_pipeline_writes_private_memories),
+    ]
 
-    print("\n--- search_memories called with user_id ---")
-    try:
-        test_mem0_default_calls_search_memories_with_user_id()
-        record("search_memories_user_id", True)
-    except Exception as e:
-        record("search_memories_user_id", False, str(e)[:200])
-
-    print("\n--- Retrieved memories prepended to prompt ---")
-    try:
-        test_mem0_default_prepends_memories_to_prompt()
-        record("memories_prepended_to_prompt", True)
-    except Exception as e:
-        record("memories_prepended_to_prompt", False, str(e)[:200])
-
-    print("\n--- Write failure handled gracefully ---")
-    try:
-        test_mem0_default_handles_write_failure_gracefully()
-        record("write_failure_graceful", True)
-    except Exception as e:
-        record("write_failure_graceful", False, str(e)[:200])
-
-    print("\n--- Search failure handled gracefully ---")
-    try:
-        test_mem0_default_handles_search_failure_gracefully()
-        record("search_failure_graceful", True)
-    except Exception as e:
-        record("search_failure_graceful", False, str(e)[:200])
+    for name, test_fn in tests:
+        print(f"\n--- {name} ---")
+        try:
+            test_fn()
+            record(name, True)
+        except Exception as e:
+            record(name, False, str(e)[:200])
 
     # Summary
     print("\n" + "=" * 70)

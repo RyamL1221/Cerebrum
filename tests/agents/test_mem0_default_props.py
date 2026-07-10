@@ -1,8 +1,8 @@
 """Property-based tests for the mem0_default pipeline path using Hypothesis.
 
 Feature: personalization-baselines
-Property 7: mem0_default retrieved_context_count matches search result count
-Property 8: mem0_default error resilience
+Property 7: mem0_default delegates to AgentPipeline(share_memory=False)
+Property 8: mem0_default method label is always set correctly
 """
 
 import sys
@@ -14,14 +14,11 @@ from hypothesis import given, settings, HealthCheck
 from hypothesis.strategies import (
     text,
     lists,
-    integers,
     composite,
     from_regex,
-    sampled_from,
-    just,
 )
 
-from benchmarks.shared_memory.pipeline import MethodPipeline
+from benchmarks.shared_memory.pipeline import MethodPipeline, AgentPipeline
 from benchmarks.shared_memory.models import (
     SyntheticProfile,
     SyntheticTaskContext,
@@ -78,274 +75,124 @@ def synthetic_trial_data_strategy(draw):
     )
 
 
-@composite
-def mem0_search_results_strategy(draw):
-    """Generate a random list of Mem0 search result dicts (each with a 'memory' key)."""
-    count = draw(integers(min_value=0, max_value=10))
-    results = []
-    for _ in range(count):
-        results.append({"memory": draw(_nonempty_text)})
-    return results
-
-
-# A selection of exception types to test error resilience
-_exception_types = sampled_from([
-    RuntimeError,
-    ValueError,
-    ConnectionError,
-    TimeoutError,
-    OSError,
-    Exception,
-])
-
-
 # ---------------------------------------------------------------------------
-# Property 7: mem0_default retrieved_context_count matches search result count
+# Property 7: mem0_default delegates to AgentPipeline(share_memory=False)
 # ---------------------------------------------------------------------------
 
-class TestMem0DefaultCountConsistency:
-    """Feature: personalization-baselines, Property 7: mem0_default retrieved_context_count matches search result count
+class TestMem0DefaultDelegation:
+    """Feature: personalization-baselines, Property 7: mem0_default delegates correctly
 
     **Validates: Requirements 5.7**
     """
 
-    @given(
-        trial_data=synthetic_trial_data_strategy(),
-        search_results=mem0_search_results_strategy(),
-    )
+    @given(trial_data=synthetic_trial_data_strategy())
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    def test_retrieved_context_count_matches_search_result_count(
-        self, trial_data, search_results
-    ):
-        """For any Mem0 search result list (including empty), retrieved_context_count
-        must equal len(search_results).
-
-        Mocks Memory.add (no-op) and Memory.search (returns the generated list),
-        then verifies retrieved_context_count == len(search_results).
+    def test_share_memory_is_false(self, trial_data):
+        """For any SyntheticTrialData, mem0_default must create AgentPipeline
+        with share_memory=False.
         """
-        # Feature: personalization-baselines, Property 7: mem0_default retrieved_context_count matches search result count
-        pipeline = MethodPipeline(method="mem0_default")
+        captured = {}
 
-        mock_memory = MagicMock()
-        mock_memory.add.return_value = None
-        mock_memory.search.return_value = search_results
+        original_init = AgentPipeline.__init__
 
-        mock_assistant_result = {
-            "agent_name": "assistant_agent",
-            "result": "mocked response",
-            "rounds": 1,
-        }
+        def capturing_init(self, share_memory=True, assistant_llms=None):
+            captured["share_memory"] = share_memory
+            original_init(self, share_memory=share_memory, assistant_llms=assistant_llms)
 
-        with patch("benchmarks.shared_memory.pipeline.AssistantAgent.run",
-                   return_value=mock_assistant_result), \
-             patch("mem0.Memory", return_value=mock_memory):
+        mock_result = MagicMock()
+        mock_result.method = "mem0_default"
+
+        with patch.object(AgentPipeline, "__init__", capturing_init), \
+             patch.object(AgentPipeline, "run_trial", return_value=mock_result):
+            pipeline = MethodPipeline(method="mem0_default")
             method_user_id = f"{trial_data.user_id}__mem0_default"
-            result = pipeline._run_mem0_default(trial_data, method_user_id)
+            pipeline._run_mem0_default(trial_data, method_user_id)
 
-        assert result.retrieved_context_count == len(search_results), (
-            f"Expected retrieved_context_count={len(search_results)}, "
-            f"got {result.retrieved_context_count}"
+        assert captured["share_memory"] is False, (
+            f"Expected share_memory=False, got {captured['share_memory']}"
         )
 
     @given(trial_data=synthetic_trial_data_strategy())
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    def test_empty_search_results_gives_zero_count(self, trial_data):
-        """When Mem0 search returns an empty list, retrieved_context_count must be 0."""
-        # Feature: personalization-baselines, Property 7: mem0_default retrieved_context_count matches search result count
-        pipeline = MethodPipeline(method="mem0_default")
+    def test_user_id_is_scoped(self, trial_data):
+        """For any SyntheticTrialData, the trial passed to AgentPipeline must
+        have user_id set to the method_user_id (not the original).
+        """
+        method_user_id = f"{trial_data.user_id}__mem0_default"
+        captured_trial = {}
 
-        mock_memory = MagicMock()
-        mock_memory.add.return_value = None
-        mock_memory.search.return_value = []
+        def capturing_run_trial(self, scoped_trial):
+            captured_trial["user_id"] = scoped_trial.user_id
+            result = MagicMock()
+            result.method = "mem0_default"
+            return result
 
-        mock_assistant_result = {
-            "agent_name": "assistant_agent",
-            "result": "mocked response",
-            "rounds": 1,
-        }
+        with patch.object(AgentPipeline, "run_trial", capturing_run_trial):
+            pipeline = MethodPipeline(method="mem0_default")
+            pipeline._run_mem0_default(trial_data, method_user_id)
 
-        with patch("benchmarks.shared_memory.pipeline.AssistantAgent.run",
-                   return_value=mock_assistant_result), \
-             patch("mem0.Memory", return_value=mock_memory):
-            method_user_id = f"{trial_data.user_id}__mem0_default"
-            result = pipeline._run_mem0_default(trial_data, method_user_id)
-
-        assert result.retrieved_context_count == 0, (
-            f"Expected retrieved_context_count=0 for empty search results, "
-            f"got {result.retrieved_context_count}"
+        assert captured_trial["user_id"] == method_user_id, (
+            f"Expected user_id='{method_user_id}', got '{captured_trial['user_id']}'"
         )
+
+    @given(trial_data=synthetic_trial_data_strategy())
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+    def test_original_trial_data_unchanged(self, trial_data):
+        """_run_mem0_default must not mutate the original trial_data."""
+        original_user_id = trial_data.user_id
+        method_user_id = f"{trial_data.user_id}__mem0_default"
+
+        mock_result = MagicMock()
+        mock_result.method = "mem0_default"
+
+        with patch.object(AgentPipeline, "run_trial", return_value=mock_result):
+            pipeline = MethodPipeline(method="mem0_default")
+            pipeline._run_mem0_default(trial_data, method_user_id)
+
+        assert trial_data.user_id == original_user_id, (
+            f"Original trial_data.user_id was mutated: expected '{original_user_id}', "
+            f"got '{trial_data.user_id}'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Property 8: mem0_default method label
+# ---------------------------------------------------------------------------
+
+class TestMem0DefaultMethodLabel:
+    """Feature: personalization-baselines, Property 8: mem0_default method label
+
+    **Validates: Requirements 5.8**
+    """
 
     @given(trial_data=synthetic_trial_data_strategy())
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_method_is_mem0_default(self, trial_data):
         """For any SyntheticTrialData, _run_mem0_default must set method='mem0_default'."""
-        # Feature: personalization-baselines, Property 7: mem0_default retrieved_context_count matches search result count
-        pipeline = MethodPipeline(method="mem0_default")
+        mock_result = MagicMock()
+        mock_result.method = "kernel_shared"  # Simulate AgentPipeline not setting it
 
-        mock_memory = MagicMock()
-        mock_memory.add.return_value = None
-        mock_memory.search.return_value = []
-
-        mock_assistant_result = {
-            "agent_name": "assistant_agent",
-            "result": "mocked response",
-            "rounds": 1,
-        }
-
-        with patch("benchmarks.shared_memory.pipeline.AssistantAgent.run",
-                   return_value=mock_assistant_result), \
-             patch("mem0.Memory", return_value=mock_memory):
+        with patch.object(AgentPipeline, "run_trial", return_value=mock_result):
+            pipeline = MethodPipeline(method="mem0_default")
             method_user_id = f"{trial_data.user_id}__mem0_default"
             result = pipeline._run_mem0_default(trial_data, method_user_id)
 
         assert result.method == "mem0_default", (
             f"Expected method='mem0_default', got {result.method!r}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Property 8: mem0_default error resilience
-# ---------------------------------------------------------------------------
-
-class TestMem0DefaultErrorResilience:
-    """Feature: personalization-baselines, Property 8: mem0_default error resilience
-
-    **Validates: Requirements 5.8**
-    """
-
-    @given(
-        trial_data=synthetic_trial_data_strategy(),
-        exc_type=_exception_types,
-    )
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    def test_add_exception_sets_zero_count_and_returns_result(
-        self, trial_data, exc_type
-    ):
-        """When Mem0 add raises any exception, retrieved_context_count must be 0
-        and the pipeline must return a PipelineResult (not raise).
-
-        Mocks Memory.add to raise the given exception type, verifies that
-        retrieved_context_count == 0 and a PipelineResult is returned.
-        """
-        # Feature: personalization-baselines, Property 8: mem0_default error resilience
-        pipeline = MethodPipeline(method="mem0_default")
-
-        mock_memory = MagicMock()
-        mock_memory.add.side_effect = exc_type("simulated add failure")
-
-        mock_assistant_result = {
-            "agent_name": "assistant_agent",
-            "result": "mocked response",
-            "rounds": 1,
-        }
-
-        with patch("benchmarks.shared_memory.pipeline.AssistantAgent.run",
-                   return_value=mock_assistant_result), \
-             patch("mem0.Memory", return_value=mock_memory):
-            method_user_id = f"{trial_data.user_id}__mem0_default"
-            # Must not raise
-            result = pipeline._run_mem0_default(trial_data, method_user_id)
-
-        assert result.retrieved_context_count == 0, (
-            f"Expected retrieved_context_count=0 after add exception, "
-            f"got {result.retrieved_context_count}"
-        )
-        assert result.method == "mem0_default", (
-            f"Expected method='mem0_default', got {result.method!r}"
-        )
-
-    @given(
-        trial_data=synthetic_trial_data_strategy(),
-        exc_type=_exception_types,
-    )
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    def test_search_exception_sets_zero_count_and_returns_result(
-        self, trial_data, exc_type
-    ):
-        """When Mem0 search raises any exception, retrieved_context_count must be 0
-        and the pipeline must return a PipelineResult (not raise).
-
-        Mocks Memory.add (no-op) and Memory.search to raise the given exception
-        type, verifies that retrieved_context_count == 0 and a PipelineResult
-        is returned.
-        """
-        # Feature: personalization-baselines, Property 8: mem0_default error resilience
-        pipeline = MethodPipeline(method="mem0_default")
-
-        mock_memory = MagicMock()
-        mock_memory.add.return_value = None
-        mock_memory.search.side_effect = exc_type("simulated search failure")
-
-        mock_assistant_result = {
-            "agent_name": "assistant_agent",
-            "result": "mocked response",
-            "rounds": 1,
-        }
-
-        with patch("benchmarks.shared_memory.pipeline.AssistantAgent.run",
-                   return_value=mock_assistant_result), \
-             patch("mem0.Memory", return_value=mock_memory):
-            method_user_id = f"{trial_data.user_id}__mem0_default"
-            # Must not raise
-            result = pipeline._run_mem0_default(trial_data, method_user_id)
-
-        assert result.retrieved_context_count == 0, (
-            f"Expected retrieved_context_count=0 after search exception, "
-            f"got {result.retrieved_context_count}"
-        )
-        assert result.method == "mem0_default", (
-            f"Expected method='mem0_default', got {result.method!r}"
-        )
-
-    @given(
-        trial_data=synthetic_trial_data_strategy(),
-        exc_type=_exception_types,
-    )
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    def test_exception_does_not_prevent_assistant_run(
-        self, trial_data, exc_type
-    ):
-        """When Mem0 raises any exception, AssistantAgent.run must still be called
-        (the trial is not aborted by the Mem0 error alone).
-        """
-        # Feature: personalization-baselines, Property 8: mem0_default error resilience
-        pipeline = MethodPipeline(method="mem0_default")
-
-        mock_memory = MagicMock()
-        mock_memory.add.side_effect = exc_type("simulated failure")
-
-        assistant_call_count = []
-
-        def counting_run(self_agent, task_input):
-            assistant_call_count.append(task_input)
-            return {"agent_name": "assistant_agent", "result": "ok", "rounds": 1}
-
-        with patch("benchmarks.shared_memory.pipeline.AssistantAgent.run",
-                   counting_run), \
-             patch("mem0.Memory", return_value=mock_memory):
-            method_user_id = f"{trial_data.user_id}__mem0_default"
-            pipeline._run_mem0_default(trial_data, method_user_id)
-
-        assert len(assistant_call_count) == 1, (
-            "AssistantAgent.run must be called exactly once even when Mem0 raises"
         )
 
 
 if __name__ == "__main__":
-    t7 = TestMem0DefaultCountConsistency()
-    print("Running Property 7: mem0_default retrieved_context_count matches search result count...")
-    t7.test_retrieved_context_count_matches_search_result_count()
-    print("PASSED: retrieved_context_count == len(search_results) for all inputs")
-    t7.test_empty_search_results_gives_zero_count()
-    print("PASSED: retrieved_context_count == 0 for empty search results")
-    t7.test_method_is_mem0_default()
-    print("PASSED: method == 'mem0_default' for all inputs")
+    t7 = TestMem0DefaultDelegation()
+    print("Running Property 7: mem0_default delegates to AgentPipeline(share_memory=False)...")
+    t7.test_share_memory_is_false()
+    print("PASSED: share_memory=False for all inputs")
+    t7.test_user_id_is_scoped()
+    print("PASSED: user_id is method-scoped for all inputs")
+    t7.test_original_trial_data_unchanged()
+    print("PASSED: original trial_data not mutated")
 
-    t8 = TestMem0DefaultErrorResilience()
-    print("\nRunning Property 8: mem0_default error resilience...")
-    t8.test_add_exception_sets_zero_count_and_returns_result()
-    print("PASSED: add exception -> retrieved_context_count == 0, result returned")
-    t8.test_search_exception_sets_zero_count_and_returns_result()
-    print("PASSED: search exception -> retrieved_context_count == 0, result returned")
-    t8.test_exception_does_not_prevent_assistant_run()
-    print("PASSED: AssistantAgent.run called even when Mem0 raises")
+    t8 = TestMem0DefaultMethodLabel()
+    print("\nRunning Property 8: mem0_default method label...")
+    t8.test_method_is_mem0_default()
+    print("PASSED: method == 'mem0_default' for all inputs")
