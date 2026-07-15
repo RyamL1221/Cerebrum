@@ -195,15 +195,36 @@ def test_invalid_23_items_rejected():
     print("  PASS: test_invalid_23_items_rejected")
 
 
-def test_duplicate_identity_in_input_rejected():
+def test_invalid_25_items_rejected():
+    """A 25-item input with all distinct identities fails for size."""
     trials = _make_24()
-    trials.append(_make_trial("naive_concat", 0))  # duplicate
+    # Add a genuinely new trial (distinct identity)
+    trials.append(_make_trial("naive_concat", 99))
     try:
         build_blinded_plan(trials, seed=42)
         assert False
     except ValueError as e:
-        # Either rejects on count or on duplicate identity
-        assert "24" in str(e) or "Duplicate" in str(e)
+        assert "Expected exactly 24" in str(e)
+        assert "got 25" in str(e)
+    print("  PASS: test_invalid_25_items_rejected")
+
+
+def test_duplicate_identity_in_input_rejected():
+    """A 24-item input with a repeated composite identity fails for duplicate."""
+    trials = list(_make_24())
+    # Replace last trial with a copy of the first (same method + trial_id)
+    # This keeps length at 24 but introduces a duplicate identity
+    first = trials[0]
+    duplicate = _make_trial(first.source_method, int(first.original_trial_id), score=2)
+    trials[-1] = duplicate
+    assert len(trials) == 24
+    try:
+        build_blinded_plan(trials, seed=42)
+        assert False, "Should have raised ValueError for duplicate identity"
+    except ValueError as e:
+        assert "Duplicate" in str(e) and "identity" in str(e).lower()
+        # Must NOT be a size error
+        assert "Expected exactly" not in str(e)
     print("  PASS: test_duplicate_identity_in_input_rejected")
 
 
@@ -249,6 +270,7 @@ def main():
     test_different_seeds_different_plan()
     test_global_random_unchanged()
     test_invalid_23_items_rejected()
+    test_invalid_25_items_rejected()
     test_duplicate_identity_in_input_rejected()
     test_validate_passes_for_valid_plan()
     test_real_results()

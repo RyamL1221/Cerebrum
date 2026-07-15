@@ -203,19 +203,25 @@ def build_blinded_plan(
         ValueError: If input is invalid or separation constraint unsatisfiable.
     """
     expected_unique = len(VALID_SOURCE_METHODS) * UNIQUE_ITEMS_PER_METHOD
+
+    # Check for duplicate composite identities in input (before size check,
+    # so that a 24-item input with a repeated identity gets a clear
+    # duplicate-specific error rather than a misleading size error)
+    seen: set[tuple[str, str]] = set()
+    for t in selected_trials:
+        key = (t.source_method, t.original_trial_id)
+        if key in seen:
+            raise ValueError(
+                f"Duplicate source trial identity: "
+                f"{t.source_method} / {t.original_trial_id}"
+            )
+        seen.add(key)
+
     if len(selected_trials) != expected_unique:
         raise ValueError(
             f"Expected exactly {expected_unique} unique trials, "
             f"got {len(selected_trials)}"
         )
-
-    # Check for duplicate composite identities in input
-    seen: set[tuple[str, str]] = set()
-    for t in selected_trials:
-        key = (t.source_method, t.original_trial_id)
-        if key in seen:
-            raise ValueError(f"Duplicate source identity in input: {key}")
-        seen.add(key)
 
     # Sort for stability
     sorted_trials = sorted(selected_trials, key=lambda t: (t.source_method, t.original_trial_id))
