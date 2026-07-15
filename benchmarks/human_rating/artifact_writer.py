@@ -278,7 +278,43 @@ def validate_artifact_pair(
 
 
 # ---------------------------------------------------------------------------
-# Atomic file writing
+# Path validation
+# ---------------------------------------------------------------------------
+
+def validate_artifact_paths(queue_path: Path, key_path: Path) -> None:
+    """Validate that queue and answer key paths are properly separated.
+
+    Rejects:
+    - Same directory
+    - One directory nested inside the other (either direction)
+    - Identical file paths
+
+    Raises:
+        ValueError: If paths violate separation requirements.
+    """
+    if queue_path.resolve() == key_path.resolve():
+        raise ValueError("Queue and answer key cannot be the same file.")
+
+    q_parent = queue_path.parent.resolve()
+    k_parent = key_path.parent.resolve()
+
+    if q_parent == k_parent:
+        raise ValueError("Queue and answer key must use separate directories.")
+
+    if q_parent in k_parent.parents or k_parent == q_parent:
+        raise ValueError(
+            "Queue and answer-key directories must not be nested "
+            f"(queue parent: {q_parent}, key parent: {k_parent})."
+        )
+    if k_parent in q_parent.parents or q_parent == k_parent:
+        raise ValueError(
+            "Queue and answer-key directories must not be nested "
+            f"(queue parent: {q_parent}, key parent: {k_parent})."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Atomic paired file writing with rollback
 # ---------------------------------------------------------------------------
 
 def write_rating_artifacts(
@@ -291,36 +327,23 @@ def write_rating_artifacts(
     blinding_seed: int,
     overwrite: bool = False,
 ) -> WrittenArtifacts:
-    """Build, validate, and atomically write both artifacts.
+    """Build, validate, and atomically write both artifacts as a pair.
+
+    Provides application-level paired rollback: if the second file write
+    fails, the first is rolled back. Two separate files cannot be replaced
+    as one filesystem transaction, so this is best-effort paired atomicity.
 
     Raises:
         FileExistsError: If artifacts exist and overwrite is False.
-        ValueError: If validation fails.
+        ValueError: If validation or path checks fail.
     """
     queue_path = Path(run_paths.rating_queue_path)
     key_path = Path(run_paths.answer_key_path)
 
-    # Validate path separation
-    if queue_path.parent.resolve() == key_path.parent.resolve():
-        raise ValueError("Queue and answer key must be in separate directories")
+    # Validate path separation (same dir, nested, identical)
+    validate_artifact_paths(queue_path, key_path)
 
-    # Check nesting
-    q_resolved = queue_path.parent.resolve()
-    k_resolved = key_path.parent.resolve()
-    try:
-        q_resolved.relative_to(k_resolved)
-        raise ValueError("Queue directory must not be nested inside private directory")
-    except ValueError as e:
-        if "nested" in str(e):
-            raise
-    try:
-        k_resolved.relative_to(q_resolved)
-        raise ValueError("Private directory must not be nested inside queue directory")
-    except ValueError as e:
-        if "nested" in str(e):
-            raise
-
-    # Overwrite protection
+    # Overwrite protection: check BOTH paths before any mutation
     if not overwrite:
         if queue_path.exists():
             raise FileExistsError(
@@ -358,54 +381,98 @@ def write_rating_artifacts(
     queue_path.parent.mkdir(parents=True, exist_ok=True)
     key_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Write atomically via temp files
-    tmp_queue = None
-    tmp_key = None
+    # --- Paired atomic write with rollback ---
+    tmp_queue_path: str | None = None
+    tmp_key_path: str | None = None
+    queue_backup_path: Path | None = None
+    key_backup_path: Path | None = None
+    queue_replaced = False
+
     try:
-        # Write queue
-        tmp_queue = tempfile.NamedTemporaryFile(
+        # Stage 1: Write both temp files
+        with tempfile.NamedTemporaryFile(
             mode="w", dir=str(queue_path.parent),
             suffix=".tmp", delete=False, encoding="utf-8",
-        )
-        json.dump(queue_doc, tmp_queue, indent=2, sort_keys=True, ensure_ascii=False)
-        tmp_queue.write("\n")
-        tmp_queue.flush()
-        os.fsync(tmp_queue.fileno())
-        tmp_queue.close()
+        ) as tmp_queue:
+            tmp_queue_path = tmp_queue.name
+            json.dump(queue_doc, tmp_queue, indent=2, sort_keys=True, ensure_ascii=False)
+            tmp_queue.write("\n")
+            tmp_queue.flush()
+            os.fsync(tmp_queue.fileno())
 
-        # Write answer key
-        tmp_key = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="w", dir=str(key_path.parent),
             suffix=".tmp", delete=False, encoding="utf-8",
-        )
-        json.dump(key_doc, tmp_key, indent=2, sort_keys=True, ensure_ascii=False)
-        tmp_key.write("\n")
-        tmp_key.flush()
-        os.fsync(tmp_key.fileno())
-        tmp_key.close()
+        ) as tmp_key:
+            tmp_key_path = tmp_key.name
+            json.dump(key_doc, tmp_key, indent=2, sort_keys=True, ensure_ascii=False)
+            tmp_key.write("\n")
+            tmp_key.flush()
+            os.fsync(tmp_key.fileno())
 
-        # Atomic replace
-        os.replace(tmp_queue.name, str(queue_path))
-        os.replace(tmp_key.name, str(key_path))
+        # Stage 2: Backup existing files (for overwrite rollback)
+        if overwrite and queue_path.exists():
+            queue_backup_path = queue_path.with_suffix(".backup")
+            os.replace(str(queue_path), str(queue_backup_path))
+        if overwrite and key_path.exists():
+            key_backup_path = key_path.with_suffix(".backup")
+            os.replace(str(key_path), str(key_backup_path))
 
-        # Set permissions on answer key (POSIX only, best-effort)
+        # Stage 3: Replace finals (paired)
+        os.replace(tmp_queue_path, str(queue_path))
+        tmp_queue_path = None  # No longer needs cleanup
+        queue_replaced = True
+
+        os.replace(tmp_key_path, str(key_path))
+        tmp_key_path = None  # No longer needs cleanup
+
+        # Stage 4: Set permissions
         try:
             key_path.chmod(0o600)
         except (OSError, NotImplementedError):
             pass
-
-        # Set queue permissions
         try:
             queue_path.chmod(0o644)
         except (OSError, NotImplementedError):
             pass
 
+        # Stage 5: Remove backups (both replacements succeeded)
+        if queue_backup_path and queue_backup_path.exists():
+            queue_backup_path.unlink()
+        if key_backup_path and key_backup_path.exists():
+            key_backup_path.unlink()
+
     except Exception:
-        # Cleanup temp files on failure
-        if tmp_queue and os.path.exists(tmp_queue.name):
-            os.unlink(tmp_queue.name)
-        if tmp_key and os.path.exists(tmp_key.name):
-            os.unlink(tmp_key.name)
+        # Rollback: restore prior state
+        # If queue was replaced but key wasn't, undo the queue replacement
+        if queue_replaced and key_backup_path and not key_path.exists():
+            # Restore queue from backup
+            if queue_backup_path and queue_backup_path.exists():
+                os.replace(str(queue_backup_path), str(queue_path))
+            elif queue_path.exists():
+                # New queue was placed but no prior existed — remove it
+                queue_path.unlink()
+        elif queue_replaced and not key_path.exists():
+            # First write (no backup), queue placed but key failed — remove queue
+            if queue_path.exists():
+                queue_path.unlink()
+
+        # Restore key backup if it exists
+        if key_backup_path and key_backup_path.exists() and not key_path.exists():
+            os.replace(str(key_backup_path), str(key_path))
+
+        # Clean up any remaining temp files
+        if tmp_queue_path and os.path.exists(tmp_queue_path):
+            os.unlink(tmp_queue_path)
+        if tmp_key_path and os.path.exists(tmp_key_path):
+            os.unlink(tmp_key_path)
+
+        # Clean up any remaining backup files
+        if queue_backup_path and queue_backup_path.exists():
+            queue_backup_path.unlink()
+        if key_backup_path and key_backup_path.exists():
+            key_backup_path.unlink()
+
         raise
 
     unique_count = sum(1 for i in plan.items if i.duplicate_of_blinded_id is None)
