@@ -808,6 +808,81 @@ def test_compile_cli_overwrite_flag():
     print("  PASS: test_compile_cli_overwrite_flag")
 
 
+def test_method_primary_count_violation_rejected():
+    """Uneven primary method distribution is rejected."""
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            # Change item 7's method from vanilla_rag to naive_concat
+            # (item 7 is not referenced by any duplicate, safe to modify)
+            # This makes naive_concat=7, vanilla_rag=5
+            k["items"][7]["source_method"] = "naive_concat"
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "6")
+    print("  PASS: test_method_primary_count_violation_rejected")
+
+
+def test_sensitivity_method_summaries_include_duplicates():
+    """Appearance method summaries include duplicate appearances."""
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+    # Appearance method counts should total 30
+    total_appearances = sum(ms.item_count for ms in result.appearance_method_summaries)
+    assert total_appearances == 30
+    # Primary counts total 24
+    total_primary = sum(ms.item_count for ms in result.method_summaries)
+    assert total_primary == 24
+    # Each primary method has 6
+    for ms in result.method_summaries:
+        assert ms.item_count == 6
+    # Appearance counts are >= 6 for each method (6 + duplicates)
+    for ms in result.appearance_method_summaries:
+        assert ms.item_count >= 6
+    print("  PASS: test_sensitivity_method_summaries_include_duplicates")
+
+
+def test_duplicate_ratings_affect_sensitivity_not_primary():
+    """Changing duplicate ratings changes sensitivity but not primary method summaries."""
+    j = [3] * 30
+    h1 = [3] * 24 + [3] * 6  # All match
+    h2 = [3] * 24 + [1] * 6  # Dups differ
+    with tempfile.TemporaryDirectory() as d1:
+        r1 = _compile(d1, human_ratings=h1, judge_scores=j)
+    with tempfile.TemporaryDirectory() as d2:
+        r2 = _compile(d2, human_ratings=h2, judge_scores=j)
+
+    # Primary method summaries unchanged
+    for ms1, ms2 in zip(r1.method_summaries, r2.method_summaries):
+        assert ms1 == ms2
+
+    # Overall primary unchanged
+    assert r1.overall_summary == r2.overall_summary
+
+    # Appearance method summaries differ (at least for methods with duplicates)
+    assert r1.appearance_method_summaries != r2.appearance_method_summaries
+    print("  PASS: test_duplicate_ratings_affect_sensitivity_not_primary")
+
+
+def test_summary_json_has_both_method_lists():
+    """summary.json contains both primary and appearance method summaries."""
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        out = Path(d) / "compiled"
+        write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+        with open(out / "summary.json") as f:
+            s = json.load(f)
+        assert "primary_method_summaries" in s
+        assert "appearance_method_summaries" in s
+        assert len(s["primary_method_summaries"]) == 4
+        assert len(s["appearance_method_summaries"]) == 4
+        # Primary counts all 6
+        for ms in s["primary_method_summaries"]:
+            assert ms["item_count"] == 6
+        # Appearance counts total 30
+        assert sum(ms["item_count"] for ms in s["appearance_method_summaries"]) == 30
+    print("  PASS: test_summary_json_has_both_method_lists")
+
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -859,6 +934,12 @@ def main():
     test_output_headers()
     test_notes_not_in_summary_json()
     test_compile_cli_does_not_print_notes()
+
+    print("\nMethod population integrity:")
+    test_method_primary_count_violation_rejected()
+    test_sensitivity_method_summaries_include_duplicates()
+    test_duplicate_ratings_affect_sensitivity_not_primary()
+    test_summary_json_has_both_method_lists()
 
     print("\nAtomicity/permissions:")
     test_failure_leaves_no_output()

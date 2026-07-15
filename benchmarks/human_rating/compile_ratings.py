@@ -123,6 +123,7 @@ class CompilationResult:
     overall_summary: AgreementSummary
     method_summaries: tuple[MethodAgreementSummary, ...]
     appearance_sensitivity_summary: AgreementSummary
+    appearance_method_summaries: tuple[MethodAgreementSummary, ...]
     duplicate_summary: DuplicateConsistencySummary
     confusion_matrix: dict[int, dict[int, int]]
 
@@ -462,6 +463,12 @@ def compile_rating_run(
     # --- Confusion matrix (primary only) ---
     matrix = _build_confusion_matrix(primary)
 
+    # --- Appearance-weighted method summaries (all 30) ---
+    appearance_method_sums = []
+    for m in methods:
+        m_items = [i for i in all_compiled if i.source_method == m]
+        appearance_method_sums.append(_compute_method_summary(m, m_items))
+
     return CompilationResult(
         primary_items=tuple(primary),
         all_appearances=tuple(all_compiled),
@@ -469,6 +476,7 @@ def compile_rating_run(
         overall_summary=overall,
         method_summaries=tuple(method_sums),
         appearance_sensitivity_summary=sensitivity,
+        appearance_method_summaries=tuple(appearance_method_sums),
         duplicate_summary=dup_summary,
         confusion_matrix=matrix,
     )
@@ -502,8 +510,9 @@ def write_compilation_outputs(
         "rater_id": rater_id,
         "protocol_name": protocol_name,
         "primary_analysis": asdict(result.overall_summary),
+        "primary_method_summaries": [asdict(ms) for ms in result.method_summaries],
         "appearance_sensitivity_analysis": asdict(result.appearance_sensitivity_summary),
-        "method_summaries": [asdict(ms) for ms in result.method_summaries],
+        "appearance_method_summaries": [asdict(ms) for ms in result.appearance_method_summaries],
         "duplicate_consistency": asdict(result.duplicate_summary),
         "confusion_matrix": {str(h): row for h, row in result.confusion_matrix.items()},
         "limitations": {
