@@ -24,7 +24,7 @@ from benchmarks.human_rating.schemas import (
 # Rating queue validation
 # ---------------------------------------------------------------------------
 
-_QUEUE_REQUIRED_TOP_KEYS = {"schema_version", "benchmark_name", "created_at", "total_items", "items"}
+_QUEUE_REQUIRED_TOP_KEYS = {"schema_version", "run_id", "item_count", "items"}
 _QUEUE_ITEM_REQUIRED_KEYS = {"blinded_id", "reference_context", "question", "response"}
 _QUEUE_FORBIDDEN_KEYS = {
     "source_method", "method", "model", "original_trial_id",
@@ -54,8 +54,8 @@ def validate_rating_queue(data: dict[str, Any]) -> list[str]:
         errors.append("'items' must be a list")
         return errors
 
-    if data["total_items"] != len(items):
-        errors.append(f"total_items ({data['total_items']}) != actual count ({len(items)})")
+    if data.get("item_count") != len(items):
+        errors.append(f"item_count ({data.get('item_count')}) != actual count ({len(items)})")
 
     seen_ids: set[str] = set()
     for i, item in enumerate(items):

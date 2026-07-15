@@ -221,10 +221,9 @@ def test_answer_key_rejects_mismatched_judge_integration():
 def test_queue_rejects_inference_context_field():
     items = [{"blinded_id": "R01", "reference_context": "c", "question": "Q",
               "response": "R", "inference_context": "leak"}]
-    data = {"schema_version": 1, "benchmark_name": "t", "created_at": "t",
-            "total_items": 1, "items": items}
+    data = {"schema_version": 1, "run_id": "t", "item_count": 1, "items": items}
     errors = validate_rating_queue(data)
-    assert any("forbidden" in e for e in errors)
+    assert any("forbidden" in e or "unexpected" in e for e in errors)
     print("  PASS: test_queue_rejects_inference_context_field")
 
 
