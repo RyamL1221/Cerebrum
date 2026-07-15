@@ -8,36 +8,45 @@ Public functions:
 - discover_result_files() — find result JSONs by method
 - load_result_file() — parse a single result file into SourceTrial objects
 - load_eligible_trials() — load all methods and validate pool eligibility
-- summarize_trial_pool() — produce a developer-facing method × type summary
+- summarize_trial_pool() — produce a developer-facing method summary
 
 Design decisions:
-- Trial IDs are synthesized as ``{method}_{trial_index}`` since the source
-  benchmark only stores a 0-based trial_index.
+- original_trial_id is the method-independent trial_index (as a string).
+  Cross-method uniqueness is enforced via (source_method, original_trial_id).
+  Since the existing gpt4o result files were generated independently per
+  method, trial_index=N in different methods represents different scenarios.
+  Cross-method alignment only exists when results are produced with
+  ``--method all`` (shared trial data cache).
 - Model name is not stored in result files; the caller supplies the expected
-  model (default "gpt-4o") and it is validated against the file's directory
-  naming convention.
-- Question type is assigned via an external deterministic mapping file
-  (question_types.json). All trials within a mapping must resolve to the
-  same type regardless of method.
-- Profile context is reconstructed from the synthetic_profile and
-  synthetic_task_context fields using the same format as naive_concat's
-  context block, since this represents what was available for inference.
-- Judge score uses `integration_score` as the single overall score for
-  human comparison, as it captures the holistic quality of personalization
-  (combining both profile and task usage into a grounded recommendation).
+  model (default "gpt-4o") and the file's directory naming is the authority.
+- The benchmark generates a single query archetype (vague prioritization
+  questions depending on BOTH profile and task context). There is no
+  profile-only or task-only question variant. All three judge dimensions
+  (profile_usage, task_usage, integration) are preserved per trial.
+- Profile context is reconstructed from synthetic_profile and
+  synthetic_task_context using the naive_concat format. This is the
+  canonical representation of what was available during inference:
+  - naive_concat: passed this exact block to the model
+  - vanilla_rag: TF-IDF selected chunks from this data (exact chunks
+    not recorded in results)
+  - kernel_shared/mem0_default: this data was written to memory; the
+    kernel may have injected it (exact injected text not recorded)
+  Since exact per-method inference context is NOT stored in the result
+  files, showing the source data (what was available) is more honest than
+  fabricating method-specific context.
+- Exclusion reasons are collected into a structured ExclusionReport.
 """
 
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
 from benchmarks.human_rating.schemas import (
     SourceTrial,
     VALID_SOURCE_METHODS,
-    VALID_QUESTION_TYPES,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,132 +54,57 @@ logger = logging.getLogger(__name__)
 # Methods eligible for human rating (all four standard methods)
 ALLOWED_METHODS: list[str] = sorted(VALID_SOURCE_METHODS)
 
-# Minimum trials per method/type cell required for eligibility
-MIN_TRIALS_PER_CELL = 3
+# Minimum trials per method required for eligibility
+MIN_TRIALS_PER_METHOD = 3
 
 
 # ---------------------------------------------------------------------------
-# Question-type mapping
+# Exclusion reporting
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
-class QuestionTypeMapping:
-    """Deterministic question-type assignment for trials.
-
-    Maps trial identifiers (method_trialIndex) to "profile" or "task".
-    The same underlying trial index must resolve to the same question type
-    regardless of method.
-    """
-
-    mapping: dict[int, str]  # trial_index -> question_type
-
-    def get_type(self, trial_index: int) -> str:
-        """Look up the question type for a trial index.
-
-        Args:
-            trial_index: The 0-based trial index.
-
-        Returns:
-            Either "profile" or "task".
-
-        Raises:
-            KeyError: If trial_index is not in the mapping.
-            ValueError: If the mapped value is invalid.
-        """
-        if trial_index not in self.mapping:
-            raise KeyError(
-                f"Trial index {trial_index} not found in question_type mapping. "
-                f"Available indices: {sorted(self.mapping.keys())[:10]}..."
-            )
-        qtype = self.mapping[trial_index]
-        if qtype not in VALID_QUESTION_TYPES:
-            raise ValueError(
-                f"Invalid question_type '{qtype}' for trial_index {trial_index}. "
-                f"Must be one of {sorted(VALID_QUESTION_TYPES)}"
-            )
-        return qtype
+@dataclass
+class ExclusionEntry:
+    """One excluded trial with structured reason."""
+    method: str
+    trial_index: int
+    reason: str
+    source_file: str
 
 
-def load_question_type_mapping(path: str | Path) -> QuestionTypeMapping:
-    """Load a question_types.json mapping file.
+@dataclass
+class ExclusionReport:
+    """Structured report of all excluded trials."""
+    entries: list[ExclusionEntry] = field(default_factory=list)
 
-    Expected format:
-    {
-      "schema_version": 1,
-      "description": "...",
-      "assignment_rule": "...",
-      "trials": {
-        "0": "profile",
-        "1": "task",
-        ...
-      }
-    }
+    @property
+    def total_excluded(self) -> int:
+        return len(self.entries)
 
-    Args:
-        path: Path to the JSON mapping file.
+    def by_reason(self) -> dict[str, int]:
+        """Count exclusions by reason category."""
+        counts: dict[str, int] = {}
+        for e in self.entries:
+            counts[e.reason] = counts.get(e.reason, 0) + 1
+        return counts
 
-    Returns:
-        A validated QuestionTypeMapping.
+    def by_method(self) -> dict[str, int]:
+        """Count exclusions by method."""
+        counts: dict[str, int] = {}
+        for e in self.entries:
+            counts[e.method] = counts.get(e.method, 0) + 1
+        return counts
 
-    Raises:
-        FileNotFoundError: If the file does not exist.
-        ValueError: If the file is malformed or contains invalid types.
-    """
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Question type mapping not found: {path}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if "trials" not in data:
-        raise ValueError(
-            f"Question type mapping at {path} is missing 'trials' key"
-        )
-
-    trials_raw = data["trials"]
-    if not isinstance(trials_raw, dict):
-        raise ValueError(
-            f"'trials' must be a dict mapping index -> type, got {type(trials_raw).__name__}"
-        )
-
-    mapping: dict[int, str] = {}
-    for key, value in trials_raw.items():
-        try:
-            idx = int(key)
-        except (ValueError, TypeError):
-            raise ValueError(
-                f"Trial key '{key}' is not a valid integer index"
-            )
-        if value not in VALID_QUESTION_TYPES:
-            raise ValueError(
-                f"Trial index {idx} has invalid question_type '{value}'. "
-                f"Must be one of {sorted(VALID_QUESTION_TYPES)}"
-            )
-        mapping[idx] = value
-
-    return QuestionTypeMapping(mapping=mapping)
-
-
-def generate_default_question_type_mapping(
-    max_trial_index: int,
-) -> QuestionTypeMapping:
-    """Generate a default alternating question-type mapping.
-
-    Since the existing benchmark does not have a native question_type field,
-    this provides a deterministic assignment: even trial indices are "profile",
-    odd indices are "task". This ensures equal distribution across types.
-
-    Args:
-        max_trial_index: The highest trial_index (inclusive) to map.
-
-    Returns:
-        A QuestionTypeMapping with alternating assignment.
-    """
-    mapping = {}
-    for i in range(max_trial_index + 1):
-        mapping[i] = "profile" if i % 2 == 0 else "task"
-    return QuestionTypeMapping(mapping=mapping)
+    def format_summary(self) -> str:
+        """Format as a readable summary string."""
+        if not self.entries:
+            return "No trials excluded."
+        lines = [f"Excluded {self.total_excluded} trial(s):"]
+        for reason, count in sorted(self.by_reason().items()):
+            lines.append(f"  {reason}: {count}")
+        lines.append("By method:")
+        for method, count in sorted(self.by_method().items()):
+            lines.append(f"  {method}: {count}")
+        return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +116,13 @@ def _build_profile_context(trial_data: dict) -> str | None:
 
     Uses the synthetic_profile and synthetic_task_context fields to build
     the same structured text that was available to the model. This matches
-    the naive_concat format, which is the canonical representation of what
-    was available during inference across all methods.
+    the naive_concat format from pipeline.py, which is the canonical
+    representation of what was available during inference across all methods.
+
+    For naive_concat, this IS the exact context block passed to the model.
+    For vanilla_rag, the model received a TF-IDF-selected subset of this.
+    For kernel_shared/mem0_default, this data was written to memory and
+    potentially injected by the kernel (exact injected text not recorded).
 
     Args:
         trial_data: A raw trial dict from the result JSON.
@@ -219,16 +158,6 @@ def _build_profile_context(trial_data: dict) -> str | None:
 # ---------------------------------------------------------------------------
 # Model name normalization
 # ---------------------------------------------------------------------------
-
-# Known equivalent representations that all normalize to "gpt-4o"
-_GPT4O_VARIANTS = frozenset({
-    "gpt-4o",
-    "gpt-4o:azure",
-    "gpt-4o:openai",
-    "GPT-4o",
-    "GPT-4O",
-})
-
 
 def normalize_model_name(raw: str) -> str:
     """Normalize a model name string to the canonical form.
@@ -321,7 +250,7 @@ def load_result_file(
     path: Path | str,
     expected_method: str,
     expected_model: str = "gpt-4o",
-    question_type_map: QuestionTypeMapping | None = None,
+    exclusion_report: ExclusionReport | None = None,
 ) -> list[SourceTrial]:
     """Load and normalize trials from a single result JSON file.
 
@@ -329,19 +258,22 @@ def load_result_file(
         path: Path to the result JSON file.
         expected_method: The method this file should contain.
         expected_model: Expected model name (default "gpt-4o").
-        question_type_map: Mapping of trial_index -> question_type.
-            If None, uses default alternating assignment.
+        exclusion_report: If provided, excluded trials are appended here
+            instead of only being logged.
 
     Returns:
         List of validated SourceTrial objects.
 
     Raises:
         FileNotFoundError: If the file does not exist.
-        ValueError: On schema violations, method mismatches, or invalid data.
+        ValueError: On schema violations or method mismatches.
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Result file not found: {path}")
+
+    if exclusion_report is None:
+        exclusion_report = ExclusionReport()
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -374,11 +306,6 @@ def load_result_file(
             f"Result file {path} has no trials for method '{expected_method}'"
         )
 
-    # Determine max trial index for default mapping
-    max_idx = max(t.get("trial_index", 0) for t in trials_raw)
-    if question_type_map is None:
-        question_type_map = generate_default_question_type_mapping(max_idx)
-
     # Normalize model name
     model = normalize_model_name(expected_model)
 
@@ -386,15 +313,21 @@ def load_result_file(
     seen_ids: set[str] = set()
 
     for trial in trials_raw:
-        # Skip failed trials
-        if trial.get("failed", False):
-            continue
-
         trial_index = trial.get("trial_index")
         if trial_index is None:
             raise ValueError(
                 f"Trial in {path} is missing 'trial_index'"
             )
+
+        # Skip failed trials
+        if trial.get("failed", False):
+            exclusion_report.entries.append(ExclusionEntry(
+                method=expected_method,
+                trial_index=trial_index,
+                reason="failed_trial",
+                source_file=str(path),
+            ))
+            continue
 
         # Validate method consistency
         trial_method = trial.get("method", trial.get("condition", ""))
@@ -404,52 +337,75 @@ def load_result_file(
                 f"but expected '{expected_method}'"
             )
 
-        # Construct unique trial ID
-        original_trial_id = f"{expected_method}_{trial_index}"
-        if original_trial_id in seen_ids:
+        # Method-independent original_trial_id (just the index)
+        original_trial_id = str(trial_index)
+
+        # Enforce uniqueness within method
+        uniqueness_key = (expected_method, original_trial_id)
+        if uniqueness_key in seen_ids:
             raise ValueError(
-                f"Duplicate trial ID '{original_trial_id}' in {path}"
+                f"Duplicate trial (method={expected_method}, "
+                f"trial_id={original_trial_id}) in {path}"
             )
-        seen_ids.add(original_trial_id)
+        seen_ids.add(uniqueness_key)
 
         # Extract fields
         question = trial.get("follow_up_query", "")
         response = trial.get("assistant_response", "")
 
-        # Validate nonempty
+        # Validate nonempty question
         if not question or not question.strip():
-            logger.warning(
-                "Skipping trial %d in %s: empty question", trial_index, path
-            )
+            exclusion_report.entries.append(ExclusionEntry(
+                method=expected_method,
+                trial_index=trial_index,
+                reason="empty_question",
+                source_file=str(path),
+            ))
             continue
+
+        # Validate nonempty response
         if not response or not response.strip():
-            logger.warning(
-                "Skipping trial %d in %s: empty response", trial_index, path
-            )
+            exclusion_report.entries.append(ExclusionEntry(
+                method=expected_method,
+                trial_index=trial_index,
+                reason="empty_response",
+                source_file=str(path),
+            ))
             continue
 
-        # Extract judge score (integration_score as the holistic measure)
-        judge_score = trial.get("integration_score")
-        if judge_score is None:
-            logger.warning(
-                "Skipping trial %d in %s: missing integration_score",
-                trial_index, path
-            )
-            continue
-        if not isinstance(judge_score, int) or judge_score < 1 or judge_score > 5:
-            logger.warning(
-                "Skipping trial %d in %s: invalid judge_score %r",
-                trial_index, path, judge_score
-            )
-            continue
+        # Extract all three judge scores
+        profile_usage_score = trial.get("profile_usage_score")
+        task_usage_score = trial.get("task_usage_score")
+        integration_score = trial.get("integration_score")
 
-        # Get question type from mapping
-        try:
-            question_type = question_type_map.get_type(trial_index)
-        except KeyError as e:
-            raise ValueError(
-                f"Trial {trial_index} in {path}: {e}"
-            ) from e
+        # Validate all scores present and in range
+        scores_valid = True
+        for score_name, score_val in [
+            ("profile_usage_score", profile_usage_score),
+            ("task_usage_score", task_usage_score),
+            ("integration_score", integration_score),
+        ]:
+            if score_val is None:
+                exclusion_report.entries.append(ExclusionEntry(
+                    method=expected_method,
+                    trial_index=trial_index,
+                    reason=f"missing_{score_name}",
+                    source_file=str(path),
+                ))
+                scores_valid = False
+                break
+            if not isinstance(score_val, int) or score_val < 1 or score_val > 5:
+                exclusion_report.entries.append(ExclusionEntry(
+                    method=expected_method,
+                    trial_index=trial_index,
+                    reason=f"invalid_{score_name}",
+                    source_file=str(path),
+                ))
+                scores_valid = False
+                break
+
+        if not scores_valid:
+            continue
 
         # Build profile context
         profile_context = _build_profile_context(trial)
@@ -458,12 +414,13 @@ def load_result_file(
         source_trial = SourceTrial(
             source_method=expected_method,
             model=model,
-            question_type=question_type,
             original_trial_id=original_trial_id,
             profile_context=profile_context,
             question=question,
             response=response,
-            judge_score=judge_score,
+            profile_usage_score=profile_usage_score,
+            task_usage_score=task_usage_score,
+            integration_score=integration_score,
             source_file=str(path),
         )
         source_trials.append(source_trial)
@@ -480,9 +437,8 @@ def load_eligible_trials(
     results_root: str | Path | None = None,
     methods: Sequence[str] | None = None,
     expected_model: str = "gpt-4o",
-    question_type_map: QuestionTypeMapping | None = None,
-    min_per_cell: int = MIN_TRIALS_PER_CELL,
-) -> list[SourceTrial]:
+    min_per_method: int = MIN_TRIALS_PER_METHOD,
+) -> tuple[list[SourceTrial], ExclusionReport]:
     """Load all methods and validate pool eligibility.
 
     Either `method_paths` (explicit per-method paths) or `results_root`
@@ -493,11 +449,10 @@ def load_eligible_trials(
         results_root: Root directory for auto-discovery.
         methods: Methods to load (default: all four).
         expected_model: Expected model name.
-        question_type_map: Question type mapping. If None, uses default.
-        min_per_cell: Minimum trials required per method/type cell.
+        min_per_method: Minimum trials required per method.
 
     Returns:
-        Validated list of all eligible SourceTrial objects.
+        Tuple of (validated SourceTrial list, ExclusionReport).
 
     Raises:
         ValueError: If eligibility checks fail.
@@ -524,6 +479,8 @@ def load_eligible_trials(
             "Either 'method_paths' or 'results_root' must be provided"
         )
 
+    exclusion_report = ExclusionReport()
+
     # Load trials from each method in deterministic order
     all_trials: list[SourceTrial] = []
     for method in sorted(methods):
@@ -532,7 +489,7 @@ def load_eligible_trials(
             path=path,
             expected_method=method,
             expected_model=expected_model,
-            question_type_map=question_type_map,
+            exclusion_report=exclusion_report,
         )
         logger.info(
             "Loaded %d trials from %s (%s)", len(trials), path, method
@@ -558,30 +515,18 @@ def load_eligible_trials(
             f"Only '{expected_model}' trials are eligible."
         )
 
-    # Check: both question types exist for every method
-    # Check: minimum per cell
+    # Check: minimum per method
     for method in sorted(methods):
-        for qtype in sorted(VALID_QUESTION_TYPES):
-            cell_count = sum(
-                1 for t in all_trials
-                if t.source_method == method and t.question_type == qtype
+        method_count = sum(
+            1 for t in all_trials if t.source_method == method
+        )
+        if method_count < min_per_method:
+            raise ValueError(
+                f"Insufficient eligible trials for method={method}: "
+                f"required {min_per_method}, found {method_count}."
             )
-            if cell_count == 0:
-                raise ValueError(
-                    f"No eligible trials for method={method}, "
-                    f"question_type={qtype}"
-                )
-            if cell_count < min_per_cell:
-                raise ValueError(
-                    f"Insufficient eligible trials for method={method}, "
-                    f"question_type={qtype}: required {min_per_cell}, "
-                    f"found {cell_count}."
-                )
 
-    # Check: nonempty question and response (already filtered during load)
-    # Check: valid judge scores (already filtered during load)
-
-    return all_trials
+    return all_trials, exclusion_report
 
 
 # ---------------------------------------------------------------------------
@@ -589,11 +534,13 @@ def load_eligible_trials(
 # ---------------------------------------------------------------------------
 
 @dataclass
-class CellCount:
-    """Trial count for a single method × question_type cell."""
+class MethodCount:
+    """Trial count for a single method."""
     method: str
-    question_type: str
     count: int
+    avg_profile_usage: float
+    avg_task_usage: float
+    avg_integration: float
 
 
 @dataclass
@@ -602,40 +549,33 @@ class TrialPoolSummary:
 
     total_trials: int
     methods: list[str]
-    question_types: list[str]
-    cells: list[CellCount]
-    score_distribution: dict[int, int]  # score -> count
+    method_counts: list[MethodCount]
+    score_distribution: dict[str, dict[int, int]]  # dimension -> score -> count
 
     def format_table(self) -> str:
         """Format as an aligned text table.
 
         Returns:
-            Multi-line string with method × type counts.
+            Multi-line string with method counts and average scores.
         """
         lines = []
-        # Header
-        header = f"{'Method':<20} {'Profile':>8} {'Task':>8} {'Total':>8}"
+        header = (
+            f"{'Method':<20} {'Count':>6} "
+            f"{'AvgProfile':>11} {'AvgTask':>8} {'AvgInteg':>9}"
+        )
         lines.append(header)
         lines.append("-" * len(header))
 
-        for method in self.methods:
-            profile_count = next(
-                (c.count for c in self.cells
-                 if c.method == method and c.question_type == "profile"),
-                0
-            )
-            task_count = next(
-                (c.count for c in self.cells
-                 if c.method == method and c.question_type == "task"),
-                0
-            )
-            total = profile_count + task_count
+        for mc in self.method_counts:
             lines.append(
-                f"{method:<20} {profile_count:>8} {task_count:>8} {total:>8}"
+                f"{mc.method:<20} {mc.count:>6} "
+                f"{mc.avg_profile_usage:>11.2f} "
+                f"{mc.avg_task_usage:>8.2f} "
+                f"{mc.avg_integration:>9.2f}"
             )
 
         lines.append("-" * len(header))
-        lines.append(f"{'TOTAL':<20} {'':<8} {'':<8} {self.total_trials:>8}")
+        lines.append(f"{'TOTAL':<20} {self.total_trials:>6}")
         return "\n".join(lines)
 
 
@@ -646,28 +586,45 @@ def summarize_trial_pool(trials: Sequence[SourceTrial]) -> TrialPoolSummary:
         trials: Sequence of validated SourceTrial objects.
 
     Returns:
-        TrialPoolSummary with counts by method and question type.
+        TrialPoolSummary with counts and averages by method.
     """
     methods = sorted({t.source_method for t in trials})
-    question_types = sorted({t.question_type for t in trials})
 
-    cells: list[CellCount] = []
+    method_counts: list[MethodCount] = []
     for method in methods:
-        for qtype in question_types:
-            count = sum(
-                1 for t in trials
-                if t.source_method == method and t.question_type == qtype
-            )
-            cells.append(CellCount(method=method, question_type=qtype, count=count))
+        method_trials = [t for t in trials if t.source_method == method]
+        count = len(method_trials)
+        avg_pu = sum(t.profile_usage_score for t in method_trials) / count if count else 0
+        avg_tu = sum(t.task_usage_score for t in method_trials) / count if count else 0
+        avg_ig = sum(t.integration_score for t in method_trials) / count if count else 0
+        method_counts.append(MethodCount(
+            method=method,
+            count=count,
+            avg_profile_usage=avg_pu,
+            avg_task_usage=avg_tu,
+            avg_integration=avg_ig,
+        ))
 
-    score_distribution: dict[int, int] = {}
+    # Score distribution per dimension
+    score_dist: dict[str, dict[int, int]] = {
+        "profile_usage": {},
+        "task_usage": {},
+        "integration": {},
+    }
     for t in trials:
-        score_distribution[t.judge_score] = score_distribution.get(t.judge_score, 0) + 1
+        score_dist["profile_usage"][t.profile_usage_score] = (
+            score_dist["profile_usage"].get(t.profile_usage_score, 0) + 1
+        )
+        score_dist["task_usage"][t.task_usage_score] = (
+            score_dist["task_usage"].get(t.task_usage_score, 0) + 1
+        )
+        score_dist["integration"][t.integration_score] = (
+            score_dist["integration"].get(t.integration_score, 0) + 1
+        )
 
     return TrialPoolSummary(
         total_trials=len(trials),
         methods=methods,
-        question_types=question_types,
-        cells=cells,
-        score_distribution=score_distribution,
+        method_counts=method_counts,
+        score_distribution=score_dist,
     )

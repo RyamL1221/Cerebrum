@@ -6,7 +6,6 @@ Usage (explicit per-method paths):
         --vanilla-rag-results results/gpt4o_vanilla_rag/results_vanilla_rag.json \
         --mem0-default-results results/gpt4o_mem0_default/results_mem0_default.json \
         --kernel-shared-results results/gpt4o_kernel_shared/results_kernel_shared.json \
-        --question-types benchmarks/human_rating/config/question_types.json \
         --run-name gpt4o_human_eval \
         --seed 12345
 
@@ -82,17 +81,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Root directory for auto-discovery of result files. "
             "Alternative to explicit per-method paths."
-        ),
-    )
-
-    # --- Question type mapping ---
-    parser.add_argument(
-        "--question-types",
-        type=str,
-        default=None,
-        help=(
-            "Path to question_types.json mapping file. "
-            "If not provided, uses default alternating assignment."
         ),
     )
 

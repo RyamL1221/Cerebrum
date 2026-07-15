@@ -6,13 +6,12 @@ Provides functions to validate:
 - Rating session JSONL records
 """
 
-import json
 from typing import Any
 
 from benchmarks.human_rating.schemas import (
     VALID_RATINGS,
     VALID_SOURCE_METHODS,
-    VALID_QUESTION_TYPES,
+    VALID_JUDGE_DIMENSIONS,
 )
 
 
@@ -23,8 +22,10 @@ from benchmarks.human_rating.schemas import (
 _QUEUE_REQUIRED_TOP_KEYS = {"schema_version", "benchmark_name", "created_at", "total_items", "items"}
 _QUEUE_ITEM_REQUIRED_KEYS = {"blinded_id", "profile_context", "question", "response"}
 _QUEUE_FORBIDDEN_KEYS = {
-    "source_method", "method", "model", "question_type", "original_trial_id",
-    "judge_score", "duplicate_of", "duplicate_status", "is_duplicate",
+    "source_method", "method", "model", "original_trial_id",
+    "judge_score", "judge_dimension",
+    "profile_usage_score", "task_usage_score", "integration_score",
+    "duplicate_of", "duplicate_status", "is_duplicate",
     "sampling_seed", "shuffle_seed", "source_path", "source_file",
 }
 
@@ -100,8 +101,10 @@ _KEY_REQUIRED_TOP_KEYS = {
     "created_at", "items",
 }
 _KEY_ITEM_REQUIRED_KEYS = {
-    "blinded_id", "source_method", "model", "question_type",
-    "original_trial_id", "judge_score", "duplicate_of",
+    "blinded_id", "source_method", "model", "original_trial_id",
+    "judge_dimension", "judge_score",
+    "profile_usage_score", "task_usage_score", "integration_score",
+    "duplicate_of",
 }
 
 
@@ -161,14 +164,15 @@ def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[
         if item["source_method"] not in VALID_SOURCE_METHODS:
             errors.append(f"Item {i} ('{bid}'): invalid source_method '{item['source_method']}'")
 
-        # Valid question_type
-        if item["question_type"] not in VALID_QUESTION_TYPES:
-            errors.append(f"Item {i} ('{bid}'): invalid question_type '{item['question_type']}'")
+        # Valid judge_dimension
+        if item["judge_dimension"] not in VALID_JUDGE_DIMENSIONS:
+            errors.append(f"Item {i} ('{bid}'): invalid judge_dimension '{item['judge_dimension']}'")
 
-        # Valid judge_score
-        js = item["judge_score"]
-        if not isinstance(js, int) or js < 1 or js > 5:
-            errors.append(f"Item {i} ('{bid}'): invalid judge_score {js!r}")
+        # Valid judge scores (all three dimensions)
+        for score_field in ("profile_usage_score", "task_usage_score", "integration_score", "judge_score"):
+            sv = item[score_field]
+            if not isinstance(sv, int) or sv < 1 or sv > 5:
+                errors.append(f"Item {i} ('{bid}'): invalid {score_field} {sv!r}")
 
         # Track duplicates
         if item["duplicate_of"] is not None:
@@ -195,7 +199,7 @@ def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[
 
         # Source must match original
         original = id_to_item[target]
-        for field in ("source_method", "model", "question_type", "original_trial_id", "judge_score"):
+        for field in ("source_method", "model", "original_trial_id"):
             if dup[field] != original[field]:
                 errors.append(
                     f"Duplicate '{bid}': {field} mismatch with original '{target}' "
@@ -209,10 +213,15 @@ def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[
 # Ratings session validation
 # ---------------------------------------------------------------------------
 
-_RATING_REQUIRED_KEYS = {"blinded_id", "rating", "note", "flagged", "rated_at"}
+_RATING_REQUIRED_KEYS = {
+    "blinded_id", "profile_usage_rating", "task_usage_rating",
+    "integration_rating", "note", "flagged", "rated_at",
+}
 _RATING_FORBIDDEN_KEYS = {
-    "source_method", "method", "model", "question_type",
-    "original_trial_id", "judge_score", "duplicate_of",
+    "source_method", "method", "model", "original_trial_id",
+    "judge_score", "judge_dimension",
+    "profile_usage_score", "task_usage_score", "integration_score",
+    "duplicate_of",
 }
 
 
@@ -237,10 +246,11 @@ def validate_rating_record(record: dict[str, Any]) -> list[str]:
     if leaked:
         errors.append(f"Contains forbidden keys: {sorted(leaked)}")
 
-    # Valid rating
-    rating = record["rating"]
-    if not isinstance(rating, int) or rating not in VALID_RATINGS:
-        errors.append(f"Invalid rating: {rating!r} (must be int 1–5)")
+    # Valid ratings (all three dimensions)
+    for field in ("profile_usage_rating", "task_usage_rating", "integration_rating"):
+        rating = record[field]
+        if not isinstance(rating, int) or rating not in VALID_RATINGS:
+            errors.append(f"Invalid {field}: {rating!r} (must be int 1–5)")
 
     # Nonempty blinded_id
     if not record["blinded_id"] or not str(record["blinded_id"]).strip():
