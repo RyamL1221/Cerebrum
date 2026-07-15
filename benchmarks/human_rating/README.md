@@ -1,83 +1,152 @@
-# Human Rating Evaluation Harness
+# Human Rating Evaluation
 
-A three-phase workflow for human evaluation of benchmark trials, designed to measure human-judge agreement and intra-rater consistency for the shared memory personalization benchmark.
+A standalone utility for blinded human evaluation of GPT-4o personalization quality across four memory methods. Validates automated judge scores through independent human assessment.
 
-## Workflow
+## Purpose
 
-### Phase 1: Sample & Blind
+This package independently validates the GPT-5.4 automated integration scores by collecting blinded human ratings on the same response quality dimension. It produces human-judge agreement metrics suitable for research reporting.
+
+## Frozen Protocol: `mixed_personalization_source_grounded_v1`
+
+| Parameter | Value |
+|-----------|-------|
+| Methods | naive_concat, vanilla_rag, mem0_default, kernel_shared |
+| Unique trials per method | 6 |
+| Total unique trials | 24 |
+| Duplicate appearances | 6 (for intra-rater consistency) |
+| Total rating items | 30 |
+| Scoring dimension | Integration (1–5 rubric) |
+| Human raters | 1 |
+| Question stratification | None (mixed prioritization queries) |
+| Displayed context | Synthetic source profile + task (not exact model-visible) |
+| Comparison score | integration_score from GPT-5.4 judge |
+
+## Directory Structure
+
+```
+benchmarks/human_rating/
+├── config/
+│   └── evaluation_manifest.json    # Frozen protocol parameters and seeds
+├── tests/
+│   ├── run_all.py                  # Single command to run all tests
+│   ├── test_schemas.py
+│   ├── test_context_formatter.py
+│   ├── test_trial_loader.py
+│   ├── test_sampling.py
+│   ├── test_blinding.py
+│   ├── test_artifact_writer.py
+│   ├── test_rate.py
+│   ├── test_compile_ratings.py
+│   ├── test_artifact_audit.py
+│   └── test_end_to_end.py
+├── runs/                           # Generated runtime artifacts (gitignored)
+├── __init__.py
+├── artifact_audit.py               # Compatibility audit for existing results
+├── artifact_writer.py              # Queue + answer key generation
+├── blinding.py                     # Duplicate selection and ID assignment
+├── compile_ratings.py              # Private compilation and analysis
+├── context_formatter.py            # Reference context formatting
+├── paths.py                        # Directory layout helpers
+├── rate.py                         # Interactive rating CLI
+├── rubric.py                       # Frozen 1–5 rubric
+├── sample_and_blind.py             # Sampling and generation CLI
+├── sampling.py                     # Deterministic stratified sampling
+├── schemas.py                      # Data contracts
+├── trial_loader.py                 # Result file loading
+├── validation.py                   # Structural validators
+├── PROTOCOL.md                     # Protocol design documentation
+├── RUNBOOK.md                      # Operational execution guide
+├── PAPER_REPORTING.md              # Research reporting guidance
+└── README.md                       # This file
+```
+
+## Prerequisites
+
+- Python 3.10 or 3.11
+- Repository working directory with `benchmarks/` and `results/` accessible
+- Finalized GPT-4o result files at:
+  - `results/gpt4o_naive_concat/results_naive_concat.json`
+  - `results/gpt4o_vanilla_rag/results_vanilla_rag.json`
+  - `results/gpt4o_mem0_default/results_mem0_default.json`
+  - `results/gpt4o_kernel_shared/results_kernel_shared.json`
+- No need to rerun the LLM benchmark or start the AIOS kernel
+
+## Step 1: Run Tests
+
+```bash
+python benchmarks/human_rating/tests/run_all.py
+```
+
+All 10 test suites must pass before proceeding.
+
+## Step 2: Generate Artifacts
 
 ```bash
 python -m benchmarks.human_rating.sample_and_blind \
-    --results-dir results/post_fix_gpt4o/ \
-    --run-name gpt4o_human_eval \
-    --seed 12345
+    --generate \
+    --run-id human-rating-v1
 ```
 
 Produces:
-- `human_rating_runs/<run_name>/rater/rating_queue.json` — blinded items for rating
-- `human_rating_runs/<run_name>/private/answer_key.json` — unblinded metadata (never shown to rater)
+- `benchmarks/human_rating/runs/human-rating-v1/rater/rating_queue.json` (30 blinded items)
+- `benchmarks/human_rating/runs/human-rating-v1/private/answer_key.json` (private)
 
-### Phase 2: Rate
+Preview without writing:
+```bash
+python -m benchmarks.human_rating.sample_and_blind --preview-selection
+python -m benchmarks.human_rating.sample_and_blind --preview-blinded-plan
+```
+
+## Step 3: Rate Responses
 
 ```bash
 python -m benchmarks.human_rating.rate \
-    --queue human_rating_runs/gpt4o_human_eval/rater/rating_queue.json
+    --queue benchmarks/human_rating/runs/human-rating-v1/rater/rating_queue.json \
+    --rater-id rater-01
 ```
 
-Interactive CLI that presents items one at a time. Ratings are recorded to `ratings.jsonl` (append-only, crash-safe). Supports resumption.
+Interactive commands:
+- `1`–`5`: Submit rating
+- `h`: Show rubric
+- `n`: Add/clear note
+- `f`: Toggle flag
+- `q`: Quit (progress saved)
 
-### Phase 3: Compile
+The session is crash-safe and resumable. Run the same command to continue.
+
+## Step 4: Compile Ratings
 
 ```bash
 python -m benchmarks.human_rating.compile_ratings \
-    --run-dir human_rating_runs/gpt4o_human_eval/
+    --queue benchmarks/human_rating/runs/human-rating-v1/rater/rating_queue.json \
+    --ratings benchmarks/human_rating/runs/human-rating-v1/rater/ratings.jsonl \
+    --session benchmarks/human_rating/runs/human-rating-v1/rater/rating_session.json \
+    --answer-key benchmarks/human_rating/runs/human-rating-v1/private/answer_key.json \
+    --output-dir benchmarks/human_rating/runs/human-rating-v1/private/compiled
 ```
 
-Joins ratings with the answer key and produces:
-- `compiled/item_level_results.csv`
-- `compiled/method_question_type_summary.csv`
-- `compiled/human_judge_agreement.json`
-- `compiled/intra_rater_consistency.json`
+## Step 5: Inspect Outputs
 
-## Design Principles
+| File | Content |
+|------|---------|
+| `summary.json` | Overall metrics, method summaries, duplicate consistency, limitations |
+| `primary_items.csv` | 24 unblinded items with human-judge agreement |
+| `all_appearances.csv` | 30 items including duplicates |
+| `method_summary.csv` | Per-method aggregates (4 rows) |
+| `duplicate_consistency.csv` | Intra-rater reliability (6 pairs) |
+| `confusion_matrix.csv` | 5×5 human vs judge counts |
 
-- **Blinding:** The rating CLI never sees method, model, question type, trial ID, judge score, or duplicate status.
-- **Immutability:** Once a rating is submitted, it cannot be edited or overwritten.
-- **Process isolation:** The `rate` command operates correctly even when `private/` is unavailable.
-- **Reproducibility:** All randomness is seeded and recorded in the answer key.
-- **Consistency measurement:** 6 duplicate items are inserted to measure intra-rater reliability.
+## Reproducibility
 
-## Directory Layout
+Record before starting:
+- Git commit hash
+- Protocol name and version
+- Sampling seed (20260715) and blinding seed (20260716)
+- Rater ID
+- Rating start/completion timestamps
 
-```
-human_rating_runs/
-└── <run_name>/
-    ├── rater/
-    │   ├── rating_queue.json     (blinded, rater-visible)
-    │   └── ratings.jsonl         (append-only session)
-    ├── private/
-    │   └── answer_key.json       (preprocessing + compilation only)
-    └── compiled/
-        ├── item_level_results.csv
-        ├── method_question_type_summary.csv
-        ├── human_judge_agreement.json
-        └── intra_rater_consistency.json
-```
+## Additional Documentation
 
-## Scoring Rubric
-
-Uses the same 1–5 rubric as the GPT-5.4 automated judge (see `rubric.py`):
-
-| Score | Meaning |
-|-------|---------|
-| 5 | Excellent personalization — references multiple profile + task attributes, seamlessly integrated |
-| 4 | Good — references most attributes with minor gaps |
-| 3 | Moderate — references some attributes but misses key ones |
-| 2 | Weak — vague/incorrect references |
-| 1 | No personalization — entirely generic |
-
-## Tests
-
-```bash
-python benchmarks/human_rating/tests/test_schemas.py
-```
+- **PROTOCOL.md** — Full protocol design and limitations
+- **RUNBOOK.md** — Safe execution and recovery procedures
+- **PAPER_REPORTING.md** — Research reporting guidance and required limitations
