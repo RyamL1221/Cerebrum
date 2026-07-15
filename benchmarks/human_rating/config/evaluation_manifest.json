@@ -4,6 +4,7 @@
     "name": "mixed_personalization_source_grounded_v1",
     "assistant_model": "gpt-4o",
     "judge_score_dimension": "integration",
+    "sampling_seed": 20260715,
     "unique_items_per_method": 6,
     "duplicate_count": 6,
     "total_rating_items": 30,

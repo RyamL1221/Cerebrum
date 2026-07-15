@@ -1,176 +1,94 @@
 """Phase 1: Sample trials from automated results and produce blinded queue.
 
-Usage (explicit per-method paths):
+Usage (preview selection only):
     python -m benchmarks.human_rating.sample_and_blind \
-        --naive-concat-results results/gpt4o_naive_concat/results_naive_concat.json \
-        --vanilla-rag-results results/gpt4o_vanilla_rag/results_vanilla_rag.json \
-        --mem0-default-results results/gpt4o_mem0_default/results_mem0_default.json \
-        --kernel-shared-results results/gpt4o_kernel_shared/results_kernel_shared.json \
-        --run-name gpt4o_human_eval \
-        --seed 12345
+        --manifest benchmarks/human_rating/config/evaluation_manifest.json \
+        --preview-selection
 
-Usage (auto-discovery from results root):
+Usage (full pipeline — later subtask):
     python -m benchmarks.human_rating.sample_and_blind \
-        --results-dir results/ \
-        --run-name gpt4o_human_eval \
-        --seed 12345
-
-This command:
-1. Loads automated evaluation results from one or more result directories.
-2. Normalizes trials into SourceTrial objects.
-3. Validates pool eligibility (all methods, both question types, min per cell).
-4. (Later subtask) Stratified-samples trials across method × question_type cells.
-5. (Later subtask) Inserts duplicate items for intra-rater consistency.
-6. (Later subtask) Assigns blinded IDs and shuffles presentation order.
-7. (Later subtask) Writes the blinded rating queue and answer key.
-
-Output:
-    human_rating_runs/<run_name>/rater/rating_queue.json
-    human_rating_runs/<run_name>/private/answer_key.json
+        --manifest benchmarks/human_rating/config/evaluation_manifest.json \
+        --run-name gpt4o_human_eval
 """
 
 import argparse
+import json
+import os
 import sys
+
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser for sample_and_blind.
-
-    Returns:
-        Configured ArgumentParser instance.
-    """
     parser = argparse.ArgumentParser(
-        description="Sample trials from automated results and produce a "
-        "blinded rating queue for human evaluation.",
+        description="Sample trials from automated results for human evaluation.",
     )
-
-    # --- Source result file arguments (explicit per-method) ---
-    source_group = parser.add_argument_group(
-        "source results (explicit per-method paths)"
-    )
-    source_group.add_argument(
-        "--naive-concat-results",
-        type=str,
-        default=None,
-        help="Path to naive_concat results JSON file.",
-    )
-    source_group.add_argument(
-        "--vanilla-rag-results",
-        type=str,
-        default=None,
-        help="Path to vanilla_rag results JSON file.",
-    )
-    source_group.add_argument(
-        "--mem0-default-results",
-        type=str,
-        default=None,
-        help="Path to mem0_default results JSON file.",
-    )
-    source_group.add_argument(
-        "--kernel-shared-results",
-        type=str,
-        default=None,
-        help="Path to kernel_shared results JSON file.",
-    )
-
-    # --- Auto-discovery alternative ---
     parser.add_argument(
-        "--results-dir",
+        "--manifest",
         type=str,
-        default=None,
-        help=(
-            "Root directory for auto-discovery of result files. "
-            "Alternative to explicit per-method paths."
-        ),
+        default="benchmarks/human_rating/config/evaluation_manifest.json",
+        help="Path to the evaluation manifest JSON.",
     )
-
-    # --- Output configuration ---
+    parser.add_argument(
+        "--preview-selection",
+        action="store_true",
+        help="Preview the 24 unique trial selections without writing files.",
+    )
     parser.add_argument(
         "--run-name",
         type=str,
-        required=True,
+        default=None,
         help="Name for this human-rating run (used as directory name).",
     )
-    parser.add_argument(
-        "--output-root",
-        type=str,
-        default=None,
-        help="Base directory for human_rating_runs (default: human_rating_runs/).",
-    )
-
-    # --- Sampling parameters ---
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=12345,
-        help="Master seed for sampling reproducibility (default: 12345).",
-    )
-    parser.add_argument(
-        "--total-items",
-        type=int,
-        default=30,
-        help="Total items in the rating queue including duplicates (default: 30).",
-    )
-    parser.add_argument(
-        "--duplicates",
-        type=int,
-        default=6,
-        help="Number of duplicate items for consistency checks (default: 6).",
-    )
-
     return parser
 
 
 def main() -> None:
-    """Entry point for sample_and_blind CLI."""
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    # Validate source arguments: either explicit paths or results-dir
-    explicit_paths = {
-        "naive_concat": args.naive_concat_results,
-        "vanilla_rag": args.vanilla_rag_results,
-        "mem0_default": args.mem0_default_results,
-        "kernel_shared": args.kernel_shared_results,
-    }
-    has_explicit = any(v is not None for v in explicit_paths.values())
+    # Load manifest
+    with open(args.manifest, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
 
-    if has_explicit and args.results_dir:
-        parser.error(
-            "Cannot use both explicit per-method paths and --results-dir. "
-            "Choose one approach."
-        )
+    protocol = manifest["protocol"]
+    sources = manifest["sources"]
+    seed = protocol["sampling_seed"]
+    items_per_method = protocol["unique_items_per_method"]
 
-    if not has_explicit and not args.results_dir:
-        parser.error(
-            "Must provide either explicit per-method result paths "
-            "(--naive-concat-results, etc.) or --results-dir for auto-discovery."
-        )
+    # Build method_paths from manifest sources
+    method_paths = {method: info["path"] for method, info in sources.items()}
 
-    if has_explicit:
-        # Ensure ALL four are provided
-        missing = [m for m, p in explicit_paths.items() if p is None]
-        if missing:
-            parser.error(
-                f"When using explicit paths, all four methods must be provided. "
-                f"Missing: {missing}"
-            )
+    # Load eligible trials
+    from benchmarks.human_rating.trial_loader import load_eligible_trials
+    trials, exclusion_report = load_eligible_trials(
+        method_paths=method_paths,
+        min_per_method=items_per_method,
+    )
 
-    # Sampling logic will be implemented in a later subtask
-    print(f"Run name: {args.run_name}")
-    print(f"Seed: {args.seed}")
-    print(f"Total items: {args.total_items}")
-    print(f"Duplicates: {args.duplicates}")
+    if exclusion_report.total_excluded > 0:
+        print(exclusion_report.format_summary())
+        print()
 
-    if has_explicit:
-        print("Mode: explicit per-method paths")
-        for method, path in sorted(explicit_paths.items()):
-            print(f"  {method}: {path}")
-    else:
-        print(f"Mode: auto-discovery from {args.results_dir}")
+    # Sample unique trials
+    from benchmarks.human_rating.sampling import sample_unique_trials
+    selected, summary = sample_unique_trials(
+        trials, seed=seed, items_per_method=items_per_method,
+    )
 
-    # Implementation in a later subtask
-    raise NotImplementedError("Sampling logic not yet implemented.")
+    if args.preview_selection:
+        print(summary.format_table())
+        return
+
+    if not args.run_name:
+        parser.error("--run-name is required when not using --preview-selection")
+
+    # Full pipeline (blinding, duplicates, queue writing) — later subtask
+    raise NotImplementedError(
+        "Full sampling pipeline not yet implemented. Use --preview-selection."
+    )
 
 
 if __name__ == "__main__":
