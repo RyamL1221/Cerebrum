@@ -42,10 +42,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Preview the full 30-item blinded plan without writing files.",
     )
     parser.add_argument(
-        "--run-name",
+        "--generate",
+        action="store_true",
+        help="Generate and write the rating queue and answer key.",
+    )
+    parser.add_argument(
+        "--run-id",
         type=str,
         default=None,
-        help="Name for this human-rating run (used as directory name).",
+        help="Run identifier for generated artifacts.",
+    )
+    parser.add_argument(
+        "--runs-dir",
+        type=str,
+        default=None,
+        help="Base directory for runs (default: benchmarks/human_rating/runs/).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing artifacts if present.",
     )
     return parser
 
@@ -118,12 +134,47 @@ def main() -> None:
         print(f"\nDuplicated sources: {plan.duplicated_source_identities}")
         return
 
-    if not args.run_name:
-        parser.error("--run-name is required when not using --preview-selection")
+    if args.generate:
+        if not args.run_id:
+            parser.error("--run-id is required with --generate")
 
-    # Full pipeline (blinding, duplicates, queue writing) — later subtask
-    raise NotImplementedError(
-        "Full sampling pipeline not yet implemented. Use --preview-selection."
+        from benchmarks.human_rating.blinding import build_blinded_plan, validate_blinded_plan
+        from benchmarks.human_rating.artifact_writer import write_rating_artifacts
+        from benchmarks.human_rating.paths import get_run_paths
+
+        blinding_seed = protocol["blinding_seed"]
+        min_sep = protocol.get("minimum_duplicate_separation", 3)
+        plan = build_blinded_plan(
+            selected, seed=blinding_seed,
+            duplicate_count=protocol["duplicate_count"],
+            min_duplicate_separation=min_sep,
+        )
+        validate_blinded_plan(plan, minimum_duplicate_separation=min_sep)
+
+        runs_dir = args.runs_dir or "benchmarks/human_rating/runs"
+        run_paths = get_run_paths(args.run_id, base_dir=runs_dir)
+
+        result = write_rating_artifacts(
+            plan,
+            run_paths=run_paths,
+            run_id=args.run_id,
+            protocol_name=protocol["name"],
+            sampling_seed=protocol["sampling_seed"],
+            blinding_seed=blinding_seed,
+            overwrite=args.overwrite,
+        )
+
+        print(f"Human-rating artifacts generated.")
+        print(f"  Run ID: {args.run_id}")
+        print(f"  Queue: {result.rating_queue_path}")
+        print(f"  Answer key: {result.answer_key_path}")
+        print(f"  Items: {result.item_count}")
+        print(f"  Unique sources: {result.unique_source_count}")
+        print(f"  Duplicates: {result.duplicate_count}")
+        return
+
+    parser.error(
+        "Specify one of: --preview-selection, --preview-blinded-plan, or --generate"
     )
 
 
