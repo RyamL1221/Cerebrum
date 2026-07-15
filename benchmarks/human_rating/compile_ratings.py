@@ -206,10 +206,17 @@ def compile_rating_run(
 
     ratings: list[dict] = []
     with open(ratings_path) as f:
-        for line in f:
+        for line_num, line in enumerate(f, 1):
             line = line.strip()
-            if line:
-                ratings.append(json.loads(line))
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                raise ValueError(f"Malformed JSONL at line {line_num}")
+            if not isinstance(rec, dict):
+                raise ValueError(f"Non-object JSONL record at line {line_num}")
+            ratings.append(rec)
 
     # --- Validate queue ---
     q_items = queue.get("items", [])
@@ -219,32 +226,68 @@ def compile_rating_run(
     if len(set(q_ids)) != 30:
         raise ValueError("Queue has duplicate blinded IDs")
 
-    # --- Validate ratings ---
+    # --- Validate ratings count and content ---
+    if len(ratings) > 30:
+        raise ValueError(f"Extra ratings: found {len(ratings)}, expected 30.")
     if len(ratings) != 30:
         raise ValueError(
             f"Cannot compile an incomplete rating session: "
             f"{len(ratings)} of 30 queue items have ratings."
         )
+
+    # Validate rating order matches queue order
     r_ids = [r["blinded_id"] for r in ratings]
-    if len(set(r_ids)) != 30:
-        raise ValueError("Ratings contain duplicate blinded IDs")
-    if set(r_ids) != set(q_ids):
-        missing = set(q_ids) - set(r_ids)
-        extra = set(r_ids) - set(q_ids)
-        raise ValueError(f"Rating/queue ID mismatch. Missing: {missing}, Extra: {extra}")
+    if r_ids != q_ids:
+        # Check for duplicates first
+        if len(set(r_ids)) != 30:
+            seen = set()
+            for i, rid in enumerate(r_ids):
+                if rid in seen:
+                    raise ValueError(f"Duplicate rating ID at position {i+1}: {rid}")
+                seen.add(rid)
+        # Check for unknown IDs
+        unknown = set(r_ids) - set(q_ids)
+        if unknown:
+            raise ValueError(f"Unknown rating ID(s): {unknown}")
+        # Otherwise order mismatch
+        raise ValueError("Rating order does not match queue order")
 
     run_id = queue.get("run_id", "")
-    for r in ratings:
+    rater_id = session.get("rater_id", "")
+
+    for i, r in enumerate(ratings):
         if r.get("run_id") != run_id:
-            raise ValueError(f"Run ID mismatch in rating: {r.get('run_id')} != {run_id}")
+            raise ValueError(
+                f"Run ID mismatch in rating at position {i+1}: "
+                f"'{r.get('run_id')}' != '{run_id}'"
+            )
+        if r.get("rater_id") != rater_id:
+            raise ValueError(
+                f"Rater ID mismatch in rating at position {i+1}: "
+                f"'{r.get('rater_id')}' != '{rater_id}'"
+            )
         rating_val = r.get("rating")
         if not isinstance(rating_val, int) or rating_val < 1 or rating_val > 5:
-            raise ValueError(f"Invalid rating value: {rating_val}")
+            raise ValueError(f"Invalid rating value at position {i+1}: {rating_val}")
 
     # --- Validate session ---
     queue_fp = _queue_fingerprint(queue)
     if session.get("queue_fingerprint") != queue_fp:
         raise ValueError("Queue fingerprint mismatch with session")
+    sess_required = {"schema_version", "run_id", "rater_id", "queue_fingerprint",
+                     "queue_item_count", "ratings_file"}
+    missing_sess = sess_required - set(session.keys())
+    if missing_sess:
+        raise ValueError(f"Session missing fields: {sorted(missing_sess)}")
+    if session.get("queue_item_count") != 30:
+        raise ValueError(
+            f"Session item count mismatch: {session.get('queue_item_count')} != 30"
+        )
+    if session.get("ratings_file") != ratings_path.name:
+        raise ValueError(
+            f"Session ratings file mismatch: "
+            f"'{session.get('ratings_file')}' != '{ratings_path.name}'"
+        )
 
     # --- Validate answer key ---
     k_items = answer_key.get("items", [])
@@ -256,6 +299,14 @@ def compile_rating_run(
     if answer_key.get("run_id") != run_id:
         raise ValueError("Answer key run_id mismatch")
 
+    # Validate positions
+    for i, k in enumerate(k_items):
+        if k.get("queue_position") != i + 1:
+            raise ValueError(
+                f"Answer key position mismatch at index {i}: "
+                f"expected {i+1}, got {k.get('queue_position')}"
+            )
+
     originals = [it for it in k_items if it.get("duplicate_of_blinded_id") is None]
     duplicates = [it for it in k_items if it.get("duplicate_of_blinded_id") is not None]
     if len(originals) != 24:
@@ -264,15 +315,53 @@ def compile_rating_run(
         raise ValueError(f"Expected 6 duplicates in key, found {len(duplicates)}")
 
     # Validate duplicate references
-    orig_ids = {it["blinded_id"] for it in originals}
+    orig_ids_set = {it["blinded_id"] for it in originals}
+    dup_ids_set = {it["blinded_id"] for it in duplicates}
+    key_by_id = {it["blinded_id"]: it for it in k_items}
+
     for dup in duplicates:
         ref = dup["duplicate_of_blinded_id"]
-        if ref not in orig_ids:
+        if ref not in orig_ids_set:
+            if ref in dup_ids_set:
+                raise ValueError(
+                    f"Duplicate {dup['blinded_id']} points to another duplicate: {ref}"
+                )
             raise ValueError(f"Broken duplicate reference: {dup['blinded_id']} -> {ref}")
+        # Validate source metadata matches
+        orig = key_by_id[ref]
+        for field in ("source_method", "original_trial_id", "model"):
+            if dup.get(field) != orig.get(field):
+                raise ValueError(
+                    f"Duplicate {dup['blinded_id']} {field} mismatch with original {ref}"
+                )
+
+    # Validate answer-key metadata fields
+    for k in k_items:
+        if k.get("model") != "gpt-4o":
+            raise ValueError(f"Wrong model in key item {k['blinded_id']}: {k.get('model')}")
+        if k.get("evaluation_dimension") != "integration":
+            raise ValueError(f"Wrong evaluation_dimension in {k['blinded_id']}")
+        if k.get("judge_score") != k.get("integration_score"):
+            raise ValueError(f"judge_score != integration_score in {k['blinded_id']}")
+        if k.get("reference_context_provenance") != "synthetic_source_context":
+            raise ValueError(f"Wrong provenance in {k['blinded_id']}")
+        if k.get("is_exact_model_visible_context") is not False:
+            raise ValueError(f"is_exact_model_visible_context must be false in {k['blinded_id']}")
+
+    # Validate duplicate queue content matches original
+    q_by_id = {it["blinded_id"]: it for it in q_items}
+    for dup in duplicates:
+        ref = dup["duplicate_of_blinded_id"]
+        dup_q = q_by_id[dup["blinded_id"]]
+        orig_q = q_by_id[ref]
+        for field in ("reference_context", "question", "response"):
+            if dup_q.get(field) != orig_q.get(field):
+                raise ValueError(
+                    f"Duplicate {dup['blinded_id']} queue {field} differs from original {ref}"
+                )
 
     # --- Build ID lookups ---
     rating_by_id = {r["blinded_id"]: r for r in ratings}
-    key_by_id = {it["blinded_id"]: it for it in k_items}
 
     # --- Compile items ---
     all_compiled: list[CompiledItem] = []
@@ -398,16 +487,13 @@ def write_compilation_outputs(
     protocol_name: str,
     overwrite: bool = False,
 ) -> None:
-    """Write all compilation outputs atomically."""
+    """Write all compilation outputs atomically via staging directory."""
     output_dir = Path(output_dir)
-    summary_path = output_dir / "summary.json"
 
     if not overwrite and output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(
             f"Output directory not empty: {output_dir}. Use --overwrite."
         )
-
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build summary JSON
     summary = {
@@ -428,20 +514,60 @@ def write_compilation_outputs(
         },
     }
 
-    # Write all files
-    _write_json(summary_path, summary)
-    _write_items_csv(output_dir / "primary_items.csv", result.primary_items)
-    _write_items_csv(output_dir / "all_appearances.csv", result.all_appearances)
-    _write_method_csv(output_dir / "method_summary.csv", result.method_summaries)
-    _write_dup_csv(output_dir / "duplicate_consistency.csv", result.duplicate_pairs)
-    _write_confusion_csv(output_dir / "confusion_matrix.csv", result.confusion_matrix)
+    # Stage all outputs in a temporary directory, then publish atomically
+    staging_dir = None
+    try:
+        staging_dir = Path(tempfile.mkdtemp(
+            prefix=".compile_staging_", dir=str(output_dir.parent)
+        ))
 
-    # Set permissions
-    for f in output_dir.iterdir():
+        _write_json(staging_dir / "summary.json", summary)
+        _write_items_csv(staging_dir / "primary_items.csv", result.primary_items)
+        _write_items_csv(staging_dir / "all_appearances.csv", result.all_appearances)
+        _write_method_csv(staging_dir / "method_summary.csv", result.method_summaries)
+        _write_dup_csv(staging_dir / "duplicate_consistency.csv", result.duplicate_pairs)
+        _write_confusion_csv(staging_dir / "confusion_matrix.csv", result.confusion_matrix)
+
+        # Set permissions on staged files
+        for f in staging_dir.iterdir():
+            try:
+                f.chmod(0o600)
+            except OSError:
+                pass
         try:
-            f.chmod(0o600)
+            staging_dir.chmod(0o700)
         except OSError:
             pass
+
+        # Publish: replace target directory
+        if output_dir.exists() and overwrite:
+            # Backup existing
+            backup_dir = output_dir.with_name(output_dir.name + ".backup")
+            if backup_dir.exists():
+                import shutil
+                shutil.rmtree(backup_dir)
+            os.rename(str(output_dir), str(backup_dir))
+            try:
+                os.rename(str(staging_dir), str(output_dir))
+                # Success — remove backup
+                import shutil
+                shutil.rmtree(backup_dir)
+            except Exception:
+                # Restore backup
+                if not output_dir.exists() and backup_dir.exists():
+                    os.rename(str(backup_dir), str(output_dir))
+                raise
+        else:
+            output_dir.parent.mkdir(parents=True, exist_ok=True)
+            os.rename(str(staging_dir), str(output_dir))
+
+        staging_dir = None  # Successfully published
+
+    finally:
+        # Clean up staging on failure
+        if staging_dir and staging_dir.exists():
+            import shutil
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def _write_json(path: Path, data: dict) -> None:
