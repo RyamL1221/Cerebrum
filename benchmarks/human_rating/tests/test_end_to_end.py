@@ -34,6 +34,29 @@ EXPECTED_SELECTED_TRIALS = {
 EXPECTED_FIRST_BLINDED_ID = "HR-63DE05"
 EXPECTED_LAST_BLINDED_ID = "HR-A0CEC8"
 
+EXPECTED_BLINDED_ID_ORDER = (
+    "HR-63DE05", "HR-D7E20F", "HR-228EA7", "HR-430CD6", "HR-7FA711",
+    "HR-0B8F46", "HR-880837", "HR-0DA6F8", "HR-2C9D04", "HR-ED3910",
+    "HR-38F34E", "HR-113F9A", "HR-406269", "HR-8E8F6C", "HR-8405DD",
+    "HR-70902A", "HR-30E37B", "HR-40B036", "HR-878841", "HR-433896",
+    "HR-8E4F8D", "HR-F146A1", "HR-0AA75F", "HR-C81B50", "HR-C7EACB",
+    "HR-34037C", "HR-01D54A", "HR-698FA6", "HR-1CA71E", "HR-A0CEC8",
+)
+
+EXPECTED_DUPLICATED_SOURCES = {
+    ("kernel_shared", "26"),
+    ("kernel_shared", "52"),
+    ("mem0_default", "108"),
+    ("naive_concat", "10"),
+    ("naive_concat", "59"),
+    ("vanilla_rag", "26"),
+}
+
+EXPECTED_REPORT_FILES = {
+    "summary.json", "primary_items.csv", "all_appearances.csv",
+    "method_summary.csv", "duplicate_consistency.csv", "confusion_matrix.csv",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,6 +172,7 @@ def test_frozen_selected_trial_identities():
 # ---------------------------------------------------------------------------
 
 def test_frozen_blinded_plan():
+    """Complete 30-ID order and duplicate identities match frozen protocol."""
     if not _has_real_results():
         print("  SKIP: test_frozen_blinded_plan")
         return
@@ -164,9 +188,27 @@ def test_frozen_blinded_plan():
     validate_blinded_plan(plan)
 
     ordered = sorted(plan.items, key=lambda x: x.appearance_index)
-    assert ordered[0].blinded_id == EXPECTED_FIRST_BLINDED_ID
-    assert ordered[-1].blinded_id == EXPECTED_LAST_BLINDED_ID
-    assert len(ordered) == 30
+
+    # Full 30-ID order
+    actual_ids = tuple(item.blinded_id for item in ordered)
+    assert actual_ids == EXPECTED_BLINDED_ID_ORDER, (
+        f"Blinded ID order mismatch.\nExpected: {EXPECTED_BLINDED_ID_ORDER}\nActual:   {actual_ids}"
+    )
+
+    # Exact six duplicated source identities
+    assert set(plan.duplicated_source_identities) == EXPECTED_DUPLICATED_SOURCES
+
+    # Each duplicated identity appears exactly twice; others exactly once
+    from collections import Counter
+    identity_counts = Counter(
+        (item.source_trial.source_method, item.source_trial.original_trial_id)
+        for item in ordered
+    )
+    for identity, count in identity_counts.items():
+        if identity in EXPECTED_DUPLICATED_SOURCES:
+            assert count == 2, f"{identity} should appear twice, got {count}"
+        else:
+            assert count == 1, f"{identity} should appear once, got {count}"
 
     # Duplicate separation
     for item in ordered:
@@ -182,6 +224,7 @@ def test_frozen_blinded_plan():
 # ---------------------------------------------------------------------------
 
 def test_deterministic_regeneration():
+    """Full file-level determinism: queue and answer-key bytes match across runs."""
     if not _has_real_results():
         print("  SKIP: test_deterministic_regeneration")
         return
@@ -189,30 +232,27 @@ def test_deterministic_regeneration():
     from benchmarks.human_rating.trial_loader import load_eligible_trials
     from benchmarks.human_rating.sampling import sample_unique_trials
     from benchmarks.human_rating.blinding import build_blinded_plan
-    from benchmarks.human_rating.artifact_writer import build_rating_queue, build_answer_key
+    from benchmarks.human_rating.artifact_writer import write_rating_artifacts
+    from benchmarks.human_rating.paths import get_run_paths
 
     trials, _ = load_eligible_trials(
         results_root=os.path.join(_project_root, "results"), min_per_method=6)
 
-    # Run 1
-    s1, _ = sample_unique_trials(trials, seed=20260715)
-    p1 = build_blinded_plan(s1, seed=20260716)
-    q1 = build_rating_queue(p1, run_id="det-test")
-    k1 = build_answer_key(p1, run_id="det-test", protocol_name="t",
-                          sampling_seed=20260715, blinding_seed=20260716)
+    with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+        for d in (d1, d2):
+            s, _ = sample_unique_trials(trials, seed=20260715)
+            p = build_blinded_plan(s, seed=20260716)
+            rp = get_run_paths("det", base_dir=d)
+            write_rating_artifacts(p, run_paths=rp, run_id="det",
+                                   protocol_name="t", sampling_seed=20260715, blinding_seed=20260716)
 
-    # Run 2
-    s2, _ = sample_unique_trials(trials, seed=20260715)
-    p2 = build_blinded_plan(s2, seed=20260716)
-    q2 = build_rating_queue(p2, run_id="det-test")
-    k2 = build_answer_key(p2, run_id="det-test", protocol_name="t",
-                          sampling_seed=20260715, blinding_seed=20260716)
+        q1 = Path(d1) / "det" / "rater" / "rating_queue.json"
+        q2 = Path(d2) / "det" / "rater" / "rating_queue.json"
+        k1 = Path(d1) / "det" / "private" / "answer_key.json"
+        k2 = Path(d2) / "det" / "private" / "answer_key.json"
 
-    # Compare (exclude timestamps by comparing items only)
-    assert q1["items"] == q2["items"]
-    assert k1["items"] == k2["items"]
-    assert [i.blinded_id for i in sorted(p1.items, key=lambda x: x.appearance_index)] == \
-           [i.blinded_id for i in sorted(p2.items, key=lambda x: x.appearance_index)]
+        assert q1.read_bytes() == q2.read_bytes(), "Queue files differ"
+        assert k1.read_bytes() == k2.read_bytes(), "Answer key files differ"
 
     print("  PASS: test_deterministic_regeneration")
 
@@ -308,6 +348,158 @@ def test_generated_runs_are_gitignored():
 
 
 # ---------------------------------------------------------------------------
+# 7. Private artifacts never enter rater directory
+# ---------------------------------------------------------------------------
+
+def test_private_artifacts_never_enter_rater_directory():
+    """Answer key and compiled reports are never under rater/."""
+    if not _has_real_results():
+        print("  SKIP: test_private_artifacts_never_enter_rater_directory")
+        return
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runs_dir = os.path.join(tmpdir, "runs")
+        subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.sample_and_blind",
+             "--generate", "--run-id", "placement-test", "--runs-dir", runs_dir],
+            capture_output=True, text=True, cwd=_project_root,
+        )
+        rater_dir = Path(runs_dir) / "placement-test" / "rater"
+        private_dir = Path(runs_dir) / "placement-test" / "private"
+
+        # Answer key in private/
+        assert (private_dir / "answer_key.json").exists()
+        # Not in rater/
+        assert not any(p.name == "answer_key.json" for p in rater_dir.rglob("*"))
+        # No compiled reports in rater/
+        compiled_names = {"summary.json", "primary_items.csv", "all_appearances.csv",
+                          "method_summary.csv", "duplicate_consistency.csv", "confusion_matrix.csv"}
+        rater_files = {p.name for p in rater_dir.rglob("*") if p.is_file()}
+        assert rater_files & compiled_names == set()
+
+    print("  PASS: test_private_artifacts_never_enter_rater_directory")
+
+
+# ---------------------------------------------------------------------------
+# 8. Shared-memory benchmark boundary
+# ---------------------------------------------------------------------------
+
+def test_workflow_does_not_modify_shared_memory_benchmark():
+    """The entire workflow doesn't touch benchmarks/shared_memory/."""
+    if not _has_real_results():
+        print("  SKIP: test_workflow_does_not_modify_shared_memory_benchmark")
+        return
+
+    sm_dir = os.path.join(_project_root, "benchmarks", "shared_memory")
+    hashes_before = {}
+    for root, _, files in os.walk(sm_dir):
+        for f in files:
+            if f.endswith(".py") or f.endswith(".json"):
+                fp = os.path.join(root, f)
+                hashes_before[fp] = _hash_file(fp)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.sample_and_blind",
+             "--generate", "--run-id", "boundary-test", "--runs-dir", tmpdir],
+            capture_output=True, text=True, cwd=_project_root,
+        )
+
+    hashes_after = {}
+    for fp in hashes_before:
+        hashes_after[fp] = _hash_file(fp)
+
+    assert hashes_before == hashes_after, "shared_memory benchmark files were modified!"
+    print("  PASS: test_workflow_does_not_modify_shared_memory_benchmark")
+
+
+# ---------------------------------------------------------------------------
+# 9. Complete compiled artifact set and population counts
+# ---------------------------------------------------------------------------
+
+def test_compiled_artifact_set_and_counts():
+    """Compiled directory has exactly the expected files with correct populations."""
+    if not _has_real_results():
+        print("  SKIP: test_compiled_artifact_set_and_counts")
+        return
+
+    import csv as csv_mod
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runs_dir = os.path.join(tmpdir, "runs")
+
+        # Generate
+        subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.sample_and_blind",
+             "--generate", "--run-id", "count-test", "--runs-dir", runs_dir],
+            capture_output=True, text=True, cwd=_project_root,
+        )
+
+        queue_path = os.path.join(runs_dir, "count-test", "rater", "rating_queue.json")
+        key_path = os.path.join(runs_dir, "count-test", "private", "answer_key.json")
+        ratings_path = os.path.join(runs_dir, "count-test", "rater", "ratings.jsonl")
+        session_path = os.path.join(runs_dir, "count-test", "rater", "rating_session.json")
+
+        # Rate all 30
+        rating_input = "\n".join(["3"] * 30) + "\n"
+        subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.rate",
+             "--queue", queue_path, "--ratings", ratings_path, "--rater-id", "count-rater"],
+            input=rating_input, capture_output=True, text=True, cwd=_project_root, timeout=30,
+        )
+
+        # Compile
+        compiled_dir = os.path.join(runs_dir, "count-test", "private", "compiled")
+        subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.compile_ratings",
+             "--queue", queue_path, "--ratings", ratings_path,
+             "--session", session_path, "--answer-key", key_path,
+             "--output-dir", compiled_dir],
+            capture_output=True, text=True, cwd=_project_root,
+        )
+
+        # Exact file set
+        actual_files = {p.name for p in Path(compiled_dir).iterdir() if p.is_file()}
+        assert actual_files == EXPECTED_REPORT_FILES, f"Got: {actual_files}"
+
+        # Row counts
+        with open(os.path.join(compiled_dir, "primary_items.csv")) as f:
+            rows = list(csv_mod.reader(f))
+        assert len(rows) == 25  # header + 24
+
+        with open(os.path.join(compiled_dir, "all_appearances.csv")) as f:
+            rows = list(csv_mod.reader(f))
+        assert len(rows) == 31  # header + 30
+
+        with open(os.path.join(compiled_dir, "method_summary.csv")) as f:
+            rows = list(csv_mod.reader(f))
+        assert len(rows) == 5  # header + 4
+
+        with open(os.path.join(compiled_dir, "duplicate_consistency.csv")) as f:
+            rows = list(csv_mod.reader(f))
+        assert len(rows) == 7  # header + 6
+
+        with open(os.path.join(compiled_dir, "confusion_matrix.csv")) as f:
+            rows = list(csv_mod.reader(f))
+        assert len(rows) == 6  # header + 5
+
+        # summary.json method summaries
+        with open(os.path.join(compiled_dir, "summary.json")) as f:
+            summary = json.load(f)
+        assert len(summary["primary_method_summaries"]) == 4
+        assert len(summary["appearance_method_summaries"]) == 4
+        assert sum(ms["item_count"] for ms in summary["primary_method_summaries"]) == 24
+        assert sum(ms["item_count"] for ms in summary["appearance_method_summaries"]) == 30
+
+        # Ratings file has 30 records
+        with open(ratings_path) as f:
+            rating_lines = [l for l in f if l.strip()]
+        assert len(rating_lines) == 30
+
+    print("  PASS: test_compiled_artifact_set_and_counts")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -328,7 +520,10 @@ def main():
 
     print("\nRepository boundary:")
     test_workflow_does_not_modify_source_results()
+    test_workflow_does_not_modify_shared_memory_benchmark()
     test_generated_runs_are_gitignored()
+    test_private_artifacts_never_enter_rater_directory()
+    test_compiled_artifact_set_and_counts()
 
     print("\n=== ALL TESTS PASSED ===")
 
