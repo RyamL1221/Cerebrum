@@ -84,7 +84,7 @@ def _run_session(tmpdir, inputs, queue=None, run_id="test-run", rater_id="rater-
 
 
 # ===========================================================================
-# 1. Quit and EOF preserve progress
+# Quit/EOF (explicit)
 # ===========================================================================
 
 def test_quit_preserves_progress():
@@ -96,7 +96,6 @@ def test_quit_preserves_progress():
         records2, _, _ = _run_session(d, ["5", "q"])
         assert len(records2) == 2
         assert records2[1]["blinded_id"] == "HR-0001"
-        # No traceback in output
         assert not any("Traceback" in l for l in lines)
     print("  PASS: test_quit_preserves_progress")
 
@@ -180,6 +179,47 @@ def test_lock_released_after_startup_validation_error():
         # Lock never acquired or released
         assert not Path(lock_path).exists() or _can_acquire_lock(lock_path)
     print("  PASS: test_lock_released_after_startup_validation_error")
+
+
+def test_lock_released_after_keyboard_interrupt():
+    with tempfile.TemporaryDirectory() as d:
+        queue = _make_queue()
+        qp = _write_queue_file(d, queue)
+        ratings_path = Path(d) / "rater" / "ratings.jsonl"
+        lock_path = str(ratings_path) + ".lock"
+
+        # Use subprocess with input that rates one item then sends nothing
+        # (simulating interrupt via closed stdin after one rating)
+        result = subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.rate",
+             "--queue", str(qp), "--ratings", str(ratings_path)],
+            input="4\n", capture_output=True, text=True, cwd=_project_root, timeout=10,
+        )
+        # Lock released
+        assert not Path(lock_path).exists() or _can_acquire_lock(lock_path)
+        # Rating preserved
+        if ratings_path.exists():
+            records = [json.loads(l) for l in ratings_path.read_text().strip().split("\n") if l.strip()]
+            assert len(records) == 1
+    print("  PASS: test_lock_released_after_keyboard_interrupt")
+
+
+def test_lock_released_after_eof():
+    with tempfile.TemporaryDirectory() as d:
+        queue = _make_queue()
+        qp = _write_queue_file(d, queue)
+        ratings_path = Path(d) / "rater" / "ratings.jsonl"
+        lock_path = str(ratings_path) + ".lock"
+
+        # Send EOF immediately (empty stdin)
+        result = subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.rate",
+             "--queue", str(qp), "--ratings", str(ratings_path)],
+            input="", capture_output=True, text=True, cwd=_project_root, timeout=10,
+        )
+        # Lock released
+        assert not Path(lock_path).exists() or _can_acquire_lock(lock_path)
+    print("  PASS: test_lock_released_after_eof")
 
 
 # ===========================================================================
@@ -269,6 +309,50 @@ def test_session_queue_fingerprint_mismatch_rejected():
         except ValueError as e:
             assert "does not match" in str(e)
     print("  PASS: test_session_queue_fingerprint_mismatch_rejected")
+
+
+def test_session_queue_fingerprint_missing_rejected():
+    """Missing queue_fingerprint field specifically rejected."""
+    with tempfile.TemporaryDirectory() as d:
+        session_path = Path(d) / "session.json"
+        # Write session without queue_fingerprint
+        session = {
+            "schema_version": 1, "run_id": "test-run", "rater_id": "rater-01",
+            "queue_item_count": 30, "ratings_file": "ratings.jsonl",
+        }
+        session_path.write_text(json.dumps(session))
+        original_bytes = session_path.read_bytes()
+        queue = _make_queue()
+        fp = _queue_fingerprint(queue)
+        try:
+            _load_or_create_session(session_path, "test-run", "rater-01", fp, 30)
+            assert False
+        except ValueError as e:
+            assert "missing" in str(e).lower()
+            assert "queue_fingerprint" in str(e)
+        # Sidecar unchanged
+        assert session_path.read_bytes() == original_bytes
+    print("  PASS: test_session_queue_fingerprint_missing_rejected")
+
+
+def test_session_ratings_filename_mismatch_rejected():
+    """Session with different ratings_file is rejected."""
+    with tempfile.TemporaryDirectory() as d:
+        queue = _make_queue()
+        session_path = Path(d) / "session.json"
+        fp = _queue_fingerprint(queue)
+        # Create session with default filename
+        _load_or_create_session(session_path, "test-run", "rater-01", fp, 30, "ratings.jsonl")
+        original_bytes = session_path.read_bytes()
+        # Try to resume with a different filename
+        try:
+            _load_or_create_session(session_path, "test-run", "rater-01", fp, 30, "other-ratings.jsonl")
+            assert False
+        except ValueError as e:
+            assert "ratings file mismatch" in str(e).lower()
+        # Sidecar unchanged
+        assert session_path.read_bytes() == original_bytes
+    print("  PASS: test_session_ratings_filename_mismatch_rejected")
 
 
 # ===========================================================================
@@ -445,6 +529,8 @@ def main():
     test_lock_released_after_normal_completion()
     test_lock_released_after_quit()
     test_lock_released_after_startup_validation_error()
+    test_lock_released_after_keyboard_interrupt()
+    test_lock_released_after_eof()
 
     print("\nPermissions:")
     test_rating_session_permissions_posix()
@@ -455,6 +541,8 @@ def main():
     test_session_item_count_mismatch_rejected()
     test_session_missing_required_field_rejected()
     test_session_queue_fingerprint_mismatch_rejected()
+    test_session_queue_fingerprint_missing_rejected()
+    test_session_ratings_filename_mismatch_rejected()
 
     print("\nPer-record validation:")
     test_rating_record_rater_id_mismatch_rejected()

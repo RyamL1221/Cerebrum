@@ -122,6 +122,7 @@ def _load_or_create_session(
     rater_id: str,
     queue_fp: str,
     item_count: int,
+    ratings_filename: str = "ratings.jsonl",
 ) -> dict:
     """Load existing session metadata or create a new one."""
     if session_path.exists():
@@ -158,6 +159,11 @@ def _load_or_create_session(
                 f"Invalid rating session metadata: queue item count does not "
                 f"match the current queue ({session.get('queue_item_count')} vs {item_count})."
             )
+        if session.get("ratings_file") != ratings_filename:
+            raise ValueError(
+                f"Invalid rating session metadata: ratings file mismatch; "
+                f"expected {ratings_filename!r}, found {session.get('ratings_file')!r}."
+            )
         return session
 
     session = {
@@ -167,7 +173,7 @@ def _load_or_create_session(
         "queue_fingerprint": queue_fp,
         "queue_item_count": item_count,
         "started_at": _now_iso(),
-        "ratings_file": "ratings.jsonl",
+        "ratings_file": ratings_filename,
     }
     session_path.parent.mkdir(parents=True, exist_ok=True)
     with open(session_path, "w") as f:
@@ -530,7 +536,8 @@ def main() -> None:
     # Session management
     try:
         _load_or_create_session(
-            session_path, run_id, rater_id, queue_fp, len(queue_data["items"])
+            session_path, run_id, rater_id, queue_fp, len(queue_data["items"]),
+            ratings_filename=ratings_path.name,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
