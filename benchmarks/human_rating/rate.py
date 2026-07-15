@@ -187,6 +187,11 @@ def _load_existing_ratings(
                     f"Malformed JSON at line {line_num} in {ratings_path}"
                 )
 
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"Malformed ratings record on line {line_num}: expected object"
+                )
+
             bid = record.get("blinded_id", "")
             if not bid:
                 raise ValueError(f"Empty blinded_id at line {line_num}")
@@ -478,6 +483,15 @@ def main() -> None:
         print("Error: Queue validation failed:", file=sys.stderr)
         for err in errors:
             print(f"  {err}", file=sys.stderr)
+        sys.exit(1)
+
+    # Enforce exactly 30 items for production use
+    actual_count = len(queue_data.get("items", []))
+    if actual_count != 30:
+        print(
+            f"Invalid rating queue: expected exactly 30 items, found {actual_count}.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     run_id = queue_data.get("run_id", "unknown")
