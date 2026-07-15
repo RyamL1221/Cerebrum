@@ -8,19 +8,17 @@ Defines typed schemas for:
 - Compiled item-level records (flat export)
 
 Design invariants:
-- The blinded queue schema CANNOT represent method, judge score, trial ID,
-  or duplicate status.
-- Ratings are immutable one-record-per-ID submissions.
+- The blinded queue schema CANNOT represent method, judge score, question
+  type, trial ID, or duplicate status.
+- Ratings are immutable one-record-per-ID submissions (single 1–5 score).
 - The answer key is never exposed to the rating CLI.
 
-Question-type note:
-    The existing benchmark generates a single query archetype — intentionally
-    vague prioritization questions that require BOTH profile and task context
-    to answer well. There is no native profile-only or task-only question
-    variant. Consequently, the human rater evaluates each trial on all three
-    judge dimensions (profile_usage, task_usage, integration) rather than a
-    single dimension. The answer key records which judge dimension is used
-    for the primary human-judge comparison.
+Judge score selection rule:
+    The comparison judge score is selected based on question_type:
+    - profile questions → profile_usage_score
+    - task questions → task_usage_score
+    This matches the semantic intent: a profile question tests whether the
+    model used profile knowledge, so the human rates the same dimension.
 """
 
 from dataclasses import dataclass
@@ -37,13 +35,48 @@ VALID_SOURCE_METHODS = frozenset({
     "kernel_shared",
 })
 
-VALID_JUDGE_DIMENSIONS = frozenset({
-    "profile_usage",
-    "task_usage",
-    "integration",
-})
+VALID_QUESTION_TYPES = frozenset({"profile", "task"})
 
 VALID_RATINGS = frozenset({1, 2, 3, 4, 5})
+
+
+# ---------------------------------------------------------------------------
+# Judge score selection rule
+# ---------------------------------------------------------------------------
+
+def select_judge_score(
+    question_type: str,
+    profile_usage_score: int,
+    task_usage_score: int,
+    integration_score: int,
+) -> int:
+    """Select the comparison judge score based on question type.
+
+    Rule:
+    - "profile" questions → profile_usage_score
+    - "task" questions → task_usage_score
+
+    Args:
+        question_type: "profile" or "task".
+        profile_usage_score: GPT-5.4 judge's profile usage score (1–5).
+        task_usage_score: GPT-5.4 judge's task usage score (1–5).
+        integration_score: GPT-5.4 judge's integration score (1–5).
+
+    Returns:
+        The single integer score used for human-judge comparison.
+
+    Raises:
+        ValueError: If question_type is not valid.
+    """
+    if question_type == "profile":
+        return profile_usage_score
+    elif question_type == "task":
+        return task_usage_score
+    else:
+        raise ValueError(
+            f"Cannot select judge score for question_type={question_type!r}. "
+            f"Must be 'profile' or 'task'."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -57,23 +90,23 @@ class SourceTrial:
     Validation requirements:
     - source_method must be one of VALID_SOURCE_METHODS.
     - model must normalize to "gpt-4o".
-    - original_trial_id must be nonempty (method-independent trial index).
+    - question_type must be "profile" or "task".
+    - original_trial_id must be nonempty.
     - question and response must be nonempty.
-    - profile_usage_score, task_usage_score, integration_score must be 1–5.
-    - profile_context may be None for trials where no profile context was
-      supplied during inference.
+    - judge_score must be in the 1–5 range (selected by question_type rule).
+    - inference_context is the exact context supplied to GPT-4o (may be
+      empty for methods where retrieval failed or no context was injected).
     - source_file is optional diagnostic metadata (not exposed to rater).
     """
 
     source_method: str
     model: str
+    question_type: Literal["profile", "task"]
     original_trial_id: str
-    profile_context: str | None
+    inference_context: str | None
     question: str
     response: str
-    profile_usage_score: int
-    task_usage_score: int
-    integration_score: int
+    judge_score: int
     source_file: str | None = None
 
     def __post_init__(self) -> None:
@@ -86,21 +119,21 @@ class SourceTrial:
             raise ValueError(
                 f"model must normalize to 'gpt-4o', got {self.model!r}"
             )
+        if self.question_type not in VALID_QUESTION_TYPES:
+            raise ValueError(
+                f"question_type must be 'profile' or 'task', "
+                f"got {self.question_type!r}"
+            )
         if not self.original_trial_id or not self.original_trial_id.strip():
             raise ValueError("original_trial_id must be nonempty")
         if not self.question or not self.question.strip():
             raise ValueError("question must be nonempty")
         if not self.response or not self.response.strip():
             raise ValueError("response must be nonempty")
-        for field_name, value in [
-            ("profile_usage_score", self.profile_usage_score),
-            ("task_usage_score", self.task_usage_score),
-            ("integration_score", self.integration_score),
-        ]:
-            if not isinstance(value, int) or value < 1 or value > 5:
-                raise ValueError(
-                    f"{field_name} must be an integer 1–5, got {value!r}"
-                )
+        if not isinstance(self.judge_score, int) or self.judge_score < 1 or self.judge_score > 5:
+            raise ValueError(
+                f"judge_score must be an integer 1–5, got {self.judge_score!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -114,8 +147,9 @@ class RatingQueueItem:
     This schema intentionally CANNOT represent:
     - source_method
     - model
+    - question_type
     - original_trial_id
-    - judge scores
+    - judge_score
     - duplicate status
     - sampling cell
     - shuffle seed
@@ -123,7 +157,7 @@ class RatingQueueItem:
     """
 
     blinded_id: str
-    profile_context: str | None
+    inference_context: str | None
     question: str
     response: str
 
@@ -138,20 +172,14 @@ class AnswerKeyItem:
 
     Used by sample_and_blind (writer) and compile_ratings (reader).
     Never imported or accessed by the rate command.
-
-    The judge_dimension field specifies which automated judge score
-    is used for the primary human-judge comparison for this item.
     """
 
     blinded_id: str
     source_method: str
     model: str
+    question_type: Literal["profile", "task"]
     original_trial_id: str
-    judge_dimension: Literal["profile_usage", "task_usage", "integration"]
     judge_score: int
-    profile_usage_score: int
-    task_usage_score: int
-    integration_score: int
     duplicate_of: str | None
 
 
@@ -163,22 +191,21 @@ class AnswerKeyItem:
 class RatingRecord:
     """A single human rating submission.
 
-    The human rater scores on the same three dimensions as the automated
-    judge: profile_usage, task_usage, and integration.
+    One 1–5 score per item. The rubric dimension matches the question type:
+    - Profile items are rated on profile-usage quality.
+    - Task items are rated on task-usage quality.
 
     Validation requirements:
-    - All three ratings must be integers 1–5.
+    - rating must be an integer 1–5.
     - Each blinded_id may appear at most once in the session.
     - rated_at must be a timezone-aware ISO-8601 string.
-    - No source method, judge score, or duplicate metadata.
+    - No source method, judge score, question type, or duplicate metadata.
 
     Ratings are immutable: once submitted, they cannot be overwritten.
     """
 
     blinded_id: str
-    profile_usage_rating: int
-    task_usage_rating: int
-    integration_rating: int
+    rating: int
     note: str | None
     flagged: bool
     rated_at: str
@@ -186,17 +213,12 @@ class RatingRecord:
     def __post_init__(self) -> None:
         if not self.blinded_id or not self.blinded_id.strip():
             raise ValueError("blinded_id must be nonempty")
+        if not isinstance(self.rating, int) or self.rating not in VALID_RATINGS:
+            raise ValueError(
+                f"rating must be an integer 1–5, got {self.rating!r}"
+            )
         if not self.rated_at or not self.rated_at.strip():
             raise ValueError("rated_at must be nonempty")
-        for field_name, value in [
-            ("profile_usage_rating", self.profile_usage_rating),
-            ("task_usage_rating", self.task_usage_rating),
-            ("integration_rating", self.integration_rating),
-        ]:
-            if not isinstance(value, int) or value not in VALID_RATINGS:
-                raise ValueError(
-                    f"{field_name} must be an integer 1–5, got {value!r}"
-                )
 
 
 # ---------------------------------------------------------------------------
@@ -208,33 +230,21 @@ class CompiledRecord:
     """One flat row per rating instance in the compiled export.
 
     Joins the rating record with the answer-key metadata and computes
-    human-vs-judge agreement metrics for each dimension.
+    human-vs-judge agreement metrics.
     """
 
     blinded_id: str
-    profile_usage_rating: int
-    task_usage_rating: int
-    integration_rating: int
+    rating: int
     note: str | None
     flagged: bool
     rated_at: str
     source_method: str
     model: str
+    question_type: Literal["profile", "task"]
     original_trial_id: str
-    judge_dimension: str
     judge_score: int
-    profile_usage_score: int
-    task_usage_score: int
-    integration_score: int
     duplicate_of: str | None
     is_duplicate: bool
-    # Per-dimension agreement
-    profile_usage_difference: int
-    task_usage_difference: int
-    integration_difference: int
-    profile_usage_exact_match: bool
-    task_usage_exact_match: bool
-    integration_exact_match: bool
-    profile_usage_within_one: bool
-    task_usage_within_one: bool
-    integration_within_one: bool
+    human_judge_difference: int
+    exact_human_judge_match: bool
+    within_one_human_judge: bool

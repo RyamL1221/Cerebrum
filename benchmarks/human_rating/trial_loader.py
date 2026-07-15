@@ -47,6 +47,8 @@ from typing import Sequence
 from benchmarks.human_rating.schemas import (
     SourceTrial,
     VALID_SOURCE_METHODS,
+    VALID_QUESTION_TYPES,
+    select_judge_score,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,54 +107,6 @@ class ExclusionReport:
         for method, count in sorted(self.by_method().items()):
             lines.append(f"  {method}: {count}")
         return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Profile context reconstruction
-# ---------------------------------------------------------------------------
-
-def _build_profile_context(trial_data: dict) -> str | None:
-    """Reconstruct the profile context available during inference.
-
-    Uses the synthetic_profile and synthetic_task_context fields to build
-    the same structured text that was available to the model. This matches
-    the naive_concat format from pipeline.py, which is the canonical
-    representation of what was available during inference across all methods.
-
-    For naive_concat, this IS the exact context block passed to the model.
-    For vanilla_rag, the model received a TF-IDF-selected subset of this.
-    For kernel_shared/mem0_default, this data was written to memory and
-    potentially injected by the kernel (exact injected text not recorded).
-
-    Args:
-        trial_data: A raw trial dict from the result JSON.
-
-    Returns:
-        The reconstructed context string, or None if profile data is missing.
-    """
-    profile = trial_data.get("synthetic_profile")
-    task_ctx = trial_data.get("synthetic_task_context")
-
-    if not profile or not task_ctx:
-        return None
-
-    # Build the same format as pipeline.py _run_naive_concat
-    context = (
-        f"--- USER PROFILE ---\n"
-        f"Name: {profile.get('user_name', '')}\n"
-        f"Preferred Tools: {', '.join(profile.get('preferred_tools', []))}\n"
-        f"Preferred Language: {profile.get('preferred_language', '')}\n"
-        f"Response Style: {profile.get('response_style', '')}\n"
-        f"\n"
-        f"--- TASK CONTEXT ---\n"
-        f"Current Project: {task_ctx.get('current_project', '')}\n"
-        f"Active Experiment: {task_ctx.get('active_experiment', '')}\n"
-        f"Goals: {', '.join(task_ctx.get('goals', []))}\n"
-        f"Blockers: {', '.join(task_ctx.get('blockers', []))}\n"
-        f"Next Steps: {', '.join(task_ctx.get('next_steps', []))}"
-    )
-
-    return context
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +327,17 @@ def load_result_file(
             ))
             continue
 
+        # Extract question_type (required for new-format results)
+        question_type = trial.get("question_type", "")
+        if not question_type or question_type not in VALID_QUESTION_TYPES:
+            exclusion_report.entries.append(ExclusionEntry(
+                method=expected_method,
+                trial_index=trial_index,
+                reason="missing_or_invalid_question_type",
+                source_file=str(path),
+            ))
+            continue
+
         # Extract all three judge scores
         profile_usage_score = trial.get("profile_usage_score")
         task_usage_score = trial.get("task_usage_score")
@@ -407,20 +372,28 @@ def load_result_file(
         if not scores_valid:
             continue
 
-        # Build profile context
-        profile_context = _build_profile_context(trial)
+        # Select the comparison judge score based on question type
+        judge_score = select_judge_score(
+            question_type, profile_usage_score, task_usage_score, integration_score
+        )
+
+        # Extract exact inference context (new field, may be absent in old results)
+        inference_context = trial.get("inference_context_text")
+        # Empty string is valid (means retrieval failed / no context injected)
+        # None means the field was not recorded (old results) — treat as empty
+        if inference_context is None:
+            inference_context = ""
 
         # Create validated SourceTrial
         source_trial = SourceTrial(
             source_method=expected_method,
             model=model,
+            question_type=question_type,
             original_trial_id=original_trial_id,
-            profile_context=profile_context,
+            inference_context=inference_context,
             question=question,
             response=response,
-            profile_usage_score=profile_usage_score,
-            task_usage_score=task_usage_score,
-            integration_score=integration_score,
+            judge_score=judge_score,
             source_file=str(path),
         )
         source_trials.append(source_trial)
@@ -515,16 +488,19 @@ def load_eligible_trials(
             f"Only '{expected_model}' trials are eligible."
         )
 
-    # Check: minimum per method
+    # Check: minimum per method × question_type cell
     for method in sorted(methods):
-        method_count = sum(
-            1 for t in all_trials if t.source_method == method
-        )
-        if method_count < min_per_method:
-            raise ValueError(
-                f"Insufficient eligible trials for method={method}: "
-                f"required {min_per_method}, found {method_count}."
+        for qtype in sorted(VALID_QUESTION_TYPES):
+            cell_count = sum(
+                1 for t in all_trials
+                if t.source_method == method and t.question_type == qtype
             )
+            if cell_count < min_per_method:
+                raise ValueError(
+                    f"Insufficient eligible trials for method={method}, "
+                    f"question_type={qtype}: required {min_per_method}, "
+                    f"found {cell_count}."
+                )
 
     return all_trials, exclusion_report
 
@@ -535,12 +511,10 @@ def load_eligible_trials(
 
 @dataclass
 class MethodCount:
-    """Trial count for a single method."""
+    """Trial count for a single method × question_type cell."""
     method: str
+    question_type: str
     count: int
-    avg_profile_usage: float
-    avg_task_usage: float
-    avg_integration: float
 
 
 @dataclass
@@ -549,33 +523,37 @@ class TrialPoolSummary:
 
     total_trials: int
     methods: list[str]
+    question_types: list[str]
     method_counts: list[MethodCount]
-    score_distribution: dict[str, dict[int, int]]  # dimension -> score -> count
+    score_distribution: dict[int, int]  # judge_score -> count
 
     def format_table(self) -> str:
         """Format as an aligned text table.
 
         Returns:
-            Multi-line string with method counts and average scores.
+            Multi-line string with method × type counts.
         """
         lines = []
-        header = (
-            f"{'Method':<20} {'Count':>6} "
-            f"{'AvgProfile':>11} {'AvgTask':>8} {'AvgInteg':>9}"
-        )
+        header = f"{'Method':<20} {'Profile':>8} {'Task':>8} {'Total':>8}"
         lines.append(header)
         lines.append("-" * len(header))
 
-        for mc in self.method_counts:
+        for method in self.methods:
+            profile_count = next(
+                (c.count for c in self.method_counts
+                 if c.method == method and c.question_type == "profile"), 0
+            )
+            task_count = next(
+                (c.count for c in self.method_counts
+                 if c.method == method and c.question_type == "task"), 0
+            )
+            total = profile_count + task_count
             lines.append(
-                f"{mc.method:<20} {mc.count:>6} "
-                f"{mc.avg_profile_usage:>11.2f} "
-                f"{mc.avg_task_usage:>8.2f} "
-                f"{mc.avg_integration:>9.2f}"
+                f"{method:<20} {profile_count:>8} {task_count:>8} {total:>8}"
             )
 
         lines.append("-" * len(header))
-        lines.append(f"{'TOTAL':<20} {self.total_trials:>6}")
+        lines.append(f"{'TOTAL':<20} {'':<8} {'':<8} {self.total_trials:>8}")
         return "\n".join(lines)
 
 
@@ -586,45 +564,30 @@ def summarize_trial_pool(trials: Sequence[SourceTrial]) -> TrialPoolSummary:
         trials: Sequence of validated SourceTrial objects.
 
     Returns:
-        TrialPoolSummary with counts and averages by method.
+        TrialPoolSummary with counts by method and question type.
     """
     methods = sorted({t.source_method for t in trials})
+    question_types = sorted({t.question_type for t in trials})
 
     method_counts: list[MethodCount] = []
     for method in methods:
-        method_trials = [t for t in trials if t.source_method == method]
-        count = len(method_trials)
-        avg_pu = sum(t.profile_usage_score for t in method_trials) / count if count else 0
-        avg_tu = sum(t.task_usage_score for t in method_trials) / count if count else 0
-        avg_ig = sum(t.integration_score for t in method_trials) / count if count else 0
-        method_counts.append(MethodCount(
-            method=method,
-            count=count,
-            avg_profile_usage=avg_pu,
-            avg_task_usage=avg_tu,
-            avg_integration=avg_ig,
-        ))
+        for qtype in question_types:
+            count = sum(
+                1 for t in trials
+                if t.source_method == method and t.question_type == qtype
+            )
+            method_counts.append(MethodCount(
+                method=method, question_type=qtype, count=count
+            ))
 
-    # Score distribution per dimension
-    score_dist: dict[str, dict[int, int]] = {
-        "profile_usage": {},
-        "task_usage": {},
-        "integration": {},
-    }
+    score_distribution: dict[int, int] = {}
     for t in trials:
-        score_dist["profile_usage"][t.profile_usage_score] = (
-            score_dist["profile_usage"].get(t.profile_usage_score, 0) + 1
-        )
-        score_dist["task_usage"][t.task_usage_score] = (
-            score_dist["task_usage"].get(t.task_usage_score, 0) + 1
-        )
-        score_dist["integration"][t.integration_score] = (
-            score_dist["integration"].get(t.integration_score, 0) + 1
-        )
+        score_distribution[t.judge_score] = score_distribution.get(t.judge_score, 0) + 1
 
     return TrialPoolSummary(
         total_trials=len(trials),
         methods=methods,
+        question_types=question_types,
         method_counts=method_counts,
-        score_distribution=score_dist,
+        score_distribution=score_distribution,
     )

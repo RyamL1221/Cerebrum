@@ -20,6 +20,63 @@ from benchmarks.shared_memory.models import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Explicit question type templates
+# ---------------------------------------------------------------------------
+
+# Profile questions principally require knowledge of user preferences,
+# tools, style, and working habits to answer well.
+PROFILE_QUESTION_TEMPLATE = (
+    "Based on what you know about my preferences and working style, "
+    "how should I approach this?"
+)
+
+# Task questions principally require knowledge of project history,
+# current blockers, goals, and remaining work to answer well.
+TASK_QUESTION_TEMPLATE = (
+    "Based on the project history, current blockers, and remaining work, "
+    "what should I focus on next?"
+)
+
+
+def get_question_type_for_trial(trial_index: int) -> str:
+    """Determine question type for a trial using a balanced schedule.
+
+    Even trial indices use profile questions; odd indices use task questions.
+    This is a generation schedule (determines which real template is used),
+    not a post-hoc label on identical questions.
+
+    Args:
+        trial_index: Zero-based trial number.
+
+    Returns:
+        "profile" or "task".
+    """
+    return "profile" if trial_index % 2 == 0 else "task"
+
+
+def get_question_template(question_type: str) -> str:
+    """Get the question template for a given type.
+
+    Args:
+        question_type: "profile" or "task".
+
+    Returns:
+        The appropriate question template string.
+
+    Raises:
+        ValueError: If question_type is not valid.
+    """
+    if question_type == "profile":
+        return PROFILE_QUESTION_TEMPLATE
+    elif question_type == "task":
+        return TASK_QUESTION_TEMPLATE
+    else:
+        raise ValueError(
+            f"Invalid question_type: {question_type!r}. Must be 'profile' or 'task'."
+        )
+
+
 
 def _robust_llm_json_call(agent_name, messages, kernel_url, response_format, llms):
     """Call llm_chat_with_json_output with fallback to llm_chat.
@@ -461,7 +518,7 @@ class SyntheticDataGenerator:
     # Orchestrator
     # ------------------------------------------------------------------
 
-    def generate_trial_data(self, trial_index: int) -> SyntheticTrialData:
+    def generate_trial_data(self, trial_index: int, question_type: str | None = None) -> SyntheticTrialData:
         """Generate all synthetic data for a single trial.
 
         Orchestrates profile → task context → plausible actions → follow-up
@@ -472,17 +529,33 @@ class SyntheticDataGenerator:
         underscore-separated profile name and run_id is the run-specific
         discriminator passed at construction time (or auto-generated UUID).
 
+        When ``question_type`` is provided, uses the explicit question template
+        for that type instead of generating a vague query via LLM. This ensures
+        profile and task questions are semantically distinct.
+
         Args:
             trial_index: Zero-based trial number.
+            question_type: Explicit question type ("profile" or "task").
+                When None, uses the balanced schedule from
+                ``get_question_type_for_trial(trial_index)`` and generates
+                via LLM for backward compatibility.
 
         Returns:
             A ``SyntheticTrialData`` bundle with profile, task context,
-            follow-up query, plausible actions, and run-scoped user_id.
+            follow-up query, plausible actions, run-scoped user_id, and
+            question_type.
         """
+        # Determine question type
+        if question_type is None:
+            question_type = get_question_type_for_trial(trial_index)
+
         profile = self.generate_profile(trial_index)
         task_context = self.generate_task_context(trial_index, profile)
         plausible_actions = self.generate_plausible_actions(profile, task_context)
-        follow_up_query = self.generate_vague_query(profile, task_context)
+
+        # Use the explicit question template for the determined type
+        follow_up_query = get_question_template(question_type)
+
         base_name = profile.user_name.lower().replace(" ", "_")
         user_id = f"{base_name}_{self.run_id}"
 
@@ -492,4 +565,5 @@ class SyntheticDataGenerator:
             follow_up_query=follow_up_query,
             plausible_actions=plausible_actions,
             user_id=user_id,
+            question_type=question_type,
         )

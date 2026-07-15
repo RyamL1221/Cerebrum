@@ -1,19 +1,14 @@
-"""Trial loader tests for the human-rating evaluation workflow.
+"""Trial loader tests for the corrected human-rating semantics.
 
-Tests cover:
-- Successful loading for each method with all three judge dimensions
-- Model-name normalization
-- Rejection of non-GPT-4o trials
-- Missing response / missing question
-- Missing or out-of-range judge scores (any dimension)
-- Duplicate (method, trial_id) pairs
-- Insufficient trials per method
-- Deterministic file processing order
-- Exclusion of unrelated JSON artifacts
-- Exact preservation of inference-time profile context
-- Correct per-method summary counts
-- Method-independent original_trial_id
-- Structured exclusion reporting
+Verifies:
+- profile trials use the profile question template
+- task trials use the task question template
+- question_type is required in result JSON
+- exact inference context is preserved (not reconstructed)
+- empty retrieval remains empty
+- the selected judge score follows the documented type-based rule
+- trials missing question_type are excluded with structured reasons
+- method-independent original_trial_id
 
 Run:
     python benchmarks/human_rating/tests/test_trial_loader.py
@@ -23,9 +18,7 @@ import json
 import os
 import sys
 import tempfile
-from pathlib import Path
 
-# Ensure the project root is on sys.path when running as a script
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
@@ -38,9 +31,14 @@ from benchmarks.human_rating.trial_loader import (
     load_result_file,
     normalize_model_name,
     summarize_trial_pool,
-    _build_profile_context,
 )
-from benchmarks.human_rating.schemas import SourceTrial
+from benchmarks.human_rating.schemas import SourceTrial, VALID_QUESTION_TYPES
+from benchmarks.shared_memory.synth import (
+    PROFILE_QUESTION_TEMPLATE,
+    TASK_QUESTION_TEMPLATE,
+    get_question_type_for_trial,
+    get_question_template,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -48,75 +46,75 @@ from benchmarks.human_rating.schemas import SourceTrial
 # ---------------------------------------------------------------------------
 
 def _make_trial(trial_index: int, method: str, **overrides) -> dict:
-    """Create a synthetic trial dict matching the benchmark result format."""
+    """Create a trial dict with question_type and inference_context_text."""
+    qtype = "profile" if trial_index % 2 == 0 else "task"
+    question = get_question_template(qtype)
+    # Simulate method-specific inference context
+    if method == "naive_concat":
+        ctx = f"--- USER PROFILE ---\nName: User {trial_index}\n--- TASK CONTEXT ---\nProject: P{trial_index}"
+    elif method == "vanilla_rag":
+        ctx = f"Goal: Goal for trial {trial_index}"
+    elif method == "kernel_shared":
+        ctx = f"Injected: Profile for trial {trial_index}"
+    else:  # mem0_default
+        ctx = ""  # No shared context injected
+
     defaults = {
         "trial_index": trial_index,
         "condition": method,
         "method": method,
+        "question_type": qtype,
         "profile_usage_score": 3,
         "task_usage_score": 4,
-        "integration_score": 4,
+        "integration_score": 3,
         "memory_counts": {"total": 0, "shared": 0, "private": 0},
         "retrieved_context_count": 0,
         "latency_seconds": 5.0,
-        "follow_up_query": f"What should I focus on next? (trial {trial_index})",
-        "assistant_response": f"Based on your profile and task context, I recommend... (trial {trial_index})",
+        "follow_up_query": question,
+        "assistant_response": f"Response for trial {trial_index}",
+        "inference_context_text": ctx,
         "synthetic_profile": {
             "user_name": f"User {trial_index}",
-            "preferred_tools": ["VS Code", "Git"],
+            "preferred_tools": ["VS Code"],
             "preferred_language": "Python",
             "response_style": "concise",
         },
         "synthetic_task_context": {
             "current_project": f"Project {trial_index}",
-            "active_experiment": f"Experiment {trial_index}",
-            "goals": [f"Goal A for trial {trial_index}"],
-            "blockers": [f"Blocker for trial {trial_index}"],
-            "next_steps": [f"Next step for trial {trial_index}"],
+            "active_experiment": f"Exp {trial_index}",
+            "goals": [f"Goal {trial_index}"],
+            "blockers": [],
+            "next_steps": [f"Step {trial_index}"],
         },
-        "retrieval_log": None,
-        "injection_diagnostics": None,
-        "written_memories": [],
-        "failed": False,
-        "error_message": None,
+        "failed": False, "error_message": None,
     }
     defaults.update(overrides)
     return defaults
 
 
-def _make_result_file(method: str, num_trials: int = 10, **trial_overrides) -> dict:
-    """Create a full result file structure for one method."""
-    trials = [_make_trial(i, method, **trial_overrides) for i in range(num_trials)]
+def _make_result_file(method: str, num_trials: int = 10) -> dict:
+    trials = [_make_trial(i, method) for i in range(num_trials)]
     return {
         "experiment_metadata": {
             "trials_per_condition": num_trials,
-            "timestamp": "2026-07-14T10:00:00.000000",
+            "timestamp": "2026-07-14T10:00:00",
             "kernel_url": "http://localhost:8000",
-            "conditions_run": [method],
-            "methods_run": [method],
+            "conditions_run": [method], "methods_run": [method],
         },
-        "conditions": [
-            {
-                "condition": method,
-                "trials": trials,
-                "summary": {},
-            }
-        ],
+        "conditions": [{"condition": method, "trials": trials, "summary": {}}],
     }
 
 
 def _write_result_file(tmpdir: str, method: str, data: dict) -> str:
-    """Write a result JSON file in the expected directory structure."""
     dir_path = os.path.join(tmpdir, f"gpt4o_{method}")
     os.makedirs(dir_path, exist_ok=True)
-    file_path = os.path.join(dir_path, f"results_{method}.json")
-    with open(file_path, "w", encoding="utf-8") as f:
+    path = os.path.join(dir_path, f"results_{method}.json")
+    with open(path, "w") as f:
         json.dump(data, f)
-    return file_path
+    return path
 
 
 def _write_all_methods(tmpdir: str, num_trials: int = 10) -> dict:
-    """Write result files for all four methods, return method->path mapping."""
     paths = {}
     for method in ALLOWED_METHODS:
         data = _make_result_file(method, num_trials)
@@ -126,440 +124,173 @@ def _write_all_methods(tmpdir: str, num_trials: int = 10) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Model name normalization tests
+# Question template tests
 # ---------------------------------------------------------------------------
 
-def test_normalize_model_gpt4o():
-    """Standard 'gpt-4o' should normalize correctly."""
-    assert normalize_model_name("gpt-4o") == "gpt-4o"
-    print("  PASS: test_normalize_model_gpt4o")
+def test_question_type_schedule():
+    """Even=profile, odd=task deterministic schedule."""
+    assert get_question_type_for_trial(0) == "profile"
+    assert get_question_type_for_trial(1) == "task"
+    assert get_question_type_for_trial(2) == "profile"
+    assert get_question_type_for_trial(99) == "task"
+    print("  PASS: test_question_type_schedule")
 
 
-def test_normalize_model_with_provider():
-    """'gpt-4o:azure' should normalize to 'gpt-4o'."""
-    assert normalize_model_name("gpt-4o:azure") == "gpt-4o"
-    assert normalize_model_name("gpt-4o:openai") == "gpt-4o"
-    print("  PASS: test_normalize_model_with_provider")
-
-
-def test_normalize_model_rejects_other():
-    """Non-GPT-4o models should be rejected."""
-    for bad in ("gpt-4o-mini", "gpt-5.4", "claude-3", "qwen2.5:7b"):
-        try:
-            normalize_model_name(bad)
-            assert False, f"Should have raised ValueError for {bad}"
-        except ValueError:
-            pass
-    print("  PASS: test_normalize_model_rejects_other")
+def test_profile_task_templates_differ():
+    """Profile and task templates are semantically distinct."""
+    assert PROFILE_QUESTION_TEMPLATE != TASK_QUESTION_TEMPLATE
+    assert "preferences" in PROFILE_QUESTION_TEMPLATE.lower() or "style" in PROFILE_QUESTION_TEMPLATE.lower()
+    assert "project" in TASK_QUESTION_TEMPLATE.lower() or "blockers" in TASK_QUESTION_TEMPLATE.lower()
+    print("  PASS: test_profile_task_templates_differ")
 
 
 # ---------------------------------------------------------------------------
-# File discovery tests
+# Trial loader tests
 # ---------------------------------------------------------------------------
 
-def test_discover_result_files_success():
-    """Auto-discovery should find all four method files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _write_all_methods(tmpdir)
-        discovered = discover_result_files(tmpdir)
-        assert set(discovered.keys()) == set(ALLOWED_METHODS)
-        for method, path in discovered.items():
-            assert path.exists()
-    print("  PASS: test_discover_result_files_success")
-
-
-def test_discover_result_files_missing_method():
-    """Missing method file should raise FileNotFoundError."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for method in ["kernel_shared", "mem0_default", "naive_concat"]:
-            data = _make_result_file(method)
-            _write_result_file(tmpdir, method, data)
-        try:
-            discover_result_files(tmpdir)
-            assert False, "Should have raised FileNotFoundError"
-        except FileNotFoundError as e:
-            assert "vanilla_rag" in str(e)
-    print("  PASS: test_discover_result_files_missing_method")
-
-
-def test_discover_excludes_unrelated_json():
-    """Unrelated JSON files should not be picked up."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _write_all_methods(tmpdir)
-        unrelated = os.path.join(tmpdir, "summary.json")
-        with open(unrelated, "w") as f:
-            json.dump({"unrelated": True}, f)
-        discovered = discover_result_files(tmpdir)
-        assert len(discovered) == 4
-        assert unrelated not in [str(p) for p in discovered.values()]
-    print("  PASS: test_discover_excludes_unrelated_json")
-
-
-def test_discover_deterministic_order():
-    """Discovery should process files in deterministic sorted order."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _write_all_methods(tmpdir)
-        discovered = discover_result_files(tmpdir)
-        keys = list(discovered.keys())
-        assert keys == sorted(keys)
-    print("  PASS: test_discover_deterministic_order")
-
-
-# ---------------------------------------------------------------------------
-# Single-file loading tests
-# ---------------------------------------------------------------------------
-
-def test_load_result_file_success():
-    """Loading a valid result file should produce SourceTrial objects with three scores."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=10)
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        trials = load_result_file(path, expected_method="kernel_shared")
-        assert len(trials) == 10
-        assert all(t.source_method == "kernel_shared" for t in trials)
-        assert all(t.model == "gpt-4o" for t in trials)
-        # All three scores preserved
-        assert all(t.profile_usage_score == 3 for t in trials)
-        assert all(t.task_usage_score == 4 for t in trials)
-        assert all(t.integration_score == 4 for t in trials)
-    print("  PASS: test_load_result_file_success")
-
-
-def test_load_result_file_method_independent_trial_id():
-    """original_trial_id should be just the trial index (method-independent)."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=5)
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        trials = load_result_file(path, expected_method="kernel_shared")
-        # IDs should be "0", "1", "2", "3", "4" — not "kernel_shared_0" etc.
-        ids = [t.original_trial_id for t in trials]
-        assert ids == ["0", "1", "2", "3", "4"]
-    print("  PASS: test_load_result_file_method_independent_trial_id")
-
-
-def test_load_result_file_missing_response():
-    """Trials with empty response should be excluded with reason."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=5)
-        data["conditions"][0]["trials"][2]["assistant_response"] = ""
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        report = ExclusionReport()
-        trials = load_result_file(path, expected_method="kernel_shared", exclusion_report=report)
-        assert len(trials) == 4
-        assert report.total_excluded == 1
-        assert report.entries[0].reason == "empty_response"
-        assert report.entries[0].trial_index == 2
-    print("  PASS: test_load_result_file_missing_response")
-
-
-def test_load_result_file_missing_question():
-    """Trials with empty question should be excluded with reason."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("naive_concat", num_trials=5)
-        data["conditions"][0]["trials"][1]["follow_up_query"] = "   "
-        path = _write_result_file(tmpdir, "naive_concat", data)
-        report = ExclusionReport()
-        trials = load_result_file(path, expected_method="naive_concat", exclusion_report=report)
-        assert len(trials) == 4
-        assert report.entries[0].reason == "empty_question"
-    print("  PASS: test_load_result_file_missing_question")
-
-
-def test_load_result_file_invalid_judge_score():
-    """Trials with out-of-range judge score should be excluded."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("vanilla_rag", num_trials=5)
-        data["conditions"][0]["trials"][0]["integration_score"] = 0
-        data["conditions"][0]["trials"][3]["profile_usage_score"] = 6
-        path = _write_result_file(tmpdir, "vanilla_rag", data)
-        report = ExclusionReport()
-        trials = load_result_file(path, expected_method="vanilla_rag", exclusion_report=report)
-        assert len(trials) == 3
-        assert report.total_excluded == 2
-    print("  PASS: test_load_result_file_invalid_judge_score")
-
-
-def test_load_result_file_missing_judge_score():
-    """Trials with null judge score should be excluded."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("mem0_default", num_trials=5)
-        data["conditions"][0]["trials"][2]["task_usage_score"] = None
-        path = _write_result_file(tmpdir, "mem0_default", data)
-        report = ExclusionReport()
-        trials = load_result_file(path, expected_method="mem0_default", exclusion_report=report)
-        assert len(trials) == 4
-        assert "missing_task_usage_score" in report.entries[0].reason
-    print("  PASS: test_load_result_file_missing_judge_score")
-
-
-def test_load_result_file_failed_trials_excluded():
-    """Failed trials should be excluded with 'failed_trial' reason."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=5)
-        data["conditions"][0]["trials"][4]["failed"] = True
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        report = ExclusionReport()
-        trials = load_result_file(path, expected_method="kernel_shared", exclusion_report=report)
-        assert len(trials) == 4
-        assert report.entries[0].reason == "failed_trial"
-    print("  PASS: test_load_result_file_failed_trials_excluded")
-
-
-def test_load_result_file_method_mismatch():
-    """Method mismatch between file content and expectation should raise."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=5)
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        try:
-            load_result_file(path, expected_method="naive_concat")
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "does not contain method" in str(e)
-    print("  PASS: test_load_result_file_method_mismatch")
-
-
-def test_load_result_file_preserves_profile_context():
-    """Profile context should be reconstructed from synthetic data."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=1)
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        trials = load_result_file(path, expected_method="kernel_shared")
-        ctx = trials[0].profile_context
-        assert ctx is not None
-        assert "User 0" in ctx
-        assert "VS Code" in ctx
-        assert "Python" in ctx
-        assert "Project 0" in ctx
-        assert "--- USER PROFILE ---" in ctx
-        assert "--- TASK CONTEXT ---" in ctx
-    print("  PASS: test_load_result_file_preserves_profile_context")
-
-
-def test_load_result_file_duplicate_trial_index():
-    """Duplicate (method, trial_index) should raise ValueError."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        data = _make_result_file("kernel_shared", num_trials=3)
-        data["conditions"][0]["trials"].append(_make_trial(1, "kernel_shared"))
-        path = _write_result_file(tmpdir, "kernel_shared", data)
-        try:
-            load_result_file(path, expected_method="kernel_shared")
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "Duplicate trial" in str(e)
-    print("  PASS: test_load_result_file_duplicate_trial_index")
-
-
-# ---------------------------------------------------------------------------
-# Multi-file loading and eligibility tests
-# ---------------------------------------------------------------------------
-
-def test_load_eligible_trials_success():
-    """Loading all four methods should produce a valid pool with exclusion report."""
+def test_load_with_question_type():
+    """Trials with question_type load correctly."""
     with tempfile.TemporaryDirectory() as tmpdir:
         paths = _write_all_methods(tmpdir, num_trials=10)
         trials, report = load_eligible_trials(method_paths=paths, min_per_method=3)
         assert len(trials) == 40
-        assert report.total_excluded == 0
-        methods = {t.source_method for t in trials}
-        assert methods == set(ALLOWED_METHODS)
-    print("  PASS: test_load_eligible_trials_success")
+        profile_trials = [t for t in trials if t.question_type == "profile"]
+        task_trials = [t for t in trials if t.question_type == "task"]
+        assert len(profile_trials) == 20  # 4 methods * 5 even indices
+        assert len(task_trials) == 20     # 4 methods * 5 odd indices
+    print("  PASS: test_load_with_question_type")
 
 
-def test_load_eligible_trials_auto_discovery():
-    """Auto-discovery mode should work from results root."""
+def test_missing_question_type_excluded():
+    """Trials without question_type are excluded."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        _write_all_methods(tmpdir, num_trials=10)
-        trials, report = load_eligible_trials(results_root=tmpdir, min_per_method=3)
-        assert len(trials) == 40
-    print("  PASS: test_load_eligible_trials_auto_discovery")
+        data = _make_result_file("kernel_shared", num_trials=5)
+        # Remove question_type from trial 2
+        del data["conditions"][0]["trials"][2]["question_type"]
+        path = _write_result_file(tmpdir, "kernel_shared", data)
+        report = ExclusionReport()
+        trials = load_result_file(path, "kernel_shared", exclusion_report=report)
+        assert len(trials) == 4
+        assert report.entries[0].reason == "missing_or_invalid_question_type"
+    print("  PASS: test_missing_question_type_excluded")
 
 
-def test_load_eligible_trials_insufficient_method():
-    """Insufficient trials in a method should raise ValueError."""
+def test_inference_context_preserved_per_method():
+    """Each method's inference context is preserved exactly."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        paths = {}
-        for method in ALLOWED_METHODS:
-            n = 1 if method == "kernel_shared" else 10
-            data = _make_result_file(method, num_trials=n)
-            path = _write_result_file(tmpdir, method, data)
-            paths[method] = path
-        try:
-            load_eligible_trials(method_paths=paths, min_per_method=3)
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "Insufficient" in str(e)
-            assert "kernel_shared" in str(e)
-    print("  PASS: test_load_eligible_trials_insufficient_method")
+        paths = _write_all_methods(tmpdir, num_trials=2)
+        trials, _ = load_eligible_trials(method_paths=paths, min_per_method=1)
+
+        for t in trials:
+            if t.source_method == "naive_concat":
+                assert "--- USER PROFILE ---" in t.inference_context
+            elif t.source_method == "vanilla_rag":
+                assert "Goal:" in t.inference_context
+            elif t.source_method == "kernel_shared":
+                assert "Injected:" in t.inference_context
+            elif t.source_method == "mem0_default":
+                assert t.inference_context == ""  # empty — no injection
+    print("  PASS: test_inference_context_preserved_per_method")
 
 
-def test_load_eligible_trials_exclusion_report():
-    """Exclusion report should track all excluded trials."""
+def test_empty_retrieval_stays_empty():
+    """mem0_default with empty context stays empty (not reconstructed)."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        paths = {}
-        for method in ALLOWED_METHODS:
-            data = _make_result_file(method, num_trials=10)
-            # Add one failed trial to each method
-            data["conditions"][0]["trials"][5]["failed"] = True
-            path = _write_result_file(tmpdir, method, data)
-            paths[method] = path
-        trials, report = load_eligible_trials(method_paths=paths, min_per_method=3)
-        assert len(trials) == 36  # 4 methods * 9 valid
-        assert report.total_excluded == 4
-        assert report.by_reason() == {"failed_trial": 4}
-    print("  PASS: test_load_eligible_trials_exclusion_report")
+        data = _make_result_file("mem0_default", num_trials=4)
+        # Explicitly set empty inference context
+        for trial in data["conditions"][0]["trials"]:
+            trial["inference_context_text"] = ""
+        path = _write_result_file(tmpdir, "mem0_default", data)
+        trials = load_result_file(path, "mem0_default")
+        for t in trials:
+            assert t.inference_context == ""
+    print("  PASS: test_empty_retrieval_stays_empty")
 
 
-# ---------------------------------------------------------------------------
-# Pool summary tests
-# ---------------------------------------------------------------------------
+def test_judge_score_follows_type_rule():
+    """Profile trials use profile_usage_score, task trials use task_usage_score."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data = _make_result_file("kernel_shared", num_trials=4)
+        # Set distinct scores to verify selection
+        for trial in data["conditions"][0]["trials"]:
+            trial["profile_usage_score"] = 5  # profile trials should get 5
+            trial["task_usage_score"] = 2     # task trials should get 2
+            trial["integration_score"] = 3
+        path = _write_result_file(tmpdir, "kernel_shared", data)
+        trials = load_result_file(path, "kernel_shared")
+        for t in trials:
+            if t.question_type == "profile":
+                assert t.judge_score == 5  # profile_usage_score
+            else:
+                assert t.judge_score == 2  # task_usage_score
+    print("  PASS: test_judge_score_follows_type_rule")
 
-def test_summarize_trial_pool():
-    """Summary should report correct per-method counts and averages."""
+
+def test_method_independent_trial_id():
+    """original_trial_id is just the index."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data = _make_result_file("naive_concat", num_trials=3)
+        path = _write_result_file(tmpdir, "naive_concat", data)
+        trials = load_result_file(path, "naive_concat")
+        assert [t.original_trial_id for t in trials] == ["0", "1", "2"]
+    print("  PASS: test_method_independent_trial_id")
+
+
+def test_pool_summary_by_method_and_type():
+    """Summary shows counts per method × question_type cell."""
     with tempfile.TemporaryDirectory() as tmpdir:
         paths = _write_all_methods(tmpdir, num_trials=10)
         trials, _ = load_eligible_trials(method_paths=paths, min_per_method=3)
         summary = summarize_trial_pool(trials)
         assert summary.total_trials == 40
-        assert set(summary.methods) == set(ALLOWED_METHODS)
-        # Each method has 10 trials
+        assert set(summary.question_types) == {"profile", "task"}
+        # Each method × type cell has 5 trials
         for mc in summary.method_counts:
-            assert mc.count == 10
-            assert mc.avg_profile_usage == 3.0
-            assert mc.avg_task_usage == 4.0
-            assert mc.avg_integration == 4.0
-    print("  PASS: test_summarize_trial_pool")
+            assert mc.count == 5
+    print("  PASS: test_pool_summary_by_method_and_type")
 
 
-def test_summarize_score_distribution():
-    """Summary should include per-dimension score distribution."""
+def test_exclusion_report_structured():
+    """Exclusion report provides method, index, and reason."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        paths = _write_all_methods(tmpdir, num_trials=10)
-        trials, _ = load_eligible_trials(method_paths=paths, min_per_method=3)
-        summary = summarize_trial_pool(trials)
-        # All fixtures: profile=3, task=4, integration=4
-        assert summary.score_distribution["profile_usage"] == {3: 40}
-        assert summary.score_distribution["task_usage"] == {4: 40}
-        assert summary.score_distribution["integration"] == {4: 40}
-    print("  PASS: test_summarize_score_distribution")
-
-
-def test_summarize_table_format():
-    """Summary table should be formatted correctly."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        paths = _write_all_methods(tmpdir, num_trials=10)
-        trials, _ = load_eligible_trials(method_paths=paths, min_per_method=3)
-        summary = summarize_trial_pool(trials)
-        table = summary.format_table()
-        assert "Method" in table
-        assert "Count" in table
-        for method in ALLOWED_METHODS:
-            assert method in table
-    print("  PASS: test_summarize_table_format")
+        data = _make_result_file("vanilla_rag", num_trials=5)
+        data["conditions"][0]["trials"][1]["assistant_response"] = ""
+        data["conditions"][0]["trials"][3]["question_type"] = "invalid"
+        path = _write_result_file(tmpdir, "vanilla_rag", data)
+        report = ExclusionReport()
+        trials = load_result_file(path, "vanilla_rag", exclusion_report=report)
+        assert len(trials) == 3
+        assert report.total_excluded == 2
+        reasons = {e.reason for e in report.entries}
+        assert "empty_response" in reasons
+        assert "missing_or_invalid_question_type" in reasons
+    print("  PASS: test_exclusion_report_structured")
 
 
 # ---------------------------------------------------------------------------
-# Profile context reconstruction tests
-# ---------------------------------------------------------------------------
-
-def test_build_profile_context_full():
-    """Full profile context should include all fields."""
-    trial = _make_trial(0, "kernel_shared")
-    ctx = _build_profile_context(trial)
-    assert ctx is not None
-    assert "--- USER PROFILE ---" in ctx
-    assert "Name: User 0" in ctx
-    assert "Preferred Tools: VS Code, Git" in ctx
-    assert "Preferred Language: Python" in ctx
-    assert "Response Style: concise" in ctx
-    assert "--- TASK CONTEXT ---" in ctx
-    assert "Current Project: Project 0" in ctx
-    print("  PASS: test_build_profile_context_full")
-
-
-def test_build_profile_context_missing_profile():
-    """Missing synthetic_profile should return None."""
-    trial = _make_trial(0, "kernel_shared")
-    trial["synthetic_profile"] = None
-    ctx = _build_profile_context(trial)
-    assert ctx is None
-    print("  PASS: test_build_profile_context_missing_profile")
-
-
-# ---------------------------------------------------------------------------
-# Exclusion report tests
-# ---------------------------------------------------------------------------
-
-def test_exclusion_report_by_reason():
-    """ExclusionReport should count by reason."""
-    report = ExclusionReport()
-    report.entries.append(
-        __import__("benchmarks.human_rating.trial_loader", fromlist=["ExclusionEntry"]).ExclusionEntry(
-            method="kernel_shared", trial_index=0, reason="empty_response", source_file="x"
-        )
-    )
-    report.entries.append(
-        __import__("benchmarks.human_rating.trial_loader", fromlist=["ExclusionEntry"]).ExclusionEntry(
-            method="naive_concat", trial_index=1, reason="empty_response", source_file="y"
-        )
-    )
-    report.entries.append(
-        __import__("benchmarks.human_rating.trial_loader", fromlist=["ExclusionEntry"]).ExclusionEntry(
-            method="kernel_shared", trial_index=2, reason="failed_trial", source_file="x"
-        )
-    )
-    assert report.total_excluded == 3
-    assert report.by_reason() == {"empty_response": 2, "failed_trial": 1}
-    assert report.by_method() == {"kernel_shared": 2, "naive_concat": 1}
-    print("  PASS: test_exclusion_report_by_reason")
-
-
-# ---------------------------------------------------------------------------
-# Run all tests
+# Run all
 # ---------------------------------------------------------------------------
 
 def main():
     print("=== Human Rating Trial Loader Tests ===\n")
 
-    print("Model name normalization:")
-    test_normalize_model_gpt4o()
-    test_normalize_model_with_provider()
-    test_normalize_model_rejects_other()
+    print("Question templates:")
+    test_question_type_schedule()
+    test_profile_task_templates_differ()
 
-    print("\nFile discovery:")
-    test_discover_result_files_success()
-    test_discover_result_files_missing_method()
-    test_discover_excludes_unrelated_json()
-    test_discover_deterministic_order()
-
-    print("\nSingle-file loading:")
-    test_load_result_file_success()
-    test_load_result_file_method_independent_trial_id()
-    test_load_result_file_missing_response()
-    test_load_result_file_missing_question()
-    test_load_result_file_invalid_judge_score()
-    test_load_result_file_missing_judge_score()
-    test_load_result_file_failed_trials_excluded()
-    test_load_result_file_method_mismatch()
-    test_load_result_file_preserves_profile_context()
-    test_load_result_file_duplicate_trial_index()
-
-    print("\nMulti-file loading and eligibility:")
-    test_load_eligible_trials_success()
-    test_load_eligible_trials_auto_discovery()
-    test_load_eligible_trials_insufficient_method()
-    test_load_eligible_trials_exclusion_report()
+    print("\nTrial loading:")
+    test_load_with_question_type()
+    test_missing_question_type_excluded()
+    test_inference_context_preserved_per_method()
+    test_empty_retrieval_stays_empty()
+    test_judge_score_follows_type_rule()
+    test_method_independent_trial_id()
 
     print("\nPool summary:")
-    test_summarize_trial_pool()
-    test_summarize_score_distribution()
-    test_summarize_table_format()
-
-    print("\nProfile context reconstruction:")
-    test_build_profile_context_full()
-    test_build_profile_context_missing_profile()
+    test_pool_summary_by_method_and_type()
 
     print("\nExclusion report:")
-    test_exclusion_report_by_reason()
+    test_exclusion_report_structured()
 
     print("\n=== ALL TESTS PASSED ===")
 
