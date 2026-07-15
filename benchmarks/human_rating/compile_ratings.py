@@ -271,14 +271,14 @@ def compile_rating_run(
             raise ValueError(f"Invalid rating value at position {i+1}: {rating_val}")
 
     # --- Validate session ---
-    queue_fp = _queue_fingerprint(queue)
-    if session.get("queue_fingerprint") != queue_fp:
-        raise ValueError("Queue fingerprint mismatch with session")
     sess_required = {"schema_version", "run_id", "rater_id", "queue_fingerprint",
                      "queue_item_count", "ratings_file"}
     missing_sess = sess_required - set(session.keys())
     if missing_sess:
         raise ValueError(f"Session missing fields: {sorted(missing_sess)}")
+    queue_fp = _queue_fingerprint(queue)
+    if session.get("queue_fingerprint") != queue_fp:
+        raise ValueError("Queue fingerprint mismatch with session")
     if session.get("queue_item_count") != 30:
         raise ValueError(
             f"Session item count mismatch: {session.get('queue_item_count')} != 30"

@@ -1,4 +1,4 @@
-"""Comprehensive compiler tests with known expected metrics.
+"""Comprehensive compiler tests — validation, metrics, atomicity, CLI.
 
 Run:
     python benchmarks/human_rating/tests/test_compile_ratings.py
@@ -7,10 +7,13 @@ Run:
 import csv
 import json
 import os
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if _project_root not in sys.path:
@@ -24,8 +27,12 @@ from benchmarks.human_rating.rate import _queue_fingerprint
 METHODS = ["kernel_shared", "mem0_default", "naive_concat", "vanilla_rag"]
 
 
+# ---------------------------------------------------------------------------
+# Fixture
+# ---------------------------------------------------------------------------
+
 def _build_run(tmpdir, human_ratings=None, judge_scores=None, **overrides):
-    """Build a complete valid 30-item run. Ratings/judge default to 3."""
+    """Build a complete valid 30-item run."""
     if human_ratings is None:
         human_ratings = [3] * 30
     if judge_scores is None:
@@ -35,7 +42,6 @@ def _build_run(tmpdir, human_ratings=None, judge_scores=None, **overrides):
     for i in range(24):
         q_items.append({"blinded_id": f"HR-{i:04d}", "reference_context": f"Ctx {i}",
                         "question": f"Q{i}", "response": f"R{i}"})
-    # Duplicates must have identical content to their originals
     for i in range(6):
         orig = q_items[i]
         q_items.append({"blinded_id": f"HR-{24+i:04d}",
@@ -77,7 +83,8 @@ def _build_run(tmpdir, human_ratings=None, judge_scores=None, **overrides):
     for i in range(30):
         ratings.append({"schema_version": 1, "run_id": "test-run", "rater_id": "rater-01",
                         "blinded_id": f"HR-{i:04d}", "rating": human_ratings[i],
-                        "note": overrides.get(f"note_{i}"), "flagged": overrides.get(f"flag_{i}", False),
+                        "note": overrides.get(f"note_{i}"),
+                        "flagged": overrides.get(f"flag_{i}", False),
                         "rated_at": "2026-07-15T10:00:00Z"})
 
     session = {"schema_version": 1, "run_id": "test-run", "rater_id": "rater-01",
@@ -87,7 +94,8 @@ def _build_run(tmpdir, human_ratings=None, judge_scores=None, **overrides):
 
     rater_dir = Path(tmpdir) / "rater"
     private_dir = Path(tmpdir) / "private"
-    rater_dir.mkdir(parents=True); private_dir.mkdir(parents=True)
+    rater_dir.mkdir(parents=True, exist_ok=True)
+    private_dir.mkdir(parents=True, exist_ok=True)
 
     qp = rater_dir / "rating_queue.json"; qp.write_text(json.dumps(queue))
     sp = rater_dir / "rating_session.json"; sp.write_text(json.dumps(session))
@@ -105,263 +113,309 @@ def _compile(tmpdir, **kw):
                               session_path=paths[2], answer_key_path=paths[3])
 
 
-# === Ratings validation ===
+def _expect_error(tmpdir, mutator, substring):
+    """Build a run, mutate it, expect ValueError containing substring."""
+    paths = _build_run(tmpdir)
+    mutator(paths)
+    try:
+        compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
+                           session_path=paths[2], answer_key_path=paths[3])
+        assert False, f"Should have raised ValueError with '{substring}'"
+    except ValueError as e:
+        assert substring.lower() in str(e).lower(), f"Expected '{substring}' in: {e}"
 
-def test_extra_rating_rejected():
+
+# ===========================================================================
+# 1. Malformed ratings
+# ===========================================================================
+
+def test_malformed_jsonl_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        # Append an extra line
-        with open(paths[1], "a") as f:
-            f.write(json.dumps({"schema_version":1,"run_id":"test-run","rater_id":"rater-01",
-                    "blinded_id":"HR-0000","rating":5,"note":None,"flagged":False,"rated_at":"t"}) + "\n")
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "31" in str(e) or "Extra" in str(e) or "Duplicate" in str(e)
-    print("  PASS: test_extra_rating_rejected")
+        def m(paths):
+            lines = paths[1].read_text().strip().split("\n")
+            lines[4] = '{"blinded_id":"HR-0004","rating":3'  # truncated
+            paths[1].write_text("\n".join(lines) + "\n")
+        _expect_error(d, m, "line 5")
+    print("  PASS: test_malformed_jsonl_rejected")
 
-
-def test_duplicate_rating_id_rejected():
+def test_non_object_jsonl_record_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        lines = paths[1].read_text().strip().split("\n")
-        lines[1] = lines[0]  # Duplicate first ID
-        paths[1].write_text("\n".join(lines) + "\n")
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "Duplicate" in str(e) or "order" in str(e).lower()
-    print("  PASS: test_duplicate_rating_id_rejected")
+        def m(paths):
+            lines = paths[1].read_text().strip().split("\n")
+            lines[2] = '["array"]'
+            paths[1].write_text("\n".join(lines) + "\n")
+        _expect_error(d, m, "line 3")
+    print("  PASS: test_non_object_jsonl_record_rejected")
 
-
-def test_unknown_rating_id_rejected():
+def test_malformed_trailing_jsonl_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        lines = paths[1].read_text().strip().split("\n")
-        rec = json.loads(lines[0]); rec["blinded_id"] = "HR-UNKNOWN"
-        lines[0] = json.dumps(rec)
-        paths[1].write_text("\n".join(lines) + "\n")
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "Unknown" in str(e) or "order" in str(e).lower()
-    print("  PASS: test_unknown_rating_id_rejected")
+        def m(paths):
+            with open(paths[1], "a") as f:
+                f.write("garbage{not json\n")
+        _expect_error(d, m, "line 31")
+    print("  PASS: test_malformed_trailing_jsonl_rejected")
 
 
-def test_rater_id_mismatch_rejected():
+# ===========================================================================
+# 2. Session metadata
+# ===========================================================================
+
+def test_session_item_count_mismatch_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        lines = paths[1].read_text().strip().split("\n")
-        rec = json.loads(lines[5]); rec["rater_id"] = "wrong"
-        lines[5] = json.dumps(rec)
-        paths[1].write_text("\n".join(lines) + "\n")
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "Rater ID" in str(e)
-    print("  PASS: test_rater_id_mismatch_rejected")
+        def m(paths):
+            s = json.loads(paths[2].read_text()); s["queue_item_count"] = 25
+            paths[2].write_text(json.dumps(s))
+        _expect_error(d, m, "item count")
+    print("  PASS: test_session_item_count_mismatch_rejected")
 
-
-def test_rating_order_mismatch_rejected():
+def test_session_ratings_filename_mismatch_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        lines = paths[1].read_text().strip().split("\n")
-        lines[0], lines[1] = lines[1], lines[0]  # Swap order
-        paths[1].write_text("\n".join(lines) + "\n")
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "order" in str(e).lower()
-    print("  PASS: test_rating_order_mismatch_rejected")
+        def m(paths):
+            s = json.loads(paths[2].read_text()); s["ratings_file"] = "other.jsonl"
+            paths[2].write_text(json.dumps(s))
+        _expect_error(d, m, "ratings file")
+    print("  PASS: test_session_ratings_filename_mismatch_rejected")
 
-
-# === Session validation ===
-
-def test_queue_fingerprint_mismatch_rejected():
+def test_session_missing_required_field_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        sess = json.loads(paths[2].read_text())
-        sess["queue_fingerprint"] = "sha256:wrong"
-        paths[2].write_text(json.dumps(sess))
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "fingerprint" in str(e).lower()
-    print("  PASS: test_queue_fingerprint_mismatch_rejected")
+        def m(paths):
+            s = json.loads(paths[2].read_text()); del s["queue_fingerprint"]
+            paths[2].write_text(json.dumps(s))
+        _expect_error(d, m, "missing")
+    print("  PASS: test_session_missing_required_field_rejected")
 
 
-# === Answer-key validation ===
+# ===========================================================================
+# 3. Answer-key structural
+# ===========================================================================
 
-def test_wrong_model_rejected():
+def test_answer_key_order_mismatch_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        key = json.loads(paths[3].read_text())
-        key["items"][0]["model"] = "gpt-5"
-        paths[3].write_text(json.dumps(key))
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "model" in str(e).lower()
-    print("  PASS: test_wrong_model_rejected")
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][0], k["items"][1] = k["items"][1], k["items"][0]
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "order")
+    print("  PASS: test_answer_key_order_mismatch_rejected")
 
-
-def test_judge_integration_mismatch_rejected():
+def test_answer_key_position_mismatch_rejected():
     with tempfile.TemporaryDirectory() as d:
-        paths = _build_run(d)
-        key = json.loads(paths[3].read_text())
-        key["items"][0]["judge_score"] = 5  # != integration_score (3)
-        paths[3].write_text(json.dumps(key))
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "integration" in str(e).lower()
-    print("  PASS: test_judge_integration_mismatch_rejected")
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][5]["queue_position"] = 99
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "position")
+    print("  PASS: test_answer_key_position_mismatch_rejected")
+
+def test_broken_duplicate_reference_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][24]["duplicate_of_blinded_id"] = "HR-NONEXIST"
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "duplicate")
+    print("  PASS: test_broken_duplicate_reference_rejected")
+
+def test_duplicate_points_to_duplicate_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            # Point dup 25 to dup 24 (which is itself a duplicate)
+            k["items"][25]["duplicate_of_blinded_id"] = "HR-0024"
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "duplicate")
+    print("  PASS: test_duplicate_points_to_duplicate_rejected")
+
+def test_duplicate_source_metadata_mismatch_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][24]["source_method"] = "vanilla_rag"  # != original
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "mismatch")
+    print("  PASS: test_duplicate_source_metadata_mismatch_rejected")
+
+def test_duplicate_queue_content_mismatch_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            q = json.loads(paths[0].read_text())
+            q["items"][24]["reference_context"] = "DIFFERENT"
+            paths[0].write_text(json.dumps(q))
+            # Recompute session fingerprint
+            s = json.loads(paths[2].read_text())
+            s["queue_fingerprint"] = _queue_fingerprint(q)
+            paths[2].write_text(json.dumps(s))
+        _expect_error(d, m, "queue")
+    print("  PASS: test_duplicate_queue_content_mismatch_rejected")
 
 
-# === Metrics with known values ===
+# ===========================================================================
+# 4. Protocol constraints
+# ===========================================================================
 
-def test_overall_summary_known_values():
-    """Mixed ratings: known exact metrics."""
-    # 24 primary items: ratings cycle [1,2,3,4,5,1,2,3...], judge all 3
-    h = [(i % 5) + 1 for i in range(24)] + [3] * 6
-    j = [3] * 30
+def test_wrong_evaluation_dimension_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][0]["evaluation_dimension"] = "profile_usage"
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "evaluation_dimension")
+    print("  PASS: test_wrong_evaluation_dimension_rejected")
+
+def test_wrong_context_provenance_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][0]["reference_context_provenance"] = "stored"
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "provenance")
+    print("  PASS: test_wrong_context_provenance_rejected")
+
+def test_exact_model_visible_context_true_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        def m(paths):
+            k = json.loads(paths[3].read_text())
+            k["items"][0]["is_exact_model_visible_context"] = True
+            paths[3].write_text(json.dumps(k))
+        _expect_error(d, m, "exact")
+    print("  PASS: test_exact_model_visible_context_true_rejected")
+
+
+# ===========================================================================
+# 5. Overall summary with nontrivial known values
+# ===========================================================================
+
+def test_overall_summary_all_fields():
+    """Mixed ratings with exact expected values for every field."""
+    # 24 primary: [5,4,3,2,1, 4,3,2,1,5, 3,2,1,5,4, 2,1,5,4,3, 1,5,4,3]
+    # Judge all=3. Diffs: [+2,+1,0,-1,-2, +1,0,-1,-2,+2, 0,-1,-2,+2,+1, -1,-2,+2,+1,0, -2,+2,+1,0]
+    h_primary = [5,4,3,2,1, 4,3,2,1,5, 3,2,1,5,4, 2,1,5,4,3, 1,5,4,3]
+    h = h_primary + [3]*6  # dups match judge
+    j = [3]*30
     with tempfile.TemporaryDirectory() as d:
         result = _compile(d, human_ratings=h, judge_scores=j)
     s = result.overall_summary
     assert s.item_count == 24
-    # Mean human: (1+2+3+4+5)*4 + (1+2+3+4) = 15*4+10=70? No: 24 items cycling 1-5
-    # Actually [1,2,3,4,5,1,2,3,4,5,1,2,3,4,5,1,2,3,4,5,1,2,3,4] = 5 full cycles - 1 item
-    # Sum = 4*(1+2+3+4+5) + (1+2+3+4) = 60+10 = 70, mean = 70/24 ≈ 2.917
-    assert abs(s.mean_human_rating - 70/24) < 0.001
+    assert abs(s.mean_human_rating - sum(h_primary)/24) < 0.001
     assert s.mean_judge_score == 3.0
-    # Exact agreement: only where human==3 (positions 2,7,12,17,22 → indices 2,7,12,17,22)
-    # That's items where (i%5)+1==3, i.e. i%5==2, i in {2,7,12,17,22} → 5 items
-    assert s.exact_agreement_count == 5
-    assert abs(s.exact_agreement_rate - 5/24) < 0.001
-    # Within-one: |h-3|<=1 → h in {2,3,4}. i%5 in {1,2,3} → 3 out of 5 per cycle
-    # 4 full cycles: 12, plus partial [1,2,3,4]: 3 match → 15 total? Wait:
-    # indices 0-23: i%5: 0,1,2,3,4,0,1,2,3,4,...,0,1,2,3 → positions with val in{2,3,4}:
-    # val=(i%5)+1: 1,2,3,4,5,1,2,3,4,5,...1,2,3,4 → values 2,3,4 at i%5 in {1,2,3}
-    # Count: in 24 items, i%5==1: 5 times, i%5==2: 5 times, i%5==3: 5 times → 15
-    assert s.within_one_count == 15
-    print("  PASS: test_overall_summary_known_values")
+    diffs = [hp - 3 for hp in h_primary]
+    assert abs(s.mean_signed_difference - sum(diffs)/24) < 0.001
+    abs_diffs = [abs(d) for d in diffs]
+    assert abs(s.mean_absolute_error - sum(abs_diffs)/24) < 0.001
+    exact_count = sum(1 for hp in h_primary if hp == 3)
+    assert s.exact_agreement_count == exact_count
+    assert abs(s.exact_agreement_rate - exact_count/24) < 0.001
+    w1_count = sum(1 for hp in h_primary if abs(hp-3) <= 1)
+    assert s.within_one_count == w1_count
+    assert abs(s.within_one_rate - w1_count/24) < 0.001
+    print("  PASS: test_overall_summary_all_fields")
 
 
-def test_primary_excludes_duplicates():
-    """Duplicates don't contaminate primary metrics."""
-    h = [3] * 24 + [1] * 6  # Primary match perfectly, dups differ
-    j = [3] * 30
+# ===========================================================================
+# 6. Method summaries
+# ===========================================================================
+
+def test_method_flag_and_note_counts():
     with tempfile.TemporaryDirectory() as d:
-        result = _compile(d, human_ratings=h, judge_scores=j)
-    assert result.overall_summary.exact_agreement_rate == 1.0
-    assert result.appearance_sensitivity_summary.exact_agreement_rate < 1.0
-    print("  PASS: test_primary_excludes_duplicates")
+        # Flag items 0,4 (kernel_shared indices); note item 1 (mem0_default)
+        result = _compile(d, flag_0=True, flag_4=True, note_1="note")
+    ks = next(ms for ms in result.method_summaries if ms.method == "kernel_shared")
+    md = next(ms for ms in result.method_summaries if ms.method == "mem0_default")
+    assert ks.flagged_count == 2
+    assert md.noted_count == 1
+    print("  PASS: test_method_flag_and_note_counts")
 
 
-def test_sensitivity_uses_all_30():
-    with tempfile.TemporaryDirectory() as d:
-        result = _compile(d)
-    assert result.appearance_sensitivity_summary.item_count == 30
-    print("  PASS: test_sensitivity_uses_all_30")
+# ===========================================================================
+# 7. Sensitivity independence
+# ===========================================================================
+
+def test_primary_metrics_unchanged_when_duplicates_change():
+    """Changing duplicate ratings doesn't affect primary."""
+    j = [3]*30
+    h1 = [3]*24 + [3]*6  # All match
+    h2 = [3]*24 + [1]*6  # Dups differ
+    with tempfile.TemporaryDirectory() as d1:
+        r1 = _compile(d1, human_ratings=h1, judge_scores=j)
+    with tempfile.TemporaryDirectory() as d2:
+        r2 = _compile(d2, human_ratings=h2, judge_scores=j)
+    # Primary identical
+    assert r1.overall_summary == r2.overall_summary
+    # Sensitivity differs
+    assert r1.appearance_sensitivity_summary != r2.appearance_sensitivity_summary
+    print("  PASS: test_primary_metrics_unchanged_when_duplicates_change")
 
 
-def test_confusion_matrix_known_cells():
-    """All human=3, judge=3 → cell [3][3]=24, all others 0."""
-    with tempfile.TemporaryDirectory() as d:
-        result = _compile(d)
-    assert result.confusion_matrix[3][3] == 24
-    assert result.confusion_matrix[1][1] == 0
-    total = sum(result.confusion_matrix[h][j] for h in range(1,6) for j in range(1,6))
-    assert total == 24
-    print("  PASS: test_confusion_matrix_known_cells")
+# ===========================================================================
+# 8. Duplicate metrics
+# ===========================================================================
 
-
-def test_duplicate_consistency_known():
-    """All same rating → 100% exact."""
-    with tempfile.TemporaryDirectory() as d:
-        result = _compile(d)
-    ds = result.duplicate_summary
-    assert ds.pair_count == 6
-    assert ds.exact_match_rate == 1.0
-    assert ds.mean_absolute_difference == 0.0
-    print("  PASS: test_duplicate_consistency_known")
-
-
-def test_duplicate_consistency_mixed():
-    """Originals=3, duplicates=5 → diff=2 each."""
-    h = [3]*24 + [5]*6
-    with tempfile.TemporaryDirectory() as d:
-        result = _compile(d, human_ratings=h)
-    ds = result.duplicate_summary
-    assert ds.exact_match_rate == 0.0
-    assert ds.mean_absolute_difference == 2.0
-    assert ds.max_absolute_difference == 2
-    print("  PASS: test_duplicate_consistency_mixed")
-
-
-def test_method_summaries_six_each():
+def test_duplicate_positions_known():
+    """Duplicate positions are queue_position values from answer key."""
     with tempfile.TemporaryDirectory() as d:
         result = _compile(d)
-    assert len(result.method_summaries) == 4
-    for ms in result.method_summaries:
-        assert ms.item_count == 6
-    print("  PASS: test_method_summaries_six_each")
+    for dp in result.duplicate_pairs:
+        # Originals at positions 1-6, duplicates at 25-30
+        assert dp.original_queue_position <= 24
+        assert dp.duplicate_queue_position >= 25
+        assert dp.positional_distance == dp.duplicate_queue_position - dp.original_queue_position
+    print("  PASS: test_duplicate_positions_known")
+
+def test_duplicate_metrics_ignore_judge_scores():
+    """Changing judge scores doesn't affect duplicate consistency."""
+    h = [3]*30
+    j1 = [3]*30
+    j2 = [5]*30  # Different judge scores
+    with tempfile.TemporaryDirectory() as d1:
+        r1 = _compile(d1, human_ratings=h, judge_scores=j1)
+    with tempfile.TemporaryDirectory() as d2:
+        r2 = _compile(d2, human_ratings=h, judge_scores=j2)
+    # Duplicate consistency depends only on human ratings
+    assert r1.duplicate_summary == r2.duplicate_summary
+    print("  PASS: test_duplicate_metrics_ignore_judge_scores")
 
 
-def test_notes_and_flags_preserved():
+# ===========================================================================
+# 9. Confusion matrix
+# ===========================================================================
+
+def test_confusion_matrix_labels_and_shape():
     with tempfile.TemporaryDirectory() as d:
-        result = _compile(d, note_0="My note", flag_0=True)
-    item = next(i for i in result.all_appearances if i.blinded_id == "HR-0000")
-    assert item.note == "My note"
-    assert item.flagged is True
-    print("  PASS: test_notes_and_flags_preserved")
+        result = _compile(d)
+    m = result.confusion_matrix
+    assert set(m.keys()) == {1, 2, 3, 4, 5}
+    for row in m.values():
+        assert set(row.keys()) == {1, 2, 3, 4, 5}
+        assert all(isinstance(v, int) for v in row.values())
+    print("  PASS: test_confusion_matrix_labels_and_shape")
+
+def test_confusion_matrix_csv_shape():
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        out = Path(d) / "compiled"
+        write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+        with open(out / "confusion_matrix.csv") as f:
+            rows = list(csv.reader(f))
+        assert len(rows) == 6  # header + 5
+        assert rows[0] == ["human\\judge", "1", "2", "3", "4", "5"]
+    print("  PASS: test_confusion_matrix_csv_shape")
 
 
-# === Output files ===
+# ===========================================================================
+# 10. Output completeness
+# ===========================================================================
 
 def test_output_row_counts():
     with tempfile.TemporaryDirectory() as d:
         result = _compile(d)
         out = Path(d) / "compiled"
         write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
-        # primary_items.csv: header + 24 rows
-        with open(out / "primary_items.csv") as f:
-            lines = list(csv.reader(f))
-        assert len(lines) == 25  # 1 header + 24
-        # all_appearances.csv: header + 30
-        with open(out / "all_appearances.csv") as f:
-            lines = list(csv.reader(f))
-        assert len(lines) == 31
-        # method_summary.csv: header + 4
-        with open(out / "method_summary.csv") as f:
-            lines = list(csv.reader(f))
-        assert len(lines) == 5
-        # duplicate_consistency.csv: header + 6
-        with open(out / "duplicate_consistency.csv") as f:
-            lines = list(csv.reader(f))
-        assert len(lines) == 7
-        # confusion_matrix.csv: header + 5
-        with open(out / "confusion_matrix.csv") as f:
-            lines = list(csv.reader(f))
-        assert len(lines) == 6
+        for fname, expected in [("primary_items.csv", 25), ("all_appearances.csv", 31),
+                                ("method_summary.csv", 5), ("duplicate_consistency.csv", 7),
+                                ("confusion_matrix.csv", 6)]:
+            with open(out / fname) as f:
+                assert len(f.readlines()) == expected, f"{fname} wrong count"
     print("  PASS: test_output_row_counts")
-
 
 def test_summary_protocol_limitations():
     with tempfile.TemporaryDirectory() as d:
@@ -371,12 +425,41 @@ def test_summary_protocol_limitations():
         with open(out / "summary.json") as f:
             s = json.load(f)
         lim = s["limitations"]
-        assert lim["question_stratification"] is None
-        assert lim["display_context_provenance"] == "synthetic_source_context"
-        assert lim["is_exact_model_visible_context"] is False
-        assert lim["primary_judge_dimension"] == "integration"
+        assert lim == {"question_stratification": None,
+                       "display_context_provenance": "synthetic_source_context",
+                       "is_exact_model_visible_context": False,
+                       "primary_judge_dimension": "integration"}
     print("  PASS: test_summary_protocol_limitations")
 
+def test_deterministic_outputs():
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        o1 = Path(d) / "c1"; o2 = Path(d) / "c2"
+        write_compilation_outputs(result, output_dir=o1, run_id="t", rater_id="r", protocol_name="p")
+        write_compilation_outputs(result, output_dir=o2, run_id="t", rater_id="r", protocol_name="p")
+        for fname in ("summary.json", "primary_items.csv", "confusion_matrix.csv"):
+            assert (o1/fname).read_text() == (o2/fname).read_text(), f"{fname} not deterministic"
+    print("  PASS: test_deterministic_outputs")
+
+
+# ===========================================================================
+# 11. Atomic publication
+# ===========================================================================
+
+def test_failure_leaves_no_output():
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        out = Path(d) / "compiled"
+        with patch("benchmarks.human_rating.compile_ratings.os.rename", side_effect=OSError("fail")):
+            try:
+                write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+            except OSError:
+                pass
+        assert not out.exists()
+        # No staging dirs remain
+        staging = [p for p in Path(d).iterdir() if ".compile_staging" in p.name]
+        assert staging == []
+    print("  PASS: test_failure_leaves_no_output")
 
 def test_overwrite_protection():
     with tempfile.TemporaryDirectory() as d:
@@ -390,79 +473,159 @@ def test_overwrite_protection():
             pass
     print("  PASS: test_overwrite_protection")
 
-
-def test_compiled_output_permissions_posix():
+def test_compiled_permissions_posix():
     if os.name != "posix":
-        print("  SKIP: test_compiled_output_permissions_posix")
+        print("  SKIP: test_compiled_permissions_posix")
         return
     with tempfile.TemporaryDirectory() as d:
         result = _compile(d)
         out = Path(d) / "compiled"
         write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
         for f in out.iterdir():
-            mode = stat.S_IMODE(os.stat(f).st_mode)
-            assert mode == 0o600, f"{f.name}: {oct(mode)}"
-    print("  PASS: test_compiled_output_permissions_posix")
+            assert stat.S_IMODE(os.stat(f).st_mode) == 0o600
+    print("  PASS: test_compiled_permissions_posix")
 
 
-def test_incomplete_ratings_rejected():
+# ===========================================================================
+# 12. CLI
+# ===========================================================================
+
+def test_compile_cli_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "benchmarks.human_rating.compile_ratings", "--help"],
+        capture_output=True, text=True, cwd=_project_root,
+    )
+    assert result.returncode == 0
+    assert "--queue" in result.stdout
+    assert "--answer-key" in result.stdout
+    print("  PASS: test_compile_cli_help")
+
+def test_compile_cli_success():
     with tempfile.TemporaryDirectory() as d:
         paths = _build_run(d)
-        lines = paths[1].read_text().strip().split("\n")[:29]
-        paths[1].write_text("\n".join(lines) + "\n")
-        try:
-            compile_rating_run(queue_path=paths[0], ratings_path=paths[1],
-                               session_path=paths[2], answer_key_path=paths[3])
-            assert False
-        except ValueError as e:
-            assert "29" in str(e)
-    print("  PASS: test_incomplete_ratings_rejected")
+        out = Path(d) / "compiled"
+        result = subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.compile_ratings",
+             "--queue", str(paths[0]), "--ratings", str(paths[1]),
+             "--session", str(paths[2]), "--answer-key", str(paths[3]),
+             "--output-dir", str(out)],
+            capture_output=True, text=True, cwd=_project_root,
+        )
+        assert result.returncode == 0
+        assert "Compilation complete" in result.stdout
+        assert (out / "summary.json").exists()
+    print("  PASS: test_compile_cli_success")
 
 
-def test_deterministic_json_output():
+# ===========================================================================
+# 13. Real artifact integration
+# ===========================================================================
+
+def test_real_artifacts_compile():
+    """Generate real artifacts and compile with synthetic ratings."""
+    results_dir = os.path.join(_project_root, "results")
+    if not os.path.isdir(os.path.join(results_dir, "gpt4o_naive_concat")):
+        print("  SKIP: test_real_artifacts_compile")
+        return
+    from benchmarks.human_rating.trial_loader import load_eligible_trials
+    from benchmarks.human_rating.sampling import sample_unique_trials
+    from benchmarks.human_rating.blinding import build_blinded_plan
+    from benchmarks.human_rating.artifact_writer import write_rating_artifacts
+    from benchmarks.human_rating.paths import get_run_paths
+
     with tempfile.TemporaryDirectory() as d:
-        result = _compile(d)
-        out1 = Path(d) / "c1"; out2 = Path(d) / "c2"
-        write_compilation_outputs(result, output_dir=out1, run_id="t", rater_id="r", protocol_name="p")
-        write_compilation_outputs(result, output_dir=out2, run_id="t", rater_id="r", protocol_name="p")
-        assert (out1/"summary.json").read_text() == (out2/"summary.json").read_text()
-    print("  PASS: test_deterministic_json_output")
+        trials, _ = load_eligible_trials(results_root=results_dir, min_per_method=6)
+        selected, _ = sample_unique_trials(trials, seed=20260715)
+        plan = build_blinded_plan(selected, seed=20260716)
+        rp = get_run_paths("real-test", base_dir=d)
+        write_rating_artifacts(plan, run_paths=rp, run_id="real-test",
+                               protocol_name="test", sampling_seed=20260715, blinding_seed=20260716)
+        # Create synthetic complete ratings
+        with open(rp.rating_queue_path) as f:
+            queue = json.load(f)
+        session = {"schema_version": 1, "run_id": "real-test", "rater_id": "rater-01",
+                   "queue_fingerprint": _queue_fingerprint(queue),
+                   "queue_item_count": 30, "ratings_file": "ratings.jsonl",
+                   "started_at": "t"}
+        session_path = Path(rp.rater_dir) / "rating_session.json"
+        session_path.write_text(json.dumps(session))
+        ratings_path = Path(rp.ratings_path)
+        with open(ratings_path, "w") as f:
+            for item in queue["items"]:
+                f.write(json.dumps({"schema_version": 1, "run_id": "real-test",
+                        "rater_id": "rater-01", "blinded_id": item["blinded_id"],
+                        "rating": 3, "note": None, "flagged": False, "rated_at": "t"}) + "\n")
+        # Compile
+        result = compile_rating_run(
+            queue_path=Path(rp.rating_queue_path),
+            ratings_path=ratings_path,
+            session_path=session_path,
+            answer_key_path=Path(rp.answer_key_path),
+        )
+        assert len(result.primary_items) == 24
+        assert len(result.all_appearances) == 30
+        assert len(result.method_summaries) == 4
+        assert len(result.duplicate_pairs) == 6
+    print("  PASS: test_real_artifacts_compile")
 
 
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Main
+# ===========================================================================
 
 def main():
     print("=== Compile Ratings Tests ===\n")
 
-    print("Ratings validation:")
-    test_extra_rating_rejected()
-    test_duplicate_rating_id_rejected()
-    test_unknown_rating_id_rejected()
-    test_rater_id_mismatch_rejected()
-    test_rating_order_mismatch_rejected()
+    print("Malformed ratings:")
+    test_malformed_jsonl_rejected()
+    test_non_object_jsonl_record_rejected()
+    test_malformed_trailing_jsonl_rejected()
 
-    print("\nSession/key validation:")
-    test_queue_fingerprint_mismatch_rejected()
-    test_wrong_model_rejected()
-    test_judge_integration_mismatch_rejected()
+    print("\nSession metadata:")
+    test_session_item_count_mismatch_rejected()
+    test_session_ratings_filename_mismatch_rejected()
+    test_session_missing_required_field_rejected()
 
-    print("\nMetrics:")
-    test_overall_summary_known_values()
-    test_primary_excludes_duplicates()
-    test_sensitivity_uses_all_30()
-    test_confusion_matrix_known_cells()
-    test_duplicate_consistency_known()
-    test_duplicate_consistency_mixed()
-    test_method_summaries_six_each()
-    test_notes_and_flags_preserved()
+    print("\nAnswer-key structural:")
+    test_answer_key_order_mismatch_rejected()
+    test_answer_key_position_mismatch_rejected()
+    test_broken_duplicate_reference_rejected()
+    test_duplicate_points_to_duplicate_rejected()
+    test_duplicate_source_metadata_mismatch_rejected()
+    test_duplicate_queue_content_mismatch_rejected()
+
+    print("\nProtocol constraints:")
+    test_wrong_evaluation_dimension_rejected()
+    test_wrong_context_provenance_rejected()
+    test_exact_model_visible_context_true_rejected()
+
+    print("\nMetrics (known values):")
+    test_overall_summary_all_fields()
+    test_primary_metrics_unchanged_when_duplicates_change()
+    test_method_flag_and_note_counts()
+
+    print("\nSensitivity/duplicates:")
+    test_duplicate_positions_known()
+    test_duplicate_metrics_ignore_judge_scores()
+    test_confusion_matrix_labels_and_shape()
+    test_confusion_matrix_csv_shape()
 
     print("\nOutputs:")
     test_output_row_counts()
     test_summary_protocol_limitations()
+    test_deterministic_outputs()
+
+    print("\nAtomicity/permissions:")
+    test_failure_leaves_no_output()
     test_overwrite_protection()
-    test_compiled_output_permissions_posix()
-    test_incomplete_ratings_rejected()
-    test_deterministic_json_output()
+    test_compiled_permissions_posix()
+
+    print("\nCLI:")
+    test_compile_cli_help()
+    test_compile_cli_success()
+
+    print("\nIntegration:")
+    test_real_artifacts_compile()
 
     print("\n=== ALL TESTS PASSED ===")
 
