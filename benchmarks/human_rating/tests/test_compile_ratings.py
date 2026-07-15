@@ -570,6 +570,245 @@ def test_real_artifacts_compile():
 
 
 # ===========================================================================
+# Additional: Method summaries, duplicate details, privacy, rollback, CLI
+# ===========================================================================
+
+def test_method_summary_all_fields_known_values():
+    """Each method has different ratings so grouping bugs are visible."""
+    # Methods assigned round-robin: i%4 → ks=0,4,8,12,16,20 m0=1,5,9,13,17,21 nc=2,6,10,14,18,22 vr=3,7,11,15,19,23
+    # kernel_shared (indices 0,4,8,12,16,20): human=[1,2,3,4,5,5], judge=3
+    # mem0_default (indices 1,5,9,13,17,21): human=[2,2,2,2,2,2], judge=3
+    # naive_concat (indices 2,6,10,14,18,22): human=[5,5,5,5,5,5], judge=3
+    # vanilla_rag (indices 3,7,11,15,19,23): human=[3,4,3,4,3,4], judge=3
+    import statistics as st
+    h = [0]*24
+    ks_h = [1,2,3,4,5,5]; m0_h = [2,2,2,2,2,2]; nc_h = [5,5,5,5,5,5]; vr_h = [3,4,3,4,3,4]
+    for i, v in enumerate(ks_h): h[i*4] = v
+    for i, v in enumerate(m0_h): h[i*4+1] = v
+    for i, v in enumerate(nc_h): h[i*4+2] = v
+    for i, v in enumerate(vr_h): h[i*4+3] = v
+    h += [3]*6
+    j = [3]*30
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d, human_ratings=h, judge_scores=j)
+
+    ks = next(ms for ms in result.method_summaries if ms.method == "kernel_shared")
+    assert ks.item_count == 6
+    assert abs(ks.mean_human_rating - st.mean(ks_h)) < 0.001
+    assert ks.median_human_rating == float(st.median(ks_h))
+    assert abs(ks.human_rating_std - st.stdev(ks_h)) < 0.001
+    assert ks.mean_judge_score == 3.0
+    diffs = [v-3 for v in ks_h]
+    assert abs(ks.mean_signed_difference - st.mean(diffs)) < 0.001
+    assert abs(ks.mean_absolute_error - st.mean([abs(d) for d in diffs])) < 0.001
+    exact = sum(1 for v in ks_h if v == 3)
+    assert abs(ks.exact_agreement_rate - exact/6) < 0.001
+    w1 = sum(1 for v in ks_h if abs(v-3) <= 1)
+    assert abs(ks.within_one_rate - w1/6) < 0.001
+
+    nc = next(ms for ms in result.method_summaries if ms.method == "naive_concat")
+    assert nc.mean_human_rating == 5.0
+    assert nc.exact_agreement_rate == 0.0  # all 5 vs judge 3
+    assert nc.within_one_rate == 0.0
+
+    m0 = next(ms for ms in result.method_summaries if ms.method == "mem0_default")
+    assert m0.mean_human_rating == 2.0
+    assert m0.within_one_rate == 1.0  # all |2-3|=1
+
+    vr = next(ms for ms in result.method_summaries if ms.method == "vanilla_rag")
+    assert abs(vr.mean_human_rating - st.mean(vr_h)) < 0.001
+    print("  PASS: test_method_summary_all_fields_known_values")
+
+
+def test_duplicate_summary_all_fields_known():
+    """Known dup ratings: originals[0-5]=[1,2,3,4,5,3], dups=[3,3,3,3,3,3]."""
+    h = [1,2,3,4,5,3] + [3]*18 + [3,3,3,3,3,3]  # dups at 24-29
+    j = [3]*30
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d, human_ratings=h, judge_scores=j)
+    ds = result.duplicate_summary
+    # Pairs: (1,3),(2,3),(3,3),(4,3),(5,3),(3,3)
+    # Diffs: 2,1,0,-1,-2,0; abs: 2,1,0,1,2,0
+    assert ds.pair_count == 6
+    assert ds.exact_match_count == 2  # items 2,5 (3==3)
+    assert abs(ds.exact_match_rate - 2/6) < 0.001
+    w1 = sum(1 for ad in [2,1,0,1,2,0] if ad <= 1)  # 1,0,1,0 → 4
+    assert ds.within_one_count == w1
+    assert abs(ds.within_one_rate - w1/6) < 0.001
+    assert abs(ds.mean_absolute_difference - sum([2,1,0,1,2,0])/6) < 0.001
+    assert ds.max_absolute_difference == 2
+    # Positions: originals at 1-6, dups at 25-30; distances = 24 each
+    assert abs(ds.mean_positional_distance - 24.0) < 0.001
+    # Verify individual records
+    for dp in result.duplicate_pairs:
+        assert dp.original_queue_position <= 6
+        assert dp.duplicate_queue_position >= 25
+    print("  PASS: test_duplicate_summary_all_fields_known")
+
+
+def test_confusion_matrix_integer_cells_and_known():
+    """Multiple nonzero cells verified."""
+    # human=[5,4,3,2,1]*4 + [3,3,3,3], judge=3 for all
+    h_p = [5,4,3,2,1]*4 + [3,3,3,3]  # 24 items
+    h = h_p + [3]*6
+    j = [3]*30
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d, human_ratings=h, judge_scores=j)
+    m = result.confusion_matrix
+    total = sum(m[hr][js] for hr in range(1,6) for js in range(1,6))
+    assert total == 24
+    # All judge=3, so only column 3 has values
+    for hr in range(1, 6):
+        for js in range(1, 6):
+            assert isinstance(m[hr][js], int)
+            if js != 3:
+                assert m[hr][js] == 0
+    # Column 3: counts of each human rating
+    # 5 appears 4 times, 4 appears 4, 3 appears 8 (4+4 from extra), 2 appears 4, 1 appears 4
+    assert m[5][3] == 4
+    assert m[4][3] == 4
+    assert m[3][3] == 8
+    assert m[2][3] == 4
+    assert m[1][3] == 4
+    print("  PASS: test_confusion_matrix_integer_cells_and_known")
+
+
+def test_output_headers():
+    """CSV files have expected headers."""
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        out = Path(d) / "compiled"
+        write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+        with open(out / "primary_items.csv") as f:
+            reader = csv.reader(f)
+            headers = next(reader)
+        assert "blinded_id" in headers
+        assert "human_rating" in headers
+        assert "judge_score" in headers
+        assert "source_method" in headers
+        with open(out / "confusion_matrix.csv") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+        assert header == ["human\\judge", "1", "2", "3", "4", "5"]
+    print("  PASS: test_output_headers")
+
+
+def test_notes_not_in_summary_json():
+    """summary.json must not contain note text."""
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d, note_0="PRIVATE-NOTE-SENTINEL-9274")
+        out = Path(d) / "compiled"
+        write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+        text = (out / "summary.json").read_text()
+        assert "PRIVATE-NOTE-SENTINEL" not in text
+    print("  PASS: test_notes_not_in_summary_json")
+
+
+def test_compile_cli_does_not_print_notes():
+    """CLI terminal output must not contain note text."""
+    with tempfile.TemporaryDirectory() as d:
+        paths = _build_run(d, note_5="PRIVATE-NOTE-CLI-CHECK")
+        out = Path(d) / "compiled"
+        result = subprocess.run(
+            [sys.executable, "-m", "benchmarks.human_rating.compile_ratings",
+             "--queue", str(paths[0]), "--ratings", str(paths[1]),
+             "--session", str(paths[2]), "--answer-key", str(paths[3]),
+             "--output-dir", str(out)],
+            capture_output=True, text=True, cwd=_project_root,
+        )
+        assert "PRIVATE-NOTE-CLI-CHECK" not in result.stdout
+        assert "PRIVATE-NOTE-CLI-CHECK" not in result.stderr
+    print("  PASS: test_compile_cli_does_not_print_notes")
+
+
+def test_failed_overwrite_restores_existing():
+    """Failed overwrite restores original compiled directory."""
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        out = Path(d) / "compiled"
+        write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+        # Save original bytes
+        original_files = {}
+        for f in out.iterdir():
+            original_files[f.name] = f.read_bytes()
+
+        # Inject failure during overwrite (after backup, before new publish)
+        orig_rename = os.rename
+        call_count = [0]
+        def failing_rename(src, dst):
+            call_count[0] += 1
+            if call_count[0] == 2:  # Second rename = staging→final
+                raise OSError("Injected failure")
+            return orig_rename(src, dst)
+
+        with patch("benchmarks.human_rating.compile_ratings.os.rename", side_effect=failing_rename):
+            try:
+                write_compilation_outputs(result, output_dir=out, run_id="t",
+                                          rater_id="r", protocol_name="p", overwrite=True)
+            except OSError:
+                pass
+
+        # Original directory restored
+        assert out.exists()
+        for name, content in original_files.items():
+            assert (out / name).read_bytes() == content
+        # No backup or staging remains
+        leftovers = [p for p in Path(d).iterdir()
+                     if "backup" in p.name or "staging" in p.name]
+        assert leftovers == []
+    print("  PASS: test_failed_overwrite_restores_existing")
+
+
+def test_no_staging_after_success():
+    """No staging or backup directories after successful write."""
+    with tempfile.TemporaryDirectory() as d:
+        result = _compile(d)
+        out = Path(d) / "compiled"
+        write_compilation_outputs(result, output_dir=out, run_id="t", rater_id="r", protocol_name="p")
+        leftovers = [p for p in Path(d).iterdir()
+                     if "staging" in p.name or "backup" in p.name]
+        assert leftovers == []
+    print("  PASS: test_no_staging_after_success")
+
+
+def test_compile_cli_requires_all_args():
+    """Missing required args fail."""
+    base_args = [sys.executable, "-m", "benchmarks.human_rating.compile_ratings"]
+    for missing in ["--queue", "--ratings", "--session", "--answer-key", "--output-dir"]:
+        # Build args with one missing
+        all_flags = {"--queue": "q", "--ratings": "r", "--session": "s",
+                     "--answer-key": "k", "--output-dir": "o"}
+        args = list(base_args)
+        for flag, val in all_flags.items():
+            if flag != missing:
+                args.extend([flag, val])
+        result = subprocess.run(args, capture_output=True, text=True, cwd=_project_root)
+        assert result.returncode != 0, f"Should fail without {missing}"
+    print("  PASS: test_compile_cli_requires_all_args")
+
+
+def test_compile_cli_overwrite_flag():
+    """--overwrite allows re-compilation."""
+    with tempfile.TemporaryDirectory() as d:
+        paths = _build_run(d)
+        out = Path(d) / "compiled"
+        base = [sys.executable, "-m", "benchmarks.human_rating.compile_ratings",
+                "--queue", str(paths[0]), "--ratings", str(paths[1]),
+                "--session", str(paths[2]), "--answer-key", str(paths[3]),
+                "--output-dir", str(out)]
+        # First run
+        r1 = subprocess.run(base, capture_output=True, text=True, cwd=_project_root)
+        assert r1.returncode == 0
+        # Second without overwrite → fail
+        r2 = subprocess.run(base, capture_output=True, text=True, cwd=_project_root)
+        assert r2.returncode != 0
+        # Third with --overwrite → success
+        r3 = subprocess.run(base + ["--overwrite"], capture_output=True, text=True, cwd=_project_root)
+        assert r3.returncode == 0
+    print("  PASS: test_compile_cli_overwrite_flag")
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
@@ -603,26 +842,36 @@ def main():
     test_overall_summary_all_fields()
     test_primary_metrics_unchanged_when_duplicates_change()
     test_method_flag_and_note_counts()
+    test_method_summary_all_fields_known_values()
 
-    print("\nSensitivity/duplicates:")
+    print("\nDuplicate/sensitivity:")
     test_duplicate_positions_known()
     test_duplicate_metrics_ignore_judge_scores()
+    test_duplicate_summary_all_fields_known()
     test_confusion_matrix_labels_and_shape()
     test_confusion_matrix_csv_shape()
+    test_confusion_matrix_integer_cells_and_known()
 
-    print("\nOutputs:")
+    print("\nOutputs/privacy:")
     test_output_row_counts()
     test_summary_protocol_limitations()
     test_deterministic_outputs()
+    test_output_headers()
+    test_notes_not_in_summary_json()
+    test_compile_cli_does_not_print_notes()
 
     print("\nAtomicity/permissions:")
     test_failure_leaves_no_output()
     test_overwrite_protection()
     test_compiled_permissions_posix()
+    test_failed_overwrite_restores_existing()
+    test_no_staging_after_success()
 
     print("\nCLI:")
     test_compile_cli_help()
     test_compile_cli_success()
+    test_compile_cli_requires_all_args()
+    test_compile_cli_overwrite_flag()
 
     print("\nIntegration:")
     test_real_artifacts_compile()
