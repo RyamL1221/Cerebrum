@@ -1,24 +1,20 @@
 """Data contracts for the human-rating evaluation workflow.
 
-Defines typed schemas for:
-- Normalized source trials (internal representation)
-- Blinded rating queue items (rater-visible only)
-- Answer-key items (preprocessing/compilation only)
-- Rating records (append-only session file)
-- Compiled item-level records (flat export)
+Protocol: mixed_personalization_source_grounded_v1
+
+Design:
+- 4 methods × 6 unique trials = 24 unique items + 6 duplicates = 30 total
+- All questions are classified as mixed_personalization (jointly require
+  profile and task information).
+- Primary automated comparison score: integration_score.
+- Displayed context: source-grounded reference context (NOT exact model-visible).
+- Single 1–5 rating per item using the integration rubric.
 
 Design invariants:
-- The blinded queue schema CANNOT represent method, judge score, question
-  type, trial ID, or duplicate status.
-- Ratings are immutable one-record-per-ID submissions (single 1–5 score).
+- The blinded queue schema CANNOT represent method, judge score, trial ID,
+  or duplicate status.
+- Ratings are immutable one-record-per-ID submissions.
 - The answer key is never exposed to the rating CLI.
-
-Judge score selection rule:
-    The comparison judge score is selected based on question_type:
-    - profile questions → profile_usage_score
-    - task questions → task_usage_score
-    This matches the semantic intent: a profile question tests whether the
-    model used profile knowledge, so the human rates the same dimension.
 """
 
 from dataclasses import dataclass
@@ -35,48 +31,18 @@ VALID_SOURCE_METHODS = frozenset({
     "kernel_shared",
 })
 
-VALID_QUESTION_TYPES = frozenset({"profile", "task"})
-
 VALID_RATINGS = frozenset({1, 2, 3, 4, 5})
 
+# The only supported evaluation dimension for this protocol
+EVALUATION_DIMENSION: Literal["integration"] = "integration"
 
-# ---------------------------------------------------------------------------
-# Judge score selection rule
-# ---------------------------------------------------------------------------
+# The only supported context provenance
+CONTEXT_PROVENANCE: Literal["synthetic_source_context"] = "synthetic_source_context"
 
-def select_judge_score(
-    question_type: str,
-    profile_usage_score: int,
-    task_usage_score: int,
-    integration_score: int,
-) -> int:
-    """Select the comparison judge score based on question type.
-
-    Rule:
-    - "profile" questions → profile_usage_score
-    - "task" questions → task_usage_score
-
-    Args:
-        question_type: "profile" or "task".
-        profile_usage_score: GPT-5.4 judge's profile usage score (1–5).
-        task_usage_score: GPT-5.4 judge's task usage score (1–5).
-        integration_score: GPT-5.4 judge's integration score (1–5).
-
-    Returns:
-        The single integer score used for human-judge comparison.
-
-    Raises:
-        ValueError: If question_type is not valid.
-    """
-    if question_type == "profile":
-        return profile_usage_score
-    elif question_type == "task":
-        return task_usage_score
-    else:
-        raise ValueError(
-            f"Cannot select judge score for question_type={question_type!r}. "
-            f"Must be 'profile' or 'task'."
-        )
+# Protocol constants
+UNIQUE_ITEMS_PER_METHOD = 6
+DUPLICATE_COUNT = 6
+TOTAL_RATING_ITEMS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -89,25 +55,30 @@ class SourceTrial:
 
     Validation requirements:
     - source_method must be one of VALID_SOURCE_METHODS.
-    - model must normalize to "gpt-4o".
-    - question_type must be "profile" or "task".
+    - model must be "gpt-4o".
     - original_trial_id must be nonempty.
+    - evaluation_dimension must be "integration".
+    - reference_context must be nonempty.
+    - reference_context_provenance must be "synthetic_source_context".
+    - is_exact_model_visible_context must be False.
     - question and response must be nonempty.
-    - judge_score must be in the 1–5 range (selected by question_type rule).
-    - inference_context is the exact context supplied to GPT-4o (may be
-      empty for methods where retrieval failed or no context was injected).
-    - source_file is optional diagnostic metadata (not exposed to rater).
+    - judge_score must equal integration_score and be 1–5.
+    - All three judge dimension scores must be 1–5.
     """
 
     source_method: str
-    model: str
-    question_type: Literal["profile", "task"]
     original_trial_id: str
-    inference_context: str | None
+    model: str
+    evaluation_dimension: Literal["integration"]
+    reference_context: str
+    reference_context_provenance: Literal["synthetic_source_context"]
+    is_exact_model_visible_context: bool
     question: str
     response: str
     judge_score: int
-    source_file: str | None = None
+    profile_usage_score: int
+    task_usage_score: int
+    integration_score: int
 
     def __post_init__(self) -> None:
         if self.source_method not in VALID_SOURCE_METHODS:
@@ -117,22 +88,44 @@ class SourceTrial:
             )
         if self.model != "gpt-4o":
             raise ValueError(
-                f"model must normalize to 'gpt-4o', got {self.model!r}"
-            )
-        if self.question_type not in VALID_QUESTION_TYPES:
-            raise ValueError(
-                f"question_type must be 'profile' or 'task', "
-                f"got {self.question_type!r}"
+                f"model must be 'gpt-4o', got {self.model!r}"
             )
         if not self.original_trial_id or not self.original_trial_id.strip():
             raise ValueError("original_trial_id must be nonempty")
+        if self.evaluation_dimension != "integration":
+            raise ValueError(
+                f"evaluation_dimension must be 'integration', "
+                f"got {self.evaluation_dimension!r}"
+            )
+        if not self.reference_context or not self.reference_context.strip():
+            raise ValueError("reference_context must be nonempty")
+        if self.reference_context_provenance != "synthetic_source_context":
+            raise ValueError(
+                f"reference_context_provenance must be 'synthetic_source_context', "
+                f"got {self.reference_context_provenance!r}"
+            )
+        if self.is_exact_model_visible_context is not False:
+            raise ValueError(
+                "is_exact_model_visible_context must be False for this protocol"
+            )
         if not self.question or not self.question.strip():
             raise ValueError("question must be nonempty")
         if not self.response or not self.response.strip():
             raise ValueError("response must be nonempty")
-        if not isinstance(self.judge_score, int) or self.judge_score < 1 or self.judge_score > 5:
+        for field_name, value in [
+            ("judge_score", self.judge_score),
+            ("profile_usage_score", self.profile_usage_score),
+            ("task_usage_score", self.task_usage_score),
+            ("integration_score", self.integration_score),
+        ]:
+            if not isinstance(value, int) or value < 1 or value > 5:
+                raise ValueError(
+                    f"{field_name} must be an integer 1–5, got {value!r}"
+                )
+        if self.judge_score != self.integration_score:
             raise ValueError(
-                f"judge_score must be an integer 1–5, got {self.judge_score!r}"
+                f"judge_score ({self.judge_score}) must equal "
+                f"integration_score ({self.integration_score})"
             )
 
 
@@ -144,20 +137,20 @@ class SourceTrial:
 class RatingQueueItem:
     """A single blinded item presented to the rater.
 
+    The reference_context field shows the source user profile and task
+    context. It is NOT the exact context visible to the model.
+
     This schema intentionally CANNOT represent:
     - source_method
     - model
-    - question_type
     - original_trial_id
     - judge_score
     - duplicate status
-    - sampling cell
-    - shuffle seed
     - source path
     """
 
     blinded_id: str
-    inference_context: str | None
+    reference_context: str
     question: str
     response: str
 
@@ -177,9 +170,12 @@ class AnswerKeyItem:
     blinded_id: str
     source_method: str
     model: str
-    question_type: Literal["profile", "task"]
     original_trial_id: str
     judge_score: int
+    judge_score_dimension: Literal["integration"]
+    profile_usage_score: int
+    task_usage_score: int
+    integration_score: int
     duplicate_of: str | None
 
 
@@ -191,15 +187,15 @@ class AnswerKeyItem:
 class RatingRecord:
     """A single human rating submission.
 
-    One 1–5 score per item. The rubric dimension matches the question type:
-    - Profile items are rated on profile-usage quality.
-    - Task items are rated on task-usage quality.
+    One 1–5 score per item using the integration rubric (how well the
+    response combines profile preferences and task context into a grounded
+    recommendation).
 
     Validation requirements:
     - rating must be an integer 1–5.
     - Each blinded_id may appear at most once in the session.
-    - rated_at must be a timezone-aware ISO-8601 string.
-    - No source method, judge score, question type, or duplicate metadata.
+    - rated_at must be nonempty.
+    - No source method, judge score, or duplicate metadata.
 
     Ratings are immutable: once submitted, they cannot be overwritten.
     """
@@ -230,7 +226,7 @@ class CompiledRecord:
     """One flat row per rating instance in the compiled export.
 
     Joins the rating record with the answer-key metadata and computes
-    human-vs-judge agreement metrics.
+    human-vs-judge agreement on the integration dimension.
     """
 
     blinded_id: str
@@ -240,9 +236,11 @@ class CompiledRecord:
     rated_at: str
     source_method: str
     model: str
-    question_type: Literal["profile", "task"]
     original_trial_id: str
     judge_score: int
+    profile_usage_score: int
+    task_usage_score: int
+    integration_score: int
     duplicate_of: str | None
     is_duplicate: bool
     human_judge_difference: int

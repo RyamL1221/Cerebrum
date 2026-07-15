@@ -1,17 +1,22 @@
 """Validation helpers for the human-rating workflow file formats.
 
-Provides functions to validate:
+Validates:
 - Rating queue JSON structure
 - Answer key JSON structure and referential integrity
 - Rating session JSONL records
+- Evaluation manifest
 """
 
+import json
 from typing import Any
 
 from benchmarks.human_rating.schemas import (
     VALID_RATINGS,
     VALID_SOURCE_METHODS,
-    VALID_QUESTION_TYPES,
+    EVALUATION_DIMENSION,
+    UNIQUE_ITEMS_PER_METHOD,
+    DUPLICATE_COUNT,
+    TOTAL_RATING_ITEMS,
 )
 
 
@@ -20,28 +25,22 @@ from benchmarks.human_rating.schemas import (
 # ---------------------------------------------------------------------------
 
 _QUEUE_REQUIRED_TOP_KEYS = {"schema_version", "benchmark_name", "created_at", "total_items", "items"}
-_QUEUE_ITEM_REQUIRED_KEYS = {"blinded_id", "inference_context", "question", "response"}
+_QUEUE_ITEM_REQUIRED_KEYS = {"blinded_id", "reference_context", "question", "response"}
 _QUEUE_FORBIDDEN_KEYS = {
-    "source_method", "method", "model", "question_type", "original_trial_id",
-    "judge_score", "judge_dimension",
+    "source_method", "method", "model", "original_trial_id",
+    "judge_score", "judge_score_dimension",
     "profile_usage_score", "task_usage_score", "integration_score",
     "duplicate_of", "duplicate_status", "is_duplicate",
+    "question_type", "evaluation_dimension",
     "sampling_seed", "shuffle_seed", "source_path", "source_file",
+    "inference_context", "inference_context_text",
 }
 
 
 def validate_rating_queue(data: dict[str, Any]) -> list[str]:
-    """Validate a rating queue JSON structure.
-
-    Args:
-        data: Parsed JSON dict of the rating queue file.
-
-    Returns:
-        List of error strings. Empty list means valid.
-    """
+    """Validate a rating queue JSON structure."""
     errors: list[str] = []
 
-    # Top-level keys
     missing_top = _QUEUE_REQUIRED_TOP_KEYS - set(data.keys())
     if missing_top:
         errors.append(f"Missing top-level keys: {sorted(missing_top)}")
@@ -56,9 +55,7 @@ def validate_rating_queue(data: dict[str, Any]) -> list[str]:
         return errors
 
     if data["total_items"] != len(items):
-        errors.append(
-            f"total_items ({data['total_items']}) != actual item count ({len(items)})"
-        )
+        errors.append(f"total_items ({data['total_items']}) != actual count ({len(items)})")
 
     seen_ids: set[str] = set()
     for i, item in enumerate(items):
@@ -66,23 +63,19 @@ def validate_rating_queue(data: dict[str, Any]) -> list[str]:
             errors.append(f"Item {i} is not a dict")
             continue
 
-        # Check required keys
         missing_item = _QUEUE_ITEM_REQUIRED_KEYS - set(item.keys())
         if missing_item:
             errors.append(f"Item {i}: missing keys {sorted(missing_item)}")
 
-        # Check for forbidden (leaked) keys
         leaked = _QUEUE_FORBIDDEN_KEYS & set(item.keys())
         if leaked:
             errors.append(f"Item {i}: contains forbidden keys {sorted(leaked)}")
 
-        # Unique blinded_id
         bid = item.get("blinded_id", "")
         if bid in seen_ids:
             errors.append(f"Item {i}: duplicate blinded_id '{bid}'")
         seen_ids.add(bid)
 
-        # Nonempty content
         if not item.get("question", "").strip():
             errors.append(f"Item {i} ('{bid}'): empty question")
         if not item.get("response", "").strip():
@@ -101,24 +94,17 @@ _KEY_REQUIRED_TOP_KEYS = {
     "created_at", "items",
 }
 _KEY_ITEM_REQUIRED_KEYS = {
-    "blinded_id", "source_method", "model", "question_type",
-    "original_trial_id", "judge_score", "duplicate_of",
+    "blinded_id", "source_method", "model", "original_trial_id",
+    "judge_score", "judge_score_dimension",
+    "profile_usage_score", "task_usage_score", "integration_score",
+    "duplicate_of",
 }
 
 
 def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[str]:
-    """Validate an answer key JSON structure.
-
-    Args:
-        data: Parsed JSON dict of the answer key file.
-        expected_count: Expected number of items (default 30).
-
-    Returns:
-        List of error strings. Empty list means valid.
-    """
+    """Validate an answer key JSON structure."""
     errors: list[str] = []
 
-    # Top-level keys
     missing_top = _KEY_REQUIRED_TOP_KEYS - set(data.keys())
     if missing_top:
         errors.append(f"Missing top-level keys: {sorted(missing_top)}")
@@ -144,64 +130,50 @@ def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[
             errors.append(f"Item {i} is not a dict")
             continue
 
-        # Check required keys
         missing_item = _KEY_ITEM_REQUIRED_KEYS - set(item.keys())
         if missing_item:
             errors.append(f"Item {i}: missing keys {sorted(missing_item)}")
             continue
 
         bid = item["blinded_id"]
-
-        # Unique blinded_id
         if bid in seen_ids:
             errors.append(f"Item {i}: duplicate blinded_id '{bid}'")
         seen_ids.add(bid)
         id_to_item[bid] = item
 
-        # Valid source_method
         if item["source_method"] not in VALID_SOURCE_METHODS:
             errors.append(f"Item {i} ('{bid}'): invalid source_method '{item['source_method']}'")
 
-        # Valid question_type
-        if item["question_type"] not in VALID_QUESTION_TYPES:
-            errors.append(f"Item {i} ('{bid}'): invalid question_type '{item['question_type']}'")
+        if item["judge_score_dimension"] != EVALUATION_DIMENSION:
+            errors.append(f"Item {i} ('{bid}'): judge_score_dimension must be '{EVALUATION_DIMENSION}'")
 
-        # Valid judge score
-        js = item["judge_score"]
-        if not isinstance(js, int) or js < 1 or js > 5:
-            errors.append(f"Item {i} ('{bid}'): invalid judge_score {js!r}")
+        for sf in ("judge_score", "profile_usage_score", "task_usage_score", "integration_score"):
+            sv = item.get(sf)
+            if not isinstance(sv, int) or sv < 1 or sv > 5:
+                errors.append(f"Item {i} ('{bid}'): invalid {sf} {sv!r}")
 
-        # Track duplicates
+        if item.get("judge_score") != item.get("integration_score"):
+            errors.append(f"Item {i} ('{bid}'): judge_score must equal integration_score")
+
         if item["duplicate_of"] is not None:
             duplicates.append(item)
 
-    # Validate duplicates
-    dup_count = len(duplicates)
-    if dup_count != 6:
-        errors.append(f"Expected exactly 6 duplicate items, got {dup_count}")
+    if len(duplicates) != DUPLICATE_COUNT:
+        errors.append(f"Expected {DUPLICATE_COUNT} duplicates, got {len(duplicates)}")
 
     for dup in duplicates:
         target = dup["duplicate_of"]
         bid = dup["blinded_id"]
-
-        # Target must exist
         if target not in id_to_item:
             errors.append(f"Duplicate '{bid}': target '{target}' does not exist")
             continue
-
-        # No self-reference
         if target == bid:
             errors.append(f"Duplicate '{bid}': points to itself")
             continue
-
-        # Source must match original
         original = id_to_item[target]
         for field in ("source_method", "model", "original_trial_id"):
             if dup[field] != original[field]:
-                errors.append(
-                    f"Duplicate '{bid}': {field} mismatch with original '{target}' "
-                    f"({dup[field]!r} != {original[field]!r})"
-                )
+                errors.append(f"Duplicate '{bid}': {field} mismatch with '{target}'")
 
     return errors
 
@@ -210,26 +182,17 @@ def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[
 # Ratings session validation
 # ---------------------------------------------------------------------------
 
-_RATING_REQUIRED_KEYS = {
-    "blinded_id", "rating", "note", "flagged", "rated_at",
-}
+_RATING_REQUIRED_KEYS = {"blinded_id", "rating", "note", "flagged", "rated_at"}
 _RATING_FORBIDDEN_KEYS = {
-    "source_method", "method", "model", "question_type",
-    "original_trial_id", "judge_score", "judge_dimension",
+    "source_method", "method", "model", "original_trial_id",
+    "judge_score", "judge_score_dimension",
     "profile_usage_score", "task_usage_score", "integration_score",
-    "duplicate_of",
+    "duplicate_of", "question_type", "evaluation_dimension",
 }
 
 
 def validate_rating_record(record: dict[str, Any]) -> list[str]:
-    """Validate a single rating record (one JSONL line).
-
-    Args:
-        record: Parsed JSON dict from one line of the ratings file.
-
-    Returns:
-        List of error strings. Empty list means valid.
-    """
+    """Validate a single rating record."""
     errors: list[str] = []
 
     missing = _RATING_REQUIRED_KEYS - set(record.keys())
@@ -237,25 +200,20 @@ def validate_rating_record(record: dict[str, Any]) -> list[str]:
         errors.append(f"Missing keys: {sorted(missing)}")
         return errors
 
-    # Forbidden keys
     leaked = _RATING_FORBIDDEN_KEYS & set(record.keys())
     if leaked:
         errors.append(f"Contains forbidden keys: {sorted(leaked)}")
 
-    # Valid rating (single score)
     rating = record["rating"]
     if not isinstance(rating, int) or rating not in VALID_RATINGS:
         errors.append(f"Invalid rating: {rating!r} (must be int 1–5)")
 
-    # Nonempty blinded_id
     if not record["blinded_id"] or not str(record["blinded_id"]).strip():
         errors.append("blinded_id must be nonempty")
 
-    # Rated_at present
     if not record["rated_at"] or not str(record["rated_at"]).strip():
         errors.append("rated_at must be nonempty")
 
-    # Flagged must be boolean
     if not isinstance(record["flagged"], bool):
         errors.append(f"flagged must be bool, got {type(record['flagged']).__name__}")
 
@@ -263,27 +221,76 @@ def validate_rating_record(record: dict[str, Any]) -> list[str]:
 
 
 def validate_ratings_session(lines: list[dict[str, Any]]) -> list[str]:
-    """Validate a complete ratings session (all JSONL records).
-
-    Checks individual records plus cross-record constraints (no duplicate IDs).
-
-    Args:
-        lines: List of parsed dicts from the ratings JSONL file.
-
-    Returns:
-        List of error strings. Empty list means valid.
-    """
+    """Validate a complete ratings session."""
     errors: list[str] = []
     seen_ids: set[str] = set()
 
     for i, record in enumerate(lines):
-        record_errors = validate_rating_record(record)
-        for err in record_errors:
+        for err in validate_rating_record(record):
             errors.append(f"Record {i}: {err}")
-
         bid = record.get("blinded_id", "")
         if bid in seen_ids:
             errors.append(f"Record {i}: duplicate blinded_id '{bid}' (ratings are immutable)")
         seen_ids.add(bid)
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Manifest validation
+# ---------------------------------------------------------------------------
+
+def validate_manifest(data: dict[str, Any]) -> list[str]:
+    """Validate the evaluation manifest."""
+    errors: list[str] = []
+
+    if data.get("schema_version") != 1:
+        errors.append(f"Unsupported schema_version: {data.get('schema_version')}")
+
+    protocol = data.get("protocol", {})
+    if not protocol:
+        errors.append("Missing 'protocol' section")
+        return errors
+
+    if protocol.get("assistant_model") != "gpt-4o":
+        errors.append(f"assistant_model must be 'gpt-4o', got {protocol.get('assistant_model')!r}")
+
+    if protocol.get("judge_score_dimension") != "integration":
+        errors.append(f"judge_score_dimension must be 'integration', got {protocol.get('judge_score_dimension')!r}")
+
+    if protocol.get("unique_items_per_method") != UNIQUE_ITEMS_PER_METHOD:
+        errors.append(f"unique_items_per_method must be {UNIQUE_ITEMS_PER_METHOD}")
+
+    if protocol.get("duplicate_count") != DUPLICATE_COUNT:
+        errors.append(f"duplicate_count must be {DUPLICATE_COUNT}")
+
+    expected_total = UNIQUE_ITEMS_PER_METHOD * len(VALID_SOURCE_METHODS) + DUPLICATE_COUNT
+    if protocol.get("total_rating_items") != expected_total:
+        errors.append(f"total_rating_items must be {expected_total}")
+
+    if protocol.get("question_stratification") is not None:
+        strat = protocol["question_stratification"]
+        if strat in ("profile", "task", "profile/task"):
+            errors.append(f"question_stratification cannot claim profile/task: {strat!r}")
+
+    if protocol.get("is_exact_model_visible_context") is True:
+        errors.append("is_exact_model_visible_context must be false")
+
+    sources = data.get("sources", {})
+    if not sources:
+        errors.append("Missing 'sources' section")
+    else:
+        methods_in_sources = set(sources.keys())
+        if methods_in_sources != VALID_SOURCE_METHODS:
+            missing = VALID_SOURCE_METHODS - methods_in_sources
+            extra = methods_in_sources - VALID_SOURCE_METHODS
+            if missing:
+                errors.append(f"Missing methods in sources: {sorted(missing)}")
+            if extra:
+                errors.append(f"Unknown methods in sources: {sorted(extra)}")
+
+        for method, source_info in sources.items():
+            if not source_info.get("path"):
+                errors.append(f"Source '{method}' missing 'path'")
 
     return errors

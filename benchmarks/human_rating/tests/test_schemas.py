@@ -1,16 +1,19 @@
-"""Schema validation tests for the human-rating evaluation workflow.
+"""Schema tests for the compatible human-rating protocol.
 
-Tests verify semantic behavior of the corrected schemas:
-- SourceTrial with question_type, inference_context, single judge_score
-- RatingQueueItem cannot leak method/type/score information
-- Single 1–5 rating per item (not three)
-- Judge score selection rule (profile→profile_usage_score, task→task_usage_score)
-- Answer key with question_type and duplicate validation
+Verifies:
+- SourceTrial uses integration_score as judge_score
+- SourceTrial requires is_exact_model_visible_context=False
+- SourceTrial requires synthetic_source_context provenance
+- RatingQueueItem cannot hold forbidden fields
+- RatingRecord is single 1–5 score
+- Answer key requires judge_score == integration_score
+- Manifest validation
 
 Run:
     python benchmarks/human_rating/tests/test_schemas.py
 """
 
+import json
 import os
 import sys
 
@@ -19,323 +22,237 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from benchmarks.human_rating.schemas import (
-    AnswerKeyItem,
-    CompiledRecord,
-    RatingQueueItem,
-    RatingRecord,
-    SourceTrial,
-    select_judge_score,
-    VALID_RATINGS,
-    VALID_SOURCE_METHODS,
-    VALID_QUESTION_TYPES,
+    SourceTrial, RatingQueueItem, RatingRecord, AnswerKeyItem, CompiledRecord,
+    VALID_SOURCE_METHODS, EVALUATION_DIMENSION, UNIQUE_ITEMS_PER_METHOD,
 )
 from benchmarks.human_rating.validation import (
-    validate_answer_key,
-    validate_rating_queue,
-    validate_rating_record,
-    validate_ratings_session,
+    validate_rating_queue, validate_answer_key, validate_rating_record,
+    validate_manifest,
 )
 
 
-# ---------------------------------------------------------------------------
-# Judge score selection rule tests
-# ---------------------------------------------------------------------------
-
-def test_select_judge_score_profile():
-    """Profile questions should use profile_usage_score."""
-    assert select_judge_score("profile", 5, 2, 3) == 5
-    print("  PASS: test_select_judge_score_profile")
-
-
-def test_select_judge_score_task():
-    """Task questions should use task_usage_score."""
-    assert select_judge_score("task", 2, 5, 3) == 5
-    print("  PASS: test_select_judge_score_task")
+def _valid_source_trial(**overrides):
+    defaults = dict(
+        source_method="kernel_shared", original_trial_id="42", model="gpt-4o",
+        evaluation_dimension="integration",
+        reference_context="USER PROFILE\n  Name: Alice",
+        reference_context_provenance="synthetic_source_context",
+        is_exact_model_visible_context=False,
+        question="What should I focus on?", response="I recommend...",
+        judge_score=4, profile_usage_score=3, task_usage_score=5, integration_score=4,
+    )
+    defaults.update(overrides)
+    return SourceTrial(**defaults)
 
 
-def test_select_judge_score_invalid_type():
-    """Invalid question_type should raise ValueError."""
-    try:
-        select_judge_score("integration", 3, 3, 3)
-        assert False, "Should have raised ValueError"
-    except ValueError:
-        pass
-    print("  PASS: test_select_judge_score_invalid_type")
-
-
-# ---------------------------------------------------------------------------
-# SourceTrial tests
-# ---------------------------------------------------------------------------
+# --- SourceTrial ---
 
 def test_source_trial_valid():
-    """Valid SourceTrial with question_type and inference_context."""
-    trial = SourceTrial(
-        source_method="kernel_shared", model="gpt-4o",
-        question_type="profile", original_trial_id="42",
-        inference_context="Name: Alice\nTools: VS Code",
-        question="Based on what you know about my preferences...",
-        response="I recommend...", judge_score=4,
-    )
-    assert trial.question_type == "profile"
-    assert trial.inference_context == "Name: Alice\nTools: VS Code"
+    t = _valid_source_trial()
+    assert t.judge_score == t.integration_score == 4
     print("  PASS: test_source_trial_valid")
 
-
-def test_source_trial_invalid_question_type():
-    """Invalid question_type should raise ValueError."""
+def test_source_trial_judge_score_must_equal_integration():
     try:
-        SourceTrial(
-            source_method="kernel_shared", model="gpt-4o",
-            question_type="integration", original_trial_id="1",
-            inference_context="", question="Q", response="R", judge_score=3,
-        )
-        assert False, "Should have raised ValueError"
+        _valid_source_trial(judge_score=3, integration_score=4)
+        assert False
     except ValueError as e:
-        assert "question_type" in str(e)
-    print("  PASS: test_source_trial_invalid_question_type")
+        assert "must equal" in str(e)
+    print("  PASS: test_source_trial_judge_score_must_equal_integration")
 
-
-def test_source_trial_empty_inference_context_valid():
-    """Empty inference_context is valid (retrieval failed)."""
-    trial = SourceTrial(
-        source_method="mem0_default", model="gpt-4o",
-        question_type="task", original_trial_id="5",
-        inference_context="",
-        question="Q", response="R", judge_score=1,
-    )
-    assert trial.inference_context == ""
-    print("  PASS: test_source_trial_empty_inference_context_valid")
-
-
-def test_source_trial_none_inference_context_valid():
-    """None inference_context is valid (field not recorded)."""
-    trial = SourceTrial(
-        source_method="vanilla_rag", model="gpt-4o",
-        question_type="profile", original_trial_id="3",
-        inference_context=None,
-        question="Q", response="R", judge_score=2,
-    )
-    assert trial.inference_context is None
-    print("  PASS: test_source_trial_none_inference_context_valid")
-
-
-def test_source_trial_score_out_of_range():
-    """judge_score outside 1–5 should raise ValueError."""
+def test_source_trial_rejects_exact_context_true():
     try:
-        SourceTrial(
-            source_method="naive_concat", model="gpt-4o",
-            question_type="profile", original_trial_id="1",
-            inference_context="ctx", question="Q", response="R", judge_score=0,
-        )
-        assert False, "Should raise"
+        _valid_source_trial(is_exact_model_visible_context=True)
+        assert False
     except ValueError:
         pass
-    print("  PASS: test_source_trial_score_out_of_range")
+    print("  PASS: test_source_trial_rejects_exact_context_true")
 
-
-# ---------------------------------------------------------------------------
-# RatingQueueItem tests
-# ---------------------------------------------------------------------------
-
-def test_queue_item_uses_inference_context():
-    """Queue item shows inference_context (not profile_context)."""
-    item = RatingQueueItem(
-        blinded_id="R01",
-        inference_context="Retrieved: Goal: Optimize model",
-        question="Based on project history...",
-        response="I suggest...",
-    )
-    assert item.inference_context == "Retrieved: Goal: Optimize model"
-    print("  PASS: test_queue_item_uses_inference_context")
-
-
-def test_queue_item_cannot_hold_question_type():
-    """RatingQueueItem has no slot for question_type."""
+def test_source_trial_rejects_wrong_provenance():
     try:
-        RatingQueueItem(
-            blinded_id="R01", inference_context=None,
-            question="Q", response="R", question_type="profile",  # type: ignore
-        )
-        assert False, "Should raise TypeError"
+        _valid_source_trial(reference_context_provenance="stored")
+        assert False
+    except ValueError:
+        pass
+    print("  PASS: test_source_trial_rejects_wrong_provenance")
+
+def test_source_trial_rejects_wrong_dimension():
+    try:
+        _valid_source_trial(evaluation_dimension="profile_usage")
+        assert False
+    except ValueError:
+        pass
+    print("  PASS: test_source_trial_rejects_wrong_dimension")
+
+def test_source_trial_rejects_empty_context():
+    try:
+        _valid_source_trial(reference_context="")
+        assert False
+    except ValueError:
+        pass
+    print("  PASS: test_source_trial_rejects_empty_context")
+
+
+# --- RatingQueueItem ---
+
+def test_queue_item_uses_reference_context():
+    item = RatingQueueItem(blinded_id="R01", reference_context="ctx", question="Q", response="R")
+    assert item.reference_context == "ctx"
+    print("  PASS: test_queue_item_uses_reference_context")
+
+def test_queue_item_cannot_hold_method():
+    try:
+        RatingQueueItem(blinded_id="R01", reference_context="c", question="Q", response="R", source_method="x")
+        assert False
     except TypeError:
         pass
-    print("  PASS: test_queue_item_cannot_hold_question_type")
+    print("  PASS: test_queue_item_cannot_hold_method")
 
 
-# ---------------------------------------------------------------------------
-# RatingRecord tests (single score per item)
-# ---------------------------------------------------------------------------
+# --- RatingRecord ---
 
 def test_rating_record_single_score():
-    """RatingRecord uses a single 'rating' field, not three."""
-    record = RatingRecord(
-        blinded_id="R07", rating=4, note="Good",
-        flagged=False, rated_at="2026-07-14T10:00:00Z",
-    )
-    assert record.rating == 4
-    # Should NOT have profile_usage_rating etc.
-    assert not hasattr(record, "profile_usage_rating")
+    r = RatingRecord(blinded_id="R01", rating=4, note=None, flagged=False, rated_at="2026-07-14T10:00:00Z")
+    assert r.rating == 4
     print("  PASS: test_rating_record_single_score")
 
-
 def test_rating_record_invalid():
-    """Invalid rating should raise ValueError."""
     try:
-        RatingRecord(blinded_id="R01", rating=6, note=None,
-                     flagged=False, rated_at="2026-07-14T10:00:00Z")
-        assert False, "Should raise"
+        RatingRecord(blinded_id="R01", rating=6, note=None, flagged=False, rated_at="t")
+        assert False
     except ValueError:
         pass
     print("  PASS: test_rating_record_invalid")
 
 
-# ---------------------------------------------------------------------------
-# Rating queue validation tests
-# ---------------------------------------------------------------------------
+# --- Manifest validation ---
 
-def test_validate_queue_leaked_question_type():
-    """Queue item with question_type should report forbidden key."""
-    items = [{"blinded_id": "R01", "inference_context": None,
-              "question": "Q", "response": "R", "question_type": "profile"}]
-    data = {"schema_version": 1, "benchmark_name": "t", "created_at": "t",
-            "total_items": 1, "items": items}
-    errors = validate_rating_queue(data)
-    assert any("forbidden" in e for e in errors)
-    print("  PASS: test_validate_queue_leaked_question_type")
+def test_manifest_valid():
+    with open(os.path.join(_project_root, "benchmarks/human_rating/config/evaluation_manifest.json")) as f:
+        data = json.load(f)
+    errors = validate_manifest(data)
+    assert errors == [], f"Unexpected: {errors}"
+    print("  PASS: test_manifest_valid")
+
+def test_manifest_rejects_profile_task_stratification():
+    data = {"schema_version": 1, "protocol": {
+        "assistant_model": "gpt-4o", "judge_score_dimension": "integration",
+        "unique_items_per_method": 6, "duplicate_count": 6, "total_rating_items": 30,
+        "question_stratification": "profile/task", "is_exact_model_visible_context": False,
+    }, "sources": {m: {"path": f"x/{m}.json"} for m in VALID_SOURCE_METHODS}}
+    errors = validate_manifest(data)
+    assert any("profile/task" in e for e in errors)
+    print("  PASS: test_manifest_rejects_profile_task_stratification")
+
+def test_manifest_rejects_exact_context_true():
+    data = {"schema_version": 1, "protocol": {
+        "assistant_model": "gpt-4o", "judge_score_dimension": "integration",
+        "unique_items_per_method": 6, "duplicate_count": 6, "total_rating_items": 30,
+        "question_stratification": None, "is_exact_model_visible_context": True,
+    }, "sources": {m: {"path": f"x/{m}.json"} for m in VALID_SOURCE_METHODS}}
+    errors = validate_manifest(data)
+    assert any("exact" in e.lower() for e in errors)
+    print("  PASS: test_manifest_rejects_exact_context_true")
+
+def test_manifest_rejects_wrong_judge_dimension():
+    data = {"schema_version": 1, "protocol": {
+        "assistant_model": "gpt-4o", "judge_score_dimension": "profile_usage",
+        "unique_items_per_method": 6, "duplicate_count": 6, "total_rating_items": 30,
+        "question_stratification": None, "is_exact_model_visible_context": False,
+    }, "sources": {m: {"path": f"x/{m}.json"} for m in VALID_SOURCE_METHODS}}
+    errors = validate_manifest(data)
+    assert any("judge_score_dimension" in e for e in errors)
+    print("  PASS: test_manifest_rejects_wrong_judge_dimension")
+
+def test_manifest_rejects_missing_method():
+    data = {"schema_version": 1, "protocol": {
+        "assistant_model": "gpt-4o", "judge_score_dimension": "integration",
+        "unique_items_per_method": 6, "duplicate_count": 6, "total_rating_items": 30,
+        "question_stratification": None, "is_exact_model_visible_context": False,
+    }, "sources": {"naive_concat": {"path": "x.json"}}}
+    errors = validate_manifest(data)
+    assert any("Missing methods" in e for e in errors)
+    print("  PASS: test_manifest_rejects_missing_method")
 
 
-# ---------------------------------------------------------------------------
-# Answer key validation tests
-# ---------------------------------------------------------------------------
+# --- Answer key validation ---
 
-def _valid_answer_key_json():
+def _valid_answer_key():
     items = []
-    for i in range(1, 25):
+    methods = sorted(VALID_SOURCE_METHODS)
+    for i in range(24):
+        m = methods[i % 4]
         items.append({
-            "blinded_id": f"R{i:02d}",
-            "source_method": list(VALID_SOURCE_METHODS)[i % len(VALID_SOURCE_METHODS)],
-            "model": "gpt-4o",
-            "question_type": "profile" if i % 2 == 0 else "task",
-            "original_trial_id": str(i),
-            "judge_score": (i % 5) + 1,
+            "blinded_id": f"R{i+1:02d}", "source_method": m, "model": "gpt-4o",
+            "original_trial_id": str(i), "judge_score": 3, "judge_score_dimension": "integration",
+            "profile_usage_score": 4, "task_usage_score": 2, "integration_score": 3,
             "duplicate_of": None,
         })
     for i in range(6):
         orig = items[i]
         items.append({
-            "blinded_id": f"R{25 + i:02d}",
-            "source_method": orig["source_method"],
-            "model": orig["model"],
-            "question_type": orig["question_type"],
-            "original_trial_id": orig["original_trial_id"],
-            "judge_score": orig["judge_score"],
+            "blinded_id": f"R{25+i:02d}", "source_method": orig["source_method"],
+            "model": "gpt-4o", "original_trial_id": orig["original_trial_id"],
+            "judge_score": orig["judge_score"], "judge_score_dimension": "integration",
+            "profile_usage_score": orig["profile_usage_score"],
+            "task_usage_score": orig["task_usage_score"],
+            "integration_score": orig["integration_score"],
             "duplicate_of": orig["blinded_id"],
         })
-    return {
-        "schema_version": 1, "benchmark_name": "t", "sampling_seed": 1,
-        "duplicate_seed": 2, "id_assignment_seed": 3, "presentation_seed": 4,
-        "created_at": "t", "items": items,
-    }
+    return {"schema_version": 1, "benchmark_name": "t", "sampling_seed": 1,
+            "duplicate_seed": 2, "id_assignment_seed": 3, "presentation_seed": 4,
+            "created_at": "t", "items": items}
 
-
-def test_validate_answer_key_valid():
-    """Valid answer key passes."""
-    errors = validate_answer_key(_valid_answer_key_json())
+def test_answer_key_valid():
+    errors = validate_answer_key(_valid_answer_key())
     assert errors == [], f"Unexpected: {errors}"
-    print("  PASS: test_validate_answer_key_valid")
+    print("  PASS: test_answer_key_valid")
 
-
-def test_validate_answer_key_invalid_question_type():
-    """Invalid question_type in answer key should error."""
-    data = _valid_answer_key_json()
-    data["items"][0]["question_type"] = "integration"
+def test_answer_key_rejects_mismatched_judge_integration():
+    data = _valid_answer_key()
+    data["items"][0]["judge_score"] = 5  # != integration_score (3)
     errors = validate_answer_key(data)
-    assert any("question_type" in e for e in errors)
-    print("  PASS: test_validate_answer_key_invalid_question_type")
+    assert any("must equal" in e for e in errors)
+    print("  PASS: test_answer_key_rejects_mismatched_judge_integration")
 
 
-# ---------------------------------------------------------------------------
-# Ratings session validation tests
-# ---------------------------------------------------------------------------
+# --- Queue validation ---
 
-def test_validate_rating_record_single_score():
-    """Valid single-score rating record passes."""
-    record = {"blinded_id": "R07", "rating": 4, "note": None,
-              "flagged": False, "rated_at": "2026-07-14T10:00:00Z"}
-    errors = validate_rating_record(record)
-    assert errors == [], f"Unexpected: {errors}"
-    print("  PASS: test_validate_rating_record_single_score")
-
-
-def test_validate_rating_forbidden_judge_score():
-    """Rating record with judge_score should be forbidden."""
-    record = {"blinded_id": "R07", "rating": 4, "note": None,
-              "flagged": False, "rated_at": "2026-07-14T10:00:00Z",
-              "judge_score": 5}
-    errors = validate_rating_record(record)
+def test_queue_rejects_inference_context_field():
+    items = [{"blinded_id": "R01", "reference_context": "c", "question": "Q",
+              "response": "R", "inference_context": "leak"}]
+    data = {"schema_version": 1, "benchmark_name": "t", "created_at": "t",
+            "total_items": 1, "items": items}
+    errors = validate_rating_queue(data)
     assert any("forbidden" in e for e in errors)
-    print("  PASS: test_validate_rating_forbidden_judge_score")
+    print("  PASS: test_queue_rejects_inference_context_field")
 
-
-# ---------------------------------------------------------------------------
-# CompiledRecord tests
-# ---------------------------------------------------------------------------
-
-def test_compiled_record():
-    """CompiledRecord captures human-judge agreement."""
-    record = CompiledRecord(
-        blinded_id="R01", rating=4, note=None, flagged=False,
-        rated_at="t", source_method="kernel_shared", model="gpt-4o",
-        question_type="profile", original_trial_id="42",
-        judge_score=5, duplicate_of=None, is_duplicate=False,
-        human_judge_difference=-1, exact_human_judge_match=False,
-        within_one_human_judge=True,
-    )
-    assert record.human_judge_difference == -1
-    print("  PASS: test_compiled_record")
-
-
-# ---------------------------------------------------------------------------
-# Run all
-# ---------------------------------------------------------------------------
 
 def main():
     print("=== Human Rating Schema Tests ===\n")
-
-    print("Judge score selection rule:")
-    test_select_judge_score_profile()
-    test_select_judge_score_task()
-    test_select_judge_score_invalid_type()
-
-    print("\nSourceTrial:")
     test_source_trial_valid()
-    test_source_trial_invalid_question_type()
-    test_source_trial_empty_inference_context_valid()
-    test_source_trial_none_inference_context_valid()
-    test_source_trial_score_out_of_range()
-
-    print("\nRatingQueueItem:")
-    test_queue_item_uses_inference_context()
-    test_queue_item_cannot_hold_question_type()
-
-    print("\nRatingRecord (single score):")
+    test_source_trial_judge_score_must_equal_integration()
+    test_source_trial_rejects_exact_context_true()
+    test_source_trial_rejects_wrong_provenance()
+    test_source_trial_rejects_wrong_dimension()
+    test_source_trial_rejects_empty_context()
+    print()
+    test_queue_item_uses_reference_context()
+    test_queue_item_cannot_hold_method()
+    print()
     test_rating_record_single_score()
     test_rating_record_invalid()
-
-    print("\nQueue validation:")
-    test_validate_queue_leaked_question_type()
-
-    print("\nAnswer key validation:")
-    test_validate_answer_key_valid()
-    test_validate_answer_key_invalid_question_type()
-
-    print("\nRating record validation:")
-    test_validate_rating_record_single_score()
-    test_validate_rating_forbidden_judge_score()
-
-    print("\nCompiledRecord:")
-    test_compiled_record()
-
+    print()
+    test_manifest_valid()
+    test_manifest_rejects_profile_task_stratification()
+    test_manifest_rejects_exact_context_true()
+    test_manifest_rejects_wrong_judge_dimension()
+    test_manifest_rejects_missing_method()
+    print()
+    test_answer_key_valid()
+    test_answer_key_rejects_mismatched_judge_integration()
+    print()
+    test_queue_rejects_inference_context_field()
     print("\n=== ALL TESTS PASSED ===")
 
 
