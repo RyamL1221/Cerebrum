@@ -48,8 +48,6 @@ class PipelineResult:
     written_memories: List[WrittenMemoryRecord] = field(default_factory=list)
     method: str = ""
     retrieved_context_count: Optional[int] = None
-    inference_context_text: str = ""
-    """Exact personalization context supplied to the model at inference time."""
 
 
 class AgentPipeline:
@@ -161,10 +159,6 @@ class AgentPipeline:
         # Try to extract injection diagnostics from the kernel response
         injection_diagnostics = self._extract_injection_diagnostics(assistant_result)
 
-        # Capture inference context text from kernel injection
-        # The kernel may include the injected text in the response
-        inference_context_text = self._extract_injected_context_text(assistant_result)
-
         # Build retrieval log: use kernel diagnostics or fall back to audit query
         if injection_diagnostics and injection_diagnostics.injected_count > 0:
             retrieval_log = self._retrieval_log_from_diagnostics(injection_diagnostics)
@@ -192,7 +186,6 @@ class AgentPipeline:
             retrieval_log=retrieval_log,
             injection_diagnostics=injection_diagnostics,
             written_memories=written_records,
-            inference_context_text=inference_context_text,
         )
 
     def _extract_injection_diagnostics(
@@ -225,44 +218,6 @@ class AgentPipeline:
             injected_count=diag_data.get("injected_count", len(entries)),
             injected_memories=entries,
         )
-
-    def _extract_injected_context_text(self, assistant_result: dict) -> str:
-        """Extract the exact injected context text from the kernel response.
-
-        The kernel may include an ``injected_context_text`` field when
-        ``auto_inject`` is enabled and context was prepended to the prompt.
-        If the field is absent, returns empty string.
-
-        For shared-memory trials where injection occurred but the text
-        was not captured, returns empty string (honest representation
-        that the exact text is unavailable).
-
-        Args:
-            assistant_result: The raw result dict from AssistantAgent.run().
-
-        Returns:
-            The injected context text, or empty string if unavailable.
-        """
-        # Primary: kernel includes the injected text directly
-        text = assistant_result.get("injected_context_text")
-        if isinstance(text, str):
-            return text
-
-        # Secondary: reconstruct from injection_diagnostics content fields
-        diag_data = assistant_result.get("injection_diagnostics")
-        if isinstance(diag_data, dict):
-            memories = diag_data.get("injected_memories", [])
-            if memories:
-                parts = []
-                for mem in memories:
-                    content = mem.get("content", "")
-                    if content:
-                        parts.append(content)
-                if parts:
-                    return "\n\n".join(parts)
-
-        # Unavailable — return empty (honest for mem0_default or missing data)
-        return ""
 
     def _retrieval_log_from_diagnostics(
         self, diagnostics: InjectionDiagnostics
@@ -609,7 +564,6 @@ class MethodPipeline:
             written_memories=[],
             method="naive_concat",
             retrieved_context_count=0,
-            inference_context_text=context_block,
         )
 
     def _run_vanilla_rag(
@@ -716,7 +670,6 @@ class MethodPipeline:
             written_memories=[],
             method="vanilla_rag",
             retrieved_context_count=len(selected_chunks),
-            inference_context_text=context_parts,
         )
 
     def _run_mem0_default(

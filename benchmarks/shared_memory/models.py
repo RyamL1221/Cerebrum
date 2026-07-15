@@ -41,14 +41,6 @@ class SyntheticTrialData(BaseModel):
     follow_up_query: str
     plausible_actions: List[str] = []
     user_id: str = ""
-    question_type: str = ""
-    """Explicit question category: "profile" or "task".
-
-    - "profile": query principally requires profile memory (preferences,
-      tools, style) to answer well.
-    - "task": query principally requires task/project memory (goals,
-      blockers, progress) to answer well.
-    """
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +124,6 @@ class TrialResult(BaseModel):
     trial_index: int
     condition: str
     method: str = ""
-    question_type: str = ""
-    """Explicit question category: "profile" or "task"."""
     profile_usage_score: Optional[int] = None
     task_usage_score: Optional[int] = None
     integration_score: Optional[int] = None
@@ -142,14 +132,6 @@ class TrialResult(BaseModel):
     latency_seconds: Optional[float] = None
     follow_up_query: str = ""
     assistant_response: str = ""
-    inference_context_text: str = ""
-    """Exact personalization context supplied to GPT-4o at inference time.
-
-    For naive_concat: the full concatenated profile/task block.
-    For vanilla_rag: the retrieved chunks inserted into the prompt.
-    For kernel_shared: the kernel-injected context (if captured).
-    For mem0_default: empty (no shared context injected).
-    """
     synthetic_profile: Optional[SyntheticProfile] = None
     synthetic_task_context: Optional[SyntheticTaskContext] = None
     retrieval_log: Optional[RetrievalLog] = None
