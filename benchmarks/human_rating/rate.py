@@ -127,7 +127,17 @@ def _load_or_create_session(
     if session_path.exists():
         with open(session_path, "r") as f:
             session = json.load(f)
-        # Validate
+
+        # Validate required fields present
+        required_fields = {"schema_version", "run_id", "rater_id",
+                           "queue_fingerprint", "queue_item_count", "ratings_file"}
+        missing = required_fields - set(session.keys())
+        if missing:
+            raise ValueError(
+                f"Invalid rating session metadata: missing fields {sorted(missing)}"
+            )
+
+        # Validate values
         if session.get("queue_fingerprint") != queue_fp:
             raise ValueError(
                 "The queue does not match the existing rating session. "
@@ -142,6 +152,11 @@ def _load_or_create_session(
             raise ValueError(
                 f"Run ID mismatch: session has '{session.get('run_id')}', "
                 f"queue has '{run_id}'."
+            )
+        if session.get("queue_item_count") != item_count:
+            raise ValueError(
+                f"Invalid rating session metadata: queue item count does not "
+                f"match the current queue ({session.get('queue_item_count')} vs {item_count})."
             )
         return session
 
@@ -399,6 +414,12 @@ def _run_rating_session(
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+
+            # Set permissions on first write
+            try:
+                ratings_path.chmod(0o600)
+            except OSError:
+                pass
 
             completed.add(bid)
             output_fn(f"Saved rating {rating} for {bid}. Progress: {len(completed)} of {total}.")
