@@ -1,40 +1,28 @@
 """Trial discovery, normalization, and eligibility validation.
 
-Loads finalized GPT-4o benchmark result files for all four methods and
-converts their heterogeneous raw records into validated SourceTrial objects
-suitable for stratified sampling.
+Loads benchmark result files and converts their raw records into validated
+SourceTrial objects suitable for stratified sampling.
 
 Public functions:
 - discover_result_files() — find result JSONs by method
 - load_result_file() — parse a single result file into SourceTrial objects
 - load_eligible_trials() — load all methods and validate pool eligibility
-- summarize_trial_pool() — produce a developer-facing method summary
+- summarize_trial_pool() — produce a developer-facing method × type summary
 
-Design decisions:
-- original_trial_id is the method-independent trial_index (as a string).
-  Cross-method uniqueness is enforced via (source_method, original_trial_id).
-  Since the existing gpt4o result files were generated independently per
-  method, trial_index=N in different methods represents different scenarios.
-  Cross-method alignment only exists when results are produced with
-  ``--method all`` (shared trial data cache).
-- Model name is not stored in result files; the caller supplies the expected
-  model (default "gpt-4o") and the file's directory naming is the authority.
-- The benchmark generates a single query archetype (vague prioritization
-  questions depending on BOTH profile and task context). There is no
-  profile-only or task-only question variant. All three judge dimensions
-  (profile_usage, task_usage, integration) are preserved per trial.
-- Profile context is reconstructed from synthetic_profile and
-  synthetic_task_context using the naive_concat format. This is the
-  canonical representation of what was available during inference:
-  - naive_concat: passed this exact block to the model
-  - vanilla_rag: TF-IDF selected chunks from this data (exact chunks
-    not recorded in results)
-  - kernel_shared/mem0_default: this data was written to memory; the
-    kernel may have injected it (exact injected text not recorded)
-  Since exact per-method inference context is NOT stored in the result
-  files, showing the source data (what was available) is more honest than
-  fabricating method-specific context.
-- Exclusion reasons are collected into a structured ExclusionReport.
+Compatibility:
+    The human-rating pipeline requires result files that contain:
+    - ``question_type``: "profile" or "task" (authoritative, not inferred)
+    - ``inference_context_text``: exact context supplied to GPT-4o
+
+    Existing finalized results (produced before these fields were added) do
+    NOT contain this metadata and cannot be used directly. Attempting to load
+    them will report exclusions with reason ``missing_or_invalid_question_type``
+    or ``missing_exact_inference_context``.
+
+    To produce compatible results, the Cerebrum benchmark must be updated to:
+    1. Generate explicit profile/task question templates
+    2. Record exact inference context per method
+    3. Store ``question_type`` and ``inference_context_text`` in TrialResult
 """
 
 import json
@@ -56,8 +44,22 @@ logger = logging.getLogger(__name__)
 # Methods eligible for human rating (all four standard methods)
 ALLOWED_METHODS: list[str] = sorted(VALID_SOURCE_METHODS)
 
-# Minimum trials per method required for eligibility
-MIN_TRIALS_PER_METHOD = 3
+# Minimum trials per method/type cell required for eligibility
+MIN_TRIALS_PER_CELL = 3
+
+
+# ---------------------------------------------------------------------------
+# Compatibility error
+# ---------------------------------------------------------------------------
+
+class UnsupportedBenchmarkArtifactsError(RuntimeError):
+    """Raised when existing result files lack required human-rating metadata.
+
+    Existing finalized results do not contain an authoritative profile/task
+    question type or exact inference context required by the requested
+    sampling design.
+    """
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +127,6 @@ def normalize_model_name(raw: str) -> str:
     Raises:
         ValueError: If the model name is not a recognized GPT-4o variant.
     """
-    # Strip provider suffix for comparison
     base = raw.split(":")[0].strip().lower()
     if base == "gpt-4o":
         return "gpt-4o"
@@ -208,12 +209,14 @@ def load_result_file(
 ) -> list[SourceTrial]:
     """Load and normalize trials from a single result JSON file.
 
+    Requires result files with ``question_type`` and ``inference_context_text``
+    fields. Files without these fields will have all trials excluded.
+
     Args:
         path: Path to the result JSON file.
         expected_method: The method this file should contain.
         expected_model: Expected model name (default "gpt-4o").
-        exclusion_report: If provided, excluded trials are appended here
-            instead of only being logged.
+        exclusion_report: If provided, excluded trials are appended here.
 
     Returns:
         List of validated SourceTrial objects.
@@ -269,9 +272,7 @@ def load_result_file(
     for trial in trials_raw:
         trial_index = trial.get("trial_index")
         if trial_index is None:
-            raise ValueError(
-                f"Trial in {path} is missing 'trial_index'"
-            )
+            raise ValueError(f"Trial in {path} is missing 'trial_index'")
 
         # Skip failed trials
         if trial.get("failed", False):
@@ -291,7 +292,7 @@ def load_result_file(
                 f"but expected '{expected_method}'"
             )
 
-        # Method-independent original_trial_id (just the index)
+        # Method-independent original_trial_id
         original_trial_id = str(trial_index)
 
         # Enforce uniqueness within method
@@ -327,7 +328,7 @@ def load_result_file(
             ))
             continue
 
-        # Extract question_type (required for new-format results)
+        # Extract question_type (required)
         question_type = trial.get("question_type", "")
         if not question_type or question_type not in VALID_QUESTION_TYPES:
             exclusion_report.entries.append(ExclusionEntry(
@@ -377,12 +378,17 @@ def load_result_file(
             question_type, profile_usage_score, task_usage_score, integration_score
         )
 
-        # Extract exact inference context (new field, may be absent in old results)
+        # Extract exact inference context (required — None means unobservable)
         inference_context = trial.get("inference_context_text")
-        # Empty string is valid (means retrieval failed / no context injected)
-        # None means the field was not recorded (old results) — treat as empty
         if inference_context is None:
-            inference_context = ""
+            exclusion_report.entries.append(ExclusionEntry(
+                method=expected_method,
+                trial_index=trial_index,
+                reason="missing_exact_inference_context",
+                source_file=str(path),
+            ))
+            continue
+        # Empty string is valid (confirmed no context supplied)
 
         # Create validated SourceTrial
         source_trial = SourceTrial(
@@ -410,19 +416,22 @@ def load_eligible_trials(
     results_root: str | Path | None = None,
     methods: Sequence[str] | None = None,
     expected_model: str = "gpt-4o",
-    min_per_method: int = MIN_TRIALS_PER_METHOD,
+    min_per_cell: int = MIN_TRIALS_PER_CELL,
 ) -> tuple[list[SourceTrial], ExclusionReport]:
     """Load all methods and validate pool eligibility.
 
     Either `method_paths` (explicit per-method paths) or `results_root`
     (auto-discovery) must be provided.
 
+    Raises UnsupportedBenchmarkArtifactsError if the loaded results do not
+    contain the required metadata fields (question_type, inference_context_text).
+
     Args:
         method_paths: Dict mapping method name to result file path.
         results_root: Root directory for auto-discovery.
         methods: Methods to load (default: all four).
         expected_model: Expected model name.
-        min_per_method: Minimum trials required per method.
+        min_per_cell: Minimum trials required per method/type cell.
 
     Returns:
         Tuple of (validated SourceTrial list, ExclusionReport).
@@ -430,6 +439,7 @@ def load_eligible_trials(
     Raises:
         ValueError: If eligibility checks fail.
         FileNotFoundError: If result files are not found.
+        UnsupportedBenchmarkArtifactsError: If results lack required metadata.
     """
     if methods is None:
         methods = ALLOWED_METHODS
@@ -439,12 +449,9 @@ def load_eligible_trials(
         resolved: dict[str, Path] = {
             m: Path(p) for m, p in method_paths.items()
         }
-        # Validate all requested methods are provided
         missing = set(methods) - set(resolved.keys())
         if missing:
-            raise ValueError(
-                f"Missing method paths for: {sorted(missing)}"
-            )
+            raise ValueError(f"Missing method paths for: {sorted(missing)}")
     elif results_root is not None:
         resolved = discover_result_files(results_root, methods)
     else:
@@ -464,10 +471,19 @@ def load_eligible_trials(
             expected_model=expected_model,
             exclusion_report=exclusion_report,
         )
-        logger.info(
-            "Loaded %d trials from %s (%s)", len(trials), path, method
-        )
+        logger.info("Loaded %d trials from %s (%s)", len(trials), path, method)
         all_trials.extend(trials)
+
+    # If ALL trials were excluded, this likely means the results lack metadata
+    if not all_trials and exclusion_report.total_excluded > 0:
+        reasons = exclusion_report.by_reason()
+        if "missing_or_invalid_question_type" in reasons or "missing_exact_inference_context" in reasons:
+            raise UnsupportedBenchmarkArtifactsError(
+                "Existing finalized results do not contain an authoritative "
+                "profile/task question type or exact inference context required "
+                "by the requested sampling design. "
+                f"Exclusion reasons: {reasons}"
+            )
 
     # --- Pool eligibility checks ---
 
@@ -495,10 +511,10 @@ def load_eligible_trials(
                 1 for t in all_trials
                 if t.source_method == method and t.question_type == qtype
             )
-            if cell_count < min_per_method:
+            if cell_count < min_per_cell:
                 raise ValueError(
                     f"Insufficient eligible trials for method={method}, "
-                    f"question_type={qtype}: required {min_per_method}, "
+                    f"question_type={qtype}: required {min_per_cell}, "
                     f"found {cell_count}."
                 )
 
@@ -510,7 +526,7 @@ def load_eligible_trials(
 # ---------------------------------------------------------------------------
 
 @dataclass
-class MethodCount:
+class MethodTypeCount:
     """Trial count for a single method × question_type cell."""
     method: str
     question_type: str
@@ -524,15 +540,11 @@ class TrialPoolSummary:
     total_trials: int
     methods: list[str]
     question_types: list[str]
-    method_counts: list[MethodCount]
+    cells: list[MethodTypeCount]
     score_distribution: dict[int, int]  # judge_score -> count
 
     def format_table(self) -> str:
-        """Format as an aligned text table.
-
-        Returns:
-            Multi-line string with method × type counts.
-        """
+        """Format as an aligned text table."""
         lines = []
         header = f"{'Method':<20} {'Profile':>8} {'Task':>8} {'Total':>8}"
         lines.append(header)
@@ -540,11 +552,11 @@ class TrialPoolSummary:
 
         for method in self.methods:
             profile_count = next(
-                (c.count for c in self.method_counts
+                (c.count for c in self.cells
                  if c.method == method and c.question_type == "profile"), 0
             )
             task_count = next(
-                (c.count for c in self.method_counts
+                (c.count for c in self.cells
                  if c.method == method and c.question_type == "task"), 0
             )
             total = profile_count + task_count
@@ -558,27 +570,18 @@ class TrialPoolSummary:
 
 
 def summarize_trial_pool(trials: Sequence[SourceTrial]) -> TrialPoolSummary:
-    """Produce a developer-facing summary of the eligible trial pool.
-
-    Args:
-        trials: Sequence of validated SourceTrial objects.
-
-    Returns:
-        TrialPoolSummary with counts by method and question type.
-    """
+    """Produce a developer-facing summary of the eligible trial pool."""
     methods = sorted({t.source_method for t in trials})
     question_types = sorted({t.question_type for t in trials})
 
-    method_counts: list[MethodCount] = []
+    cells: list[MethodTypeCount] = []
     for method in methods:
         for qtype in question_types:
             count = sum(
                 1 for t in trials
                 if t.source_method == method and t.question_type == qtype
             )
-            method_counts.append(MethodCount(
-                method=method, question_type=qtype, count=count
-            ))
+            cells.append(MethodTypeCount(method=method, question_type=qtype, count=count))
 
     score_distribution: dict[int, int] = {}
     for t in trials:
@@ -588,6 +591,6 @@ def summarize_trial_pool(trials: Sequence[SourceTrial]) -> TrialPoolSummary:
         total_trials=len(trials),
         methods=methods,
         question_types=question_types,
-        method_counts=method_counts,
+        cells=cells,
         score_distribution=score_distribution,
     )
