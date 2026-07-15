@@ -268,6 +268,11 @@ def validate_manifest(data: dict[str, Any]) -> list[str]:
     if protocol.get("total_rating_items") != expected_total:
         errors.append(f"total_rating_items must be {expected_total}")
 
+    if "minimum_duplicate_separation" in protocol:
+        sep = protocol["minimum_duplicate_separation"]
+        if not isinstance(sep, int) or sep < 1:
+            errors.append(f"minimum_duplicate_separation must be a positive integer")
+
     if protocol.get("question_stratification") is not None:
         strat = protocol["question_stratification"]
         if strat in ("profile", "task", "profile/task"):

@@ -37,6 +37,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Preview the 24 unique trial selections without writing files.",
     )
     parser.add_argument(
+        "--preview-blinded-plan",
+        action="store_true",
+        help="Preview the full 30-item blinded plan without writing files.",
+    )
+    parser.add_argument(
         "--run-name",
         type=str,
         default=None,
@@ -80,6 +85,37 @@ def main() -> None:
 
     if args.preview_selection:
         print(summary.format_table())
+        return
+
+    if args.preview_blinded_plan:
+        from benchmarks.human_rating.blinding import build_blinded_plan, validate_blinded_plan
+        blinding_seed = protocol["blinding_seed"]
+        min_sep = protocol.get("minimum_duplicate_separation", 3)
+        plan = build_blinded_plan(
+            selected, seed=blinding_seed,
+            duplicate_count=protocol["duplicate_count"],
+            min_duplicate_separation=min_sep,
+        )
+        validate_blinded_plan(plan, minimum_duplicate_separation=min_sep)
+        # Print private preview table
+        print(f"{'Pos':<4} {'Blinded ID':<12} {'Method':<16} {'Trial':<6} {'Dup Of':<12} {'Dist':<5}")
+        print("-" * 60)
+        # Build position lookup for distance calculation
+        id_to_pos = {item.blinded_id: item.appearance_index for item in plan.items}
+        for item in sorted(plan.items, key=lambda x: x.appearance_index):
+            dup_of = item.duplicate_of_blinded_id or "—"
+            dist = ""
+            if item.duplicate_of_blinded_id:
+                orig_pos = id_to_pos.get(item.duplicate_of_blinded_id, -1)
+                if orig_pos >= 0:
+                    dist = str(abs(item.appearance_index - orig_pos))
+            print(
+                f"{item.appearance_index + 1:<4} {item.blinded_id:<12} "
+                f"{item.source_trial.source_method:<16} "
+                f"{item.source_trial.original_trial_id:<6} "
+                f"{dup_of:<12} {dist:<5}"
+            )
+        print(f"\nDuplicated sources: {plan.duplicated_source_identities}")
         return
 
     if not args.run_name:
