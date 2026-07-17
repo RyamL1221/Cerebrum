@@ -468,9 +468,10 @@ class SyntheticDataGenerator:
         query generation, and derives a stable user_id from the profile scoped
         to the current run to prevent residual state pollution.
 
-        The user_id format is ``{name}_{run_id}`` where name is the lowercase
-        underscore-separated profile name and run_id is the run-specific
-        discriminator passed at construction time (or auto-generated UUID).
+        The user_id format is ``{name}_{run_id}_t{trial_index}`` where name
+        is the lowercase underscore-separated profile name, run_id is the
+        run-specific discriminator, and trial_index guarantees uniqueness
+        even when the LLM generates duplicate names within a single run.
 
         Args:
             trial_index: Zero-based trial number.
@@ -484,7 +485,7 @@ class SyntheticDataGenerator:
         plausible_actions = self.generate_plausible_actions(profile, task_context)
         follow_up_query = self.generate_vague_query(profile, task_context)
         base_name = profile.user_name.lower().replace(" ", "_")
-        user_id = f"{base_name}_{self.run_id}"
+        user_id = f"{base_name}_{self.run_id}_t{trial_index}"
 
         return SyntheticTrialData(
             profile=profile,
