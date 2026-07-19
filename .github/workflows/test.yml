@@ -155,9 +155,23 @@ jobs:
           fi
         }
 
+        # Function to check if a path is in the integration directory
+        # Integration tests require a kernel with the write-barrier fix
+        # and specific model availability (GPT-4o) — skip in CI.
+        is_integration_test() {
+          local dir_path=$(dirname "$1")
+          if [[ "$dir_path" == *"integration"* ]]; then
+            return 0  # True in bash
+          else
+            return 1  # False in bash
+          fi
+        }
+
         # Process test files
         find tests -type f -name "*.py" | while read -r test_file; do
-          if contains_agent_or_llm "$test_file"; then
+          if is_integration_test "$test_file"; then
+            echo "Skipping integration test (requires write-barrier kernel): $test_file"
+          elif contains_agent_or_llm "$test_file"; then
             # For agent or llm directories, only run ollama tests
             if [[ "$test_file" == *"ollama"* ]]; then
               echo "Running Ollama test in agent/llm directory: $test_file"
