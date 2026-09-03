@@ -51,7 +51,12 @@ from benchmarks.shared_memory.models import (
 from benchmarks.shared_memory.judge import HybridJudge
 from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
 from benchmarks.shared_memory.results import ResultsWriter
-from benchmarks.shared_memory.reward_logging import log_report_reward
+from benchmarks.shared_memory.reward_logging import (
+    log_report_reward,
+    log_report_reward_failure,
+)
+from cerebrum.memory.apis import MemoryQuery
+from cerebrum.utils.communication import send_request
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
 from cerebrum.config.config_manager import config
 
@@ -394,13 +399,19 @@ class EvaluationOrchestrator:
             logger.warning("Trial %d: judge evaluation failed: %s", trial_index, e)
             scores = JudgeScores()
 
-        # Local report_reward logging hook (observational).
+        # ----------------------------------------------------------------
+        # report_reward: log locally AND send to the kernel (post-judging).
         #
-        # Subtask 4 will build out the actual report_reward MemoryQuery send at
-        # this call site; the local log is wired up here first so every reward
-        # Cerebrum reports is also recorded locally for cross-checking against
-        # the kernel-side per-trial reward logs. This does NOT send anything and
-        # never affects trial control flow — it only observes.
+        # The trial's core query→response→judge flow is complete before this
+        # point. The reward report is a fire-and-forget follow-up: it must not
+        # crash the loop or block the trial result from being recorded.
+        #
+        # NAIVE ATTRIBUTION (v1) — equal credit: this is a pure pass-through.
+        # We do NOT inspect, filter, weight, or branch on memory_ids_involved
+        # or reward_value beyond passing them through. The exact same three
+        # values (reward_value, memory_ids_involved, trial_metadata) computed
+        # here are used by BOTH the local log and the send — no re-derivation.
+        # ----------------------------------------------------------------
         reward_scores = [
             s for s in (
                 scores.profile_usage_score,
@@ -412,28 +423,65 @@ class EvaluationOrchestrator:
         memory_ids_involved = (
             list(retrieval_log.injected_memory_ids) if retrieval_log else []
         )
+        trial_metadata = {
+            "condition": condition,
+            "method": effective_method,
+            "profile_usage_score": scores.profile_usage_score,
+            "task_usage_score": scores.task_usage_score,
+            "integration_score": scores.integration_score,
+            "injection_status": (
+                retrieval_log.injection_status if retrieval_log else None
+            ),
+        }
         # Count of memories actually retrieved/injected for this trial —
         # independent of whether their IDs were captured (Mem0 ID gap). Used to
         # distinguish "empty due to gap" from "empty because nothing retrieved".
         retrieved_memory_count = (
             len(retrieval_log.retrieved_memories) if retrieval_log else 0
         )
+
+        # Log every attempted send, unconditionally, before the send itself so
+        # the attempt is recorded regardless of the kernel's response.
         log_report_reward(
             trial_id=trial_index,
             memory_ids_involved=memory_ids_involved,
             reward_value=reward_value,
-            trial_metadata={
-                "condition": condition,
-                "method": effective_method,
-                "profile_usage_score": scores.profile_usage_score,
-                "task_usage_score": scores.task_usage_score,
-                "integration_score": scores.integration_score,
-                "injection_status": (
-                    retrieval_log.injection_status if retrieval_log else None
-                ),
-            },
+            trial_metadata=trial_metadata,
             retrieved_memory_count=retrieved_memory_count,
         )
+
+        # Send via the SAME send_request path used by every other memory op.
+        # Failure behavior (documented): a raise OR an error response must not
+        # crash the trial loop or block the trial result — the trial is already
+        # judged/complete. Failures are logged distinctly via reward_logging.
+        try:
+            reward_query = MemoryQuery(
+                operation_type="report_reward",
+                params={
+                    "memory_ids_involved": memory_ids_involved,
+                    "reward_value": reward_value,
+                    "trial_metadata": trial_metadata,
+                },
+            )
+            reward_response = send_request(
+                "assistant_agent", reward_query, config.get_kernel_url()
+            )
+            # An error response (not just a raise) is also treated as a failure,
+            # but still non-fatal to the trial.
+            if isinstance(reward_response, dict) and reward_response.get("error"):
+                log_report_reward_failure(
+                    trial_id=trial_index,
+                    error=reward_response.get("error"),
+                    reward_value=reward_value,
+                    memory_ids_involved=memory_ids_involved,
+                )
+        except Exception as e:
+            log_report_reward_failure(
+                trial_id=trial_index,
+                error=e,
+                reward_value=reward_value,
+                memory_ids_involved=memory_ids_involved,
+            )
 
         # Memory counts heuristic (legacy path only)
         if condition == "phase2":

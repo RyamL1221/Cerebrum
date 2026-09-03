@@ -140,3 +140,39 @@ def log_report_reward(
     except Exception as e:  # pragma: no cover - logging must never break sending
         # Purely observational: swallow so the report_reward send is unaffected.
         logger.debug("log_report_reward failed (non-fatal): %s", e)
+
+
+def log_report_reward_failure(
+    trial_id: Any,
+    error: Any,
+    reward_value: float,
+    memory_ids_involved: List[str],
+    timestamp: Optional[float] = None,
+) -> None:
+    """Log a failed ``report_reward`` send distinctly from a successful one.
+
+    Used by the trial loop when ``send_request`` raises or returns an error
+    response for a ``report_reward`` query. The reward report is fire-and-forget
+    relative to the trial's own result: the trial's query→response→judge→log
+    flow is already complete before the reward is attempted, so a failure here
+    must not crash the loop or block the trial result. This is the distinct
+    counterpart to ``log_report_reward`` (which records the attempt itself).
+
+    Like ``log_report_reward``, this never raises.
+
+    Args:
+        trial_id: Identifier for the trial (e.g. ``trial_index``).
+        error: The exception or error response describing the failure.
+        reward_value: The reward value that was being reported.
+        memory_ids_involved: The memory IDs that were being reported.
+        timestamp: Epoch seconds; defaults to ``time.time()`` when omitted.
+    """
+    try:
+        ts = timestamp if timestamp is not None else time.time()
+        logger.warning(
+            "report_reward trial_id=%s: SEND FAILED (non-fatal, trial result "
+            "already recorded). error=%r reward_value=%s memory_ids_involved=%s ts=%s",
+            trial_id, error, reward_value, list(memory_ids_involved), ts,
+        )
+    except Exception as e:  # pragma: no cover - logging must never break the loop
+        logger.debug("log_report_reward_failure failed (non-fatal): %s", e)
