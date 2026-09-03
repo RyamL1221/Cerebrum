@@ -433,6 +433,23 @@ class AgentPipeline:
             if owner != "assistant_agent":
                 cross_agent = True
 
+        # Observability: surface the known cross-track gap where the Mem0
+        # provider's retrieve_memory search_results omit a per-entry memory ID
+        # (in-house provider includes 'memory_id'; mem0 does not — see
+        # docs/mem0-search-results-memory-id-gap.md). When retained entries
+        # exist but none carried an ID, injected_memory_ids will be empty and
+        # reward attribution (Subtask 4) cannot proceed until the AIOS-side
+        # track adds the ID to the payload. Log rather than fail silently.
+        if entries and not injected_memory_ids:
+            logger.warning(
+                "Injected-ID tracking gap: %d memories retained but none "
+                "carried a memory_id/id in the retrieve_memory payload. "
+                "Likely the Mem0 provider (config provider='mem0') which does "
+                "not include an ID field yet — see "
+                "docs/mem0-search-results-memory-id-gap.md.",
+                len(entries),
+            )
+
         return RetrievalLog(
             shared_memory_count=shared_count,
             retrieved_memories=entries,
