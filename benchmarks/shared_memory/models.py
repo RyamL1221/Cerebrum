@@ -52,6 +52,10 @@ class RetrievalLogEntry(BaseModel):
 
     owner_agent: str
     memory_type: str
+    memory_id: Optional[str] = None
+    """Stable ID of this memory, when available from the source (kernel
+    diagnostics or audit query). Defaults to None for backward compatibility
+    and for sources that do not expose an ID."""
 
 
 class RetrievalLog(BaseModel):
@@ -68,6 +72,15 @@ class RetrievalLog(BaseModel):
     - ``"audit_inferred"``: from audit query with count > 0
     - ``"unknown"``: neither source confirmed injection
     """
+
+    injected_memory_ids: List[str] = []
+    """IDs of the memories actually injected into this trial's prompt.
+
+    Pure bookkeeping for downstream reward attribution (Subtask 4). Populated
+    from kernel injection diagnostics when available, or from the harness-side
+    audit query otherwise. Order matches ``retrieved_memories``. Empty when no
+    IDs are available (e.g. a source that does not expose memory IDs). This
+    field is observational only and does not affect injection behavior."""
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +113,9 @@ class InjectedMemoryEntry(BaseModel):
     owner_agent: str
     memory_type: str
     match_score: Optional[float] = None
+    memory_id: Optional[str] = None
+    """Stable ID of the injected memory, when the kernel provides it. Used to
+    populate RetrievalLog.injected_memory_ids for reward attribution."""
 
 
 class InjectionDiagnostics(BaseModel):

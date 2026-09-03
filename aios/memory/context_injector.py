@@ -70,6 +70,13 @@ class InjectionResult:
     Attributes:
         memories: List of memory dicts that passed all filters and are ready
             for injection into the LLM prompt.
+        injected_memory_ids: IDs of the memories that were *actually injected*
+            — i.e. the ``memories`` list after all non-policy trimming
+            (relevance threshold, max-count cap, token cap) has been applied.
+            This is pure bookkeeping for downstream reward attribution; it does
+            not affect what gets injected. IDs are read from each memory dict's
+            ``id`` key (falling back to ``memory_id``); memories without an
+            identifiable ID are skipped.
         total_retrieved: Total number of cross-agent shared memories before
             any filtering (relevance threshold, max count, token cap).
         barrier_result: The BarrierResult if the write barrier was invoked,
@@ -79,6 +86,7 @@ class InjectionResult:
     """
 
     memories: list[dict[str, Any]] = field(default_factory=list)
+    injected_memory_ids: list[str] = field(default_factory=list)
     total_retrieved: int = 0
     barrier_result: BarrierResult | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -356,6 +364,12 @@ class ContextInjector:
         # Step 7: Apply max_memory_tokens token cap
         filtered = self._apply_token_cap(filtered)
 
+        # Step 7b: Bookkeeping — capture the IDs of the memories that are
+        # *actually injected* (i.e. after all trimming above). This is pure
+        # observation of the existing pipeline output; it does not change what
+        # gets injected. Consumed downstream for reward attribution.
+        injected_memory_ids = self._extract_memory_ids(filtered)
+
         # Step 8: Build diagnostics and return
         diagnostics: dict[str, Any] = {
             "user_id": resolved_user_id,
@@ -365,10 +379,12 @@ class ContextInjector:
             "barrier_result": barrier_result,
             "total_retrieved": total_retrieved,
             "post_filter_count": len(filtered),
+            "injected_memory_ids": injected_memory_ids,
         }
 
         return InjectionResult(
             memories=filtered,
+            injected_memory_ids=injected_memory_ids,
             total_retrieved=total_retrieved,
             barrier_result=barrier_result,
             diagnostics=diagnostics,
@@ -396,6 +412,29 @@ class ContextInjector:
         if not user_id or not str(user_id).strip():
             return None
         return str(user_id).strip()
+
+    @staticmethod
+    def _extract_memory_ids(memories: list[dict[str, Any]]) -> list[str]:
+        """Collect stable IDs from the actually-injected memory dicts.
+
+        Reads each memory's ``id`` key (the Mem0 convention), falling back to
+        ``memory_id``. Memories without an identifiable ID are skipped so the
+        returned list only ever contains real, attributable IDs. Order is
+        preserved to match the injection order. This is a pure read — it does
+        not mutate the memories or influence injection.
+
+        Args:
+            memories: The final, post-trim list of injected memory dicts.
+
+        Returns:
+            The list of memory ID strings, in injection order.
+        """
+        ids: list[str] = []
+        for mem in memories:
+            mem_id = mem.get("id") or mem.get("memory_id")
+            if mem_id:
+                ids.append(str(mem_id))
+        return ids
 
     def _apply_relevance_threshold(
         self, memories: list[dict[str, Any]]

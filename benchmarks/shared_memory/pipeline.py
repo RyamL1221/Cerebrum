@@ -212,6 +212,9 @@ class AgentPipeline:
                 owner_agent=mem.get("owner_agent", ""),
                 memory_type=mem.get("memory_type", ""),
                 match_score=mem.get("match_score"),
+                # Capture the memory ID when the kernel exposes it (checks both
+                # the kernel diagnostics key and the Mem0 "id" convention).
+                memory_id=mem.get("memory_id") or mem.get("id"),
             ))
 
         return InjectionDiagnostics(
@@ -231,12 +234,16 @@ class AgentPipeline:
             RetrievalLog populated from the diagnostics data.
         """
         entries = []
+        injected_memory_ids: List[str] = []
         cross_agent = False
         for mem in diagnostics.injected_memories:
             entries.append(RetrievalLogEntry(
                 owner_agent=mem.owner_agent,
                 memory_type=mem.memory_type,
+                memory_id=mem.memory_id,
             ))
+            if mem.memory_id:
+                injected_memory_ids.append(mem.memory_id)
             if mem.owner_agent != "assistant_agent":
                 cross_agent = True
 
@@ -244,6 +251,7 @@ class AgentPipeline:
             shared_memory_count=diagnostics.injected_count,
             retrieved_memories=entries,
             cross_agent_found=cross_agent,
+            injected_memory_ids=injected_memory_ids,
         )
 
     # Kernel context injector defaults (must match AIOS config.yaml)
@@ -384,6 +392,7 @@ class AgentPipeline:
             and cross_agent_found populated from the filtered results.
         """
         entries = []
+        injected_memory_ids: List[str] = []
         shared_count = 0
         cross_agent = False
 
@@ -409,10 +418,16 @@ class AgentPipeline:
             mem_type = meta.get("memory_type", "")
             if not owner:
                 continue
+            # Capture the stable memory ID for this retained (post-filter)
+            # entry — the "actually injected" set on the harness side.
+            mem_id = mem.get("memory_id") or mem.get("id")
             entries.append(RetrievalLogEntry(
                 owner_agent=owner,
                 memory_type=mem_type,
+                memory_id=str(mem_id) if mem_id else None,
             ))
+            if mem_id:
+                injected_memory_ids.append(str(mem_id))
             if meta.get("sharing_policy") == "shared":
                 shared_count += 1
             if owner != "assistant_agent":
@@ -422,6 +437,7 @@ class AgentPipeline:
             shared_memory_count=shared_count,
             retrieved_memories=entries,
             cross_agent_found=cross_agent,
+            injected_memory_ids=injected_memory_ids,
         )
 
 
