@@ -33,6 +33,8 @@ import statistics
 import sys
 from datetime import datetime
 
+import requests
+
 # Ensure the project root is on sys.path when running as a script
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _project_root not in sys.path:
@@ -55,8 +57,6 @@ from benchmarks.shared_memory.reward_logging import (
     log_report_reward,
     log_report_reward_failure,
 )
-from cerebrum.memory.apis import MemoryQuery
-from cerebrum.utils.communication import send_request
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
 from cerebrum.config.config_manager import config
 
@@ -450,28 +450,39 @@ class EvaluationOrchestrator:
             retrieved_memory_count=retrieved_memory_count,
         )
 
-        # Send via the SAME send_request path used by every other memory op.
-        # Failure behavior (documented): a raise OR an error response must not
-        # crash the trial loop or block the trial result — the trial is already
-        # judged/complete. Failures are logged distinctly via reward_logging.
+        # Send to the kernel's dedicated reward endpoint: POST /memory/report_reward.
+        # This is a separate HTTP route (NOT /query) because MemoryQuery.operation_type
+        # is a fixed Literal and routing report_reward through /query fails pydantic
+        # validation (HTTP 500). The dedicated endpoint needs no SDK change.
+        #
+        # Failure behavior (documented): a raise OR success:false must not crash the
+        # trial loop or block the trial result — the trial is already judged/complete.
+        # Failures are logged distinctly via reward_logging. Still a pure pass-through:
+        # we only forward the already-computed reward_value / memory_ids_involved /
+        # trial_metadata; no inspection, weighting, or per-memory branching.
         try:
-            reward_query = MemoryQuery(
-                operation_type="report_reward",
-                params={
+            # Include trial_id in metadata so the kernel's per-trial policy log
+            # can join to this trial (per the endpoint contract).
+            reward_metadata = {**trial_metadata, "trial_id": trial_index}
+            reward_url = f"{config.get_kernel_url().rstrip('/')}/memory/report_reward"
+            reward_response = requests.post(
+                reward_url,
+                json={
+                    "agent_name": "assistant_agent",
                     "memory_ids_involved": memory_ids_involved,
                     "reward_value": reward_value,
-                    "trial_metadata": trial_metadata,
+                    "trial_metadata": reward_metadata,
                 },
+                timeout=30,
             )
-            reward_response = send_request(
-                "assistant_agent", reward_query, config.get_kernel_url()
-            )
-            # An error response (not just a raise) is also treated as a failure,
+            reward_response.raise_for_status()
+            body = reward_response.json()
+            # A non-success body (success:false / error set) is also a failure,
             # but still non-fatal to the trial.
-            if isinstance(reward_response, dict) and reward_response.get("error"):
+            if isinstance(body, dict) and (body.get("error") or body.get("success") is False):
                 log_report_reward_failure(
                     trial_id=trial_index,
-                    error=reward_response.get("error"),
+                    error=body.get("error") or "kernel returned success=false",
                     reward_value=reward_value,
                     memory_ids_involved=memory_ids_involved,
                 )
