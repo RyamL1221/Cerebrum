@@ -51,6 +51,7 @@ from benchmarks.shared_memory.models import (
 from benchmarks.shared_memory.judge import HybridJudge
 from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
 from benchmarks.shared_memory.results import ResultsWriter
+from benchmarks.shared_memory.reward_logging import log_report_reward
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
 from cerebrum.config.config_manager import config
 
@@ -392,6 +393,47 @@ class EvaluationOrchestrator:
         except Exception as e:
             logger.warning("Trial %d: judge evaluation failed: %s", trial_index, e)
             scores = JudgeScores()
+
+        # Local report_reward logging hook (observational).
+        #
+        # Subtask 4 will build out the actual report_reward MemoryQuery send at
+        # this call site; the local log is wired up here first so every reward
+        # Cerebrum reports is also recorded locally for cross-checking against
+        # the kernel-side per-trial reward logs. This does NOT send anything and
+        # never affects trial control flow — it only observes.
+        reward_scores = [
+            s for s in (
+                scores.profile_usage_score,
+                scores.task_usage_score,
+                scores.integration_score,
+            ) if s is not None
+        ]
+        reward_value = (sum(reward_scores) / len(reward_scores)) if reward_scores else 0.0
+        memory_ids_involved = (
+            list(retrieval_log.injected_memory_ids) if retrieval_log else []
+        )
+        # Count of memories actually retrieved/injected for this trial —
+        # independent of whether their IDs were captured (Mem0 ID gap). Used to
+        # distinguish "empty due to gap" from "empty because nothing retrieved".
+        retrieved_memory_count = (
+            len(retrieval_log.retrieved_memories) if retrieval_log else 0
+        )
+        log_report_reward(
+            trial_id=trial_index,
+            memory_ids_involved=memory_ids_involved,
+            reward_value=reward_value,
+            trial_metadata={
+                "condition": condition,
+                "method": effective_method,
+                "profile_usage_score": scores.profile_usage_score,
+                "task_usage_score": scores.task_usage_score,
+                "integration_score": scores.integration_score,
+                "injection_status": (
+                    retrieval_log.injection_status if retrieval_log else None
+                ),
+            },
+            retrieved_memory_count=retrieved_memory_count,
+        )
 
         # Memory counts heuristic (legacy path only)
         if condition == "phase2":
