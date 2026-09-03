@@ -43,9 +43,25 @@ class MemoryQuery(Query):
     Attributes:
         action_type (Literal): Type of memory operation to perform
         params (Dict): Parameters specific to each action type
+
+    Operation-Specific ``params`` Shapes:
+        report_reward:
+            Carries a reward signal for a set of memories that were involved
+            in a trial. The entire payload lives inside ``params`` (no new
+            top-level fields on the query). Expected shape::
+
+                {
+                    "memory_ids_involved": List[str],  # memory IDs the reward applies to
+                    "reward_value": float,             # scalar reward signal
+                    "trial_metadata": Dict,            # arbitrary trial context
+                }
+
+            The SDK passes these values through to the kernel exactly as
+            provided by the call site. It performs no validation, scoring,
+            filtering, or interpretation of the reward payload.
     """
     query_class: str = "memory"
-    operation_type: Literal["add_memory", "get_memory", "update_memory", "remove_memory", "retrieve_memory", "add_agentic_memory","retrieve_memory_raw"]
+    operation_type: Literal["add_memory", "get_memory", "update_memory", "remove_memory", "retrieve_memory", "add_agentic_memory","retrieve_memory_raw", "report_reward"]
     params: Dict[str, Any] = Field(default_factory=dict)
     
     class Config:
