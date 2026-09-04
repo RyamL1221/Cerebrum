@@ -59,6 +59,11 @@ class AssistantAgent:
             )
 
             result_text = response["response"]["response_message"] if response else ""
+            # Token usage is a top-level sibling of "response" in the kernel's
+            # /query body (set by the kernel's Syscall, not nested under
+            # "response"). Read it defensively — non-LLM / older syscall
+            # responses may omit the key, in which case it is None.
+            token_usage = response.get("token_usage") if response else None
             self.messages.append({"role": "assistant", "content": result_text})
             self.rounds += 1
 
@@ -66,6 +71,7 @@ class AssistantAgent:
                 "agent_name": self.agent_name,
                 "result": result_text,
                 "rounds": self.rounds,
+                "token_usage": token_usage,
             }
 
         except Exception as e:
@@ -73,4 +79,5 @@ class AssistantAgent:
                 "agent_name": self.agent_name,
                 "result": f"Error: {e}",
                 "rounds": self.rounds,
+                "token_usage": None,
             }
