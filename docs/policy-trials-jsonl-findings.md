@@ -270,3 +270,146 @@ in the log are the benchmark loop indices, not an unrelated namespace.
 what reward attribution requires. It is **incompatible/unjoinable for the
 `select` records** (all `null`) and for the manual string markers (excluded),
 pending an upstream change to thread `trial_index` into add/retrieve metadata.
+
+---
+
+# Subtask 3 findings: re-confirming the `token_usage` drop point across the live call path
+
+Re-verified against the current repo state, hop by hop, with the same
+evidentiary bar as Subtasks 1–2. The master prompt's drop-point description
+**holds**, with two clarifications where the code differs from its wording
+(both flagged below). Every claim is traced to current code.
+
+## Hop 1 — Kernel `/query` response shape (authoritative, from AIOS source)
+
+Confirmed from the sibling AIOS repo (read-only), not from the prompt alone:
+
+- `runtime/launch.py` `@app.post("/query")` → `handle_query` for `query_type ==
+  "llm"` calls `execute_request(...)` and **returns `result_dict` directly**
+  (FastAPI JSON-serializes it; no rewrapping).
+- `aios/syscall/syscall.py` `execute_request` for `action_type == "chat"`
+  returns the dict built by `execute_llm_syscall`, which is:
+  ```python
+  return {
+      "response": completed_response,          # an LLMResponse object
+      "token_usage": syscall.get_token_usage(),  # TOP-LEVEL SIBLING
+      "start_times": ..., "end_times": ...,
+      "waiting_times": ..., "turnaround_times": ...,
+  }
+  ```
+  The inline comment states the intent explicitly: token usage rides on the
+  `Syscall` object and is surfaced "as a sibling key so it reaches the HTTP
+  body," precisely because the Cerebrum `LLMResponse` "is an external installed
+  package and must not be edited."
+- `get_token_usage()` returns either `None` or a dict
+  `{"prompt_tokens", "completion_tokens", "total_tokens"}` (each value an int or
+  `None`; `set_token_usage` leaves missing values as `None` rather than 0).
+
+**Confirmed:** `token_usage` is a **top-level sibling** of `response` in the
+`/query` body — NOT nested under `response`. When FastAPI serializes the
+`LLMResponse` object under `"response"`, that nested object carries its own
+`token_usage` field too (see Hop 3), but that nested one is the SDK model's
+field, which the kernel does not populate — the populated value is the sibling.
+
+## Hop 2 — `send_request()` returns the raw dict (confirmed)
+
+`cerebrum/utils/communication.py`: `send_request` calls `post(...)`, which does
+`response.raise_for_status(); return response.json()`. So `send_request` returns
+the **raw parsed JSON dict**, not a deserialized `LLMResponse`. Confirmed.
+
+## Hop 3 — `llm_chat()` return type (DRIFT from prompt, clarified)
+
+`cerebrum/llm/apis.py`:
+- `llm_chat(...)` is annotated `-> LLMResponse` but its body is
+  `return send_request(agent_name, query, base_url)` — i.e. it returns the
+  **raw dict**, not an `LLMResponse`. The annotation is misleading/aspirational.
+- **DRIFT:** the master prompt says token_usage is "not populated on the SDK's
+  `LLMResponse.token_usage`." In fact the SDK model **does declare the field**:
+  `LLMResponse.token_usage: Optional[Dict[str, Optional[int]]] = None`
+  (`apis.py`). The nuance the prompt gets slightly wrong: the field *exists on
+  the model* but is irrelevant on the live path because `llm_chat` never
+  constructs/validates an `LLMResponse` — it returns the raw dict. So at runtime
+  the assistant sees a plain dict whose real per-call usage lives at the
+  top-level sibling `response["token_usage"]`, exactly as the prompt concludes.
+  Net effect is identical to the prompt's claim; the mechanism differs.
+
+## Hop 4 — `AssistantAgent.run()` (confirmed, verbatim)
+
+`cerebrum/example/agents/assistant_agent/agent.py`, `run()`:
+```python
+response = llm_chat(agent_name=..., messages=..., base_url=..., llms=..., user_id=...)
+result_text = response["response"]["response_message"] if response else ""
+...
+return {"agent_name": self.agent_name, "result": result_text, "rounds": self.rounds}
+```
+**Confirmed literally:** it reads only `response["response"]["response_message"]`
+and returns exactly `{"agent_name", "result", "rounds"}`. The top-level sibling
+`response["token_usage"]` is **never read** — this is the drop point. The
+`except` branch returns the same three keys with an error string.
+
+## Hop 5 — `PipelineResult` (confirmed; carries the raw dict but nothing usable)
+
+`benchmarks/shared_memory/pipeline.py`, `@dataclass PipelineResult` fields:
+`profile_result, task_result, assistant_result, assistant_response,
+latency_seconds, retrieval_log, injection_diagnostics, written_memories,
+method, retrieved_context_count`. **No token field.**
+
+Construction (three sites, one per method path):
+`assistant_result = assistant_agent.run(...)` then
+`assistant_response = assistant_result.get("result", "")`, and
+`PipelineResult(..., assistant_result=assistant_result,
+assistant_response=assistant_response, ...)`.
+
+So `PipelineResult.assistant_result` retains the agent's **full return dict** —
+but since `AssistantAgent.run()` already discarded `token_usage` upstream (Hop
+4), there is nothing token-related to recover here. To surface token usage,
+`AssistantAgent.run()` must be changed first (Hop 4), then threaded through
+`PipelineResult`.
+
+## Hop 6 — `TrialResult` construction sites (confirmed; NO token field; 4 sites)
+
+`benchmarks/shared_memory/models.py`, `class TrialResult(BaseModel)` — full
+field list: `trial_index, condition, method, profile_usage_score,
+task_usage_score, integration_score, memory_counts, retrieved_context_count,
+latency_seconds, follow_up_query, assistant_response, synthetic_profile,
+synthetic_task_context, retrieval_log, injection_diagnostics, written_memories,
+failed, error_message`. **No token field anywhere** (repo-wide grep for
+`token` in `benchmarks/shared_memory/**/*.py` returns only an unrelated
+model-name-parsing docstring).
+
+**All four `TrialResult(...)` construction sites** (all in `run_evaluation.py`)
+— every one needs updating in Subtask 6:
+
+1. **`run_single_trial`, success path** (~line 505): the main
+   `return TrialResult(...)` with scores, latency, retrieval_log, etc. — the one
+   that would carry token usage from `pipeline_result`.
+2. **`run_single_trial`, synthetic-data-generation failure** (~line 340):
+   `failed=True, error_message=...` early return.
+3. **`run_single_trial`, agent-pipeline failure** (~line 353):
+   `failed=True, error_message=...` early return (also sets synthetic_profile /
+   task_context / follow_up_query).
+4. **`_run_method` (`--method all`), synthetic-data-generation failure**
+   (~line 632): `trials.append(TrialResult(..., failed=True, error_message=...))`.
+
+Sites 2–4 are error/exception paths with no `pipeline_result`, so any new token
+field must default to `None`/absent there; only site 1 has a live
+`pipeline_result` to read usage from.
+
+## Drift summary vs. the master prompt
+
+| Prompt claim | Actual code | Verdict |
+|---|---|---|
+| `AssistantAgent.run()` reads only `response["response"]["response_message"]`, discards token_usage, returns `{agent_name, result, rounds}` | Exactly so | **Confirmed** |
+| Kernel emits `token_usage` as a top-level sibling of `response` in `/query`, not nested | Exactly so (`syscall.py` builds `{"response": ..., "token_usage": ...}`) | **Confirmed (from AIOS source)** |
+| `token_usage` "not populated on the SDK's `LLMResponse.token_usage`" | The field **does exist** on the model, but is moot because `llm_chat` returns a raw dict, not an `LLMResponse` | **Minor drift — same net effect** |
+| `send_request` returns raw JSON dict | Exactly so | **Confirmed** |
+| (implied) `llm_chat -> LLMResponse` | Annotated as such but returns raw dict | **Annotation is misleading** |
+
+**Bottom line:** the drop point is real and unchanged — the populated per-call
+`token_usage` sibling in the `/query` body is discarded by
+`AssistantAgent.run()` and never reaches `PipelineResult` or `TrialResult`.
+Subtask 6 must update all four `TrialResult` sites (only site 1 has usage to
+populate), after `AssistantAgent.run()` and `PipelineResult` are extended to
+carry it. The single drift worth carrying forward: `LLMResponse.token_usage`
+already exists as a field, so no SDK model change is needed to *hold* the value
+— only the runtime read path (`AssistantAgent.run()`) needs to stop discarding it.
