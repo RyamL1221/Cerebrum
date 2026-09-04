@@ -211,6 +211,7 @@ class LLMResponse(Response):
     response_class: str = "llm"
     response_message: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    token_usage: Optional[Dict[str, Optional[int]]] = None
     finished: bool = False
     error: Optional[str] = None
     status_code: int = 200
