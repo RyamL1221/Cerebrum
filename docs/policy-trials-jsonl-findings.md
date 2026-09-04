@@ -413,3 +413,129 @@ populate), after `AssistantAgent.run()` and `PipelineResult` are extended to
 carry it. The single drift worth carrying forward: `LLMResponse.token_usage`
 already exists as a field, so no SDK model change is needed to *hold* the value
 — only the runtime read path (`AssistantAgent.run()`) needs to stop discarding it.
+
+---
+
+# Subtask 7 decision gate: `policy_action` join — GO (explicitly scoped)
+
+Explicit, evidence-based go/no-go on the `policy_action` join, resolving the
+ambiguity that Subtask 2's "partially compatible" finding does not map onto a
+binary "confirmed/not confirmed". Decision made **before** any join code is
+written. No code changed in this subtask.
+
+## Inputs (from Subtasks 1–2, re-confirmed)
+
+- **`reward` events join directly:** `reward.trial_id` (int) ==
+  `TrialResult.trial_index` (int), no transform. 180 such records, values
+  exactly `0`–`14`. Each carries a real per-trial signal: `bandit`,
+  `arm_index`, `reward`, `memory_id`.
+- **`select` events are unjoinable:** all 125 carry `trial_id: null` because
+  the harness never threads `trial_index` into add/retrieve metadata
+  (`pipeline.py` sends only `owner_agent`/`memory_type`/`sharing_policy`/
+  `user_id`). The decision-time signal (which arm was chosen, its `gate`,
+  `value`, `context`) therefore cannot be attributed to a trial today.
+- **String markers excluded:** `"probe"` / `"trial-subtask3-verify"` (8 select
+  + 11 reward) are manual non-benchmark writes — noise.
+
+## What `policy_action` means under this constraint
+
+Given only `reward` events are attributable, `policy_action` = **the
+outcome-side, per-trial policy signal**: for each benchmark trial, which
+bandit(s)/arm(s) received the reward, the scalar reward applied, and the
+`memory_id` it was applied to. It is explicitly **not** the decision-side signal
+(the chosen arm/threshold before the outcome), because that lives on `select`
+records which have no trial linkage.
+
+## Is a reward-only join still meaningful? — Yes.
+
+Substantive justification, not just "the other half didn't match":
+
+1. **It answers a real question.** "For trial N (whose judge scores /
+   `token_usage` we now have on `TrialResult`), which bandit and arm produced
+   the reward, and what reward value / `memory_id` did the kernel attribute?"
+   That directly ties the benchmark's own per-trial outcome to the kernel's
+   adaptive-policy bookkeeping — the core value of the feature.
+2. **The reward record already carries the arm.** `reward.arm_index` +
+   `reward.bandit` identify *which arm was credited*. So even without the
+   `select` record, a reward-only join recovers the arm that mattered for the
+   outcome (the one that got the reward), just not the full pre-decision context
+   vector. For "which bandit/arm produced this trial's reward," that is
+   sufficient.
+3. **The missing `select` linkage degrades richness, not correctness.** We lose
+   `gate`/`value`/`context`/`llm_core`/`task_type` per trial. That is a real
+   limitation to document, but it does not make the reward join wrong or empty —
+   it makes it a coarser (outcome-only) view. A coarser-but-correct join is
+   worth shipping; a silently-half-broken join is not. We ship the correct half
+   and document the gap.
+
+Conclusion: the reward-only join clears the "worth shipping" bar. It is not too
+weak to ship.
+
+## Cross-run ambiguity — MUST be single-run-scoped (hard constraint for Subtask 8)
+
+Integer `trial_id`s restart at `0` every run and the log is **append-only with
+no run boundary marker**. A naive join over the whole file would collide: e.g.
+three separate 15-trial runs all contain `reward.trial_id == 0`, and joining
+`TrialResult(trial_index=0)` against the raw file would match all three
+runs' rewards indiscriminately, silently inflating/averaging across runs.
+
+**Decision: the join MUST be scoped to a single run.** Subtask 8 may not read
+the whole `policy_trials.jsonl` blindly.
+
+### Can `TrialResult` disambiguate runs on its own? — No (checked).
+
+- `TrialResult` has **no** run id and **no** timestamp field (confirmed in
+  Subtask 6 field list).
+- The policy log records have **no `user_id` and no `run_id`** field either
+  (confirmed: keys are exactly `arm_index, bandit, context, event, gate,
+  llm_core, memory_id, reward, task_type, trial_id, ts, value`). So there is no
+  shared exact key (no user_id, no run id) to disambiguate runs across the two
+  artifacts.
+- The **only** shared signal is time: policy records carry `ts` (epoch
+  seconds); the experiment output carries an experiment-level ISO
+  `timestamp` in `ExperimentMetadata` (set once via `datetime.now().isoformat()`
+  at write time — it is a single wall-clock stamp, not a start/end range, and it
+  is per-experiment, not per-trial).
+
+### Consequence / constraint for Subtask 8
+
+Because there is no exact shared key and only a coarse time signal, the
+standalone join script **must take the specific single-run slice of
+`policy_trials.jsonl` as an explicit input** rather than reading the whole file.
+Concretely, Subtask 8 must require one of:
+
+- **(preferred) an explicit path to a per-run policy-log snapshot** — i.e. the
+  caller points the script at a `policy_trials.jsonl` that contains exactly one
+  run's records (e.g. captured/rotated per run), OR
+- **an explicit `ts` window** (`--since`/`--until`, epoch seconds) that the
+  caller derives from the run's wall-clock start/end, used to filter records to
+  the one run before joining.
+
+The script must NOT attempt to auto-detect run boundaries from the raw file
+(there is no reliable marker) and must NOT silently join across the whole file.
+
+## Verdict: **GO** — with this exact scope for Subtask 8
+
+Proceed to Subtask 8 and implement a join that is:
+
+1. **Reward-events only.** Filter to `event == "reward"`. Ignore `select`
+   records (no trial linkage) — but surface a documented note/limitation that
+   decision-side context is unavailable, so the omission is explicit, not
+   silent.
+2. **Integer `trial_id` only.** Accept a record only when `trial_id` is an
+   integer; drop `null` and string (`"probe"`, `"trial-subtask3-verify"`)
+   values as non-benchmark. Join key: `reward.trial_id == TrialResult.trial_index`.
+3. **Single-run-scoped, caller-supplied.** The script takes an explicit
+   single-run policy-log slice (a per-run file path) or an explicit `ts` window;
+   it must not read the whole multi-run file and must not guess run boundaries.
+   Document that this constraint exists because neither artifact carries a run
+   id / user_id and integer trial_ids collide across runs.
+4. **Output per trial:** the credited `bandit`(s), `arm_index`(es), `reward`
+   value(s), and `memory_id`(s) for that `trial_index`, attached to (or joinable
+   with) the `TrialResult`. Multiple reward records per trial are expected
+   (Subtask 1 showed several bandits rewarded per trial), so the join is
+   one-trial-to-many-reward-records, not one-to-one.
+
+This is a scoped GO, not the master prompt's optimistic "confirmed" — the
+reward half is shipped correctly and the `select`/cross-run limitations are
+enforced as explicit constraints rather than assumed away.
