@@ -224,6 +224,27 @@ class ExperimentMetadata(BaseModel):
     kernel_url: str
     conditions_run: List[str]
     methods_run: List[str] = []
+    # Pre-flight provenance: the live kernel memory-gating state captured by
+    # EvaluationOrchestrator._verify_gating_status() BEFORE any trial ran, keyed
+    # by method name. Records what was actually configured server-side when the
+    # run executed (the raw GET /memory/gating_status response — e.g.
+    # {"adaptive_policy_enabled", "static_thresholds_enabled",
+    # "static_thresholds_config"}). Stored as a raw dict passthrough rather than
+    # a typed sub-model because it mirrors a server-owned contract (notably the
+    # opaque static_thresholds_config) that the client must not pin a schema to
+    # — same reasoning as TrialResult.token_usage.
+    #
+    # DISTINCT from TrialResult.policy_action, and deliberately NOT merged with
+    # it: this is DECISION-SIDE / PRE-FLIGHT provenance (what gating tier/config
+    # was live before trials ran), whereas policy_action is OUTCOME-SIDE /
+    # POST-HOC (which bandit/arm was rewarded, joined after the run from
+    # policy_trials.jsonl). See docs/harness-aios-gating-dependency-scope.md.
+    #
+    # Only populated for the kernel_shared* tiers that undergo the pre-flight
+    # check; None (whole field) when no gating-verified method ran, and any
+    # non-verified method (naive_concat/vanilla_rag/mem0_default) is simply
+    # absent from the dict.
+    gating_status_by_method: Optional[Dict[str, Dict]] = None
 
 
 class ConditionResults(BaseModel):

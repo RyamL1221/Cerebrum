@@ -391,3 +391,45 @@ after the `MethodPipeline` is constructed and before the per-trial loop begins.*
 - `policy_action` sole writer (post-hoc, outcome-side): join_policy_actions.py:192
 - `token_usage` live writers: agent.py:66/74, pipeline.py:194/606/713, run_evaluation.py:522
 - `methods_run` writer: run_evaluation.py:678
+
+---
+
+# Subtask 6 — Where gating provenance lives (implemented)
+
+The pre-flight `gating_status` response captured in subtask 5
+(`EvaluationOrchestrator._gating_status_by_method`) is now recorded as run
+provenance on the results model.
+
+- **Field:** `ExperimentMetadata.gating_status_by_method: Optional[Dict[str, Dict]] = None`
+  (`benchmarks/shared_memory/models.py`). Keyed by method name; each value is the
+  raw `GET /memory/gating_status` response for that tier.
+- **Granularity — run-level, not per-trial.** `ExperimentMetadata` is built **once per
+  `_run_method()` invocation** (a single object that, under `--method all`, spans all methods
+  via `methods_run`). The pre-flight runs once per method before its trial loop, so run-level
+  metadata is the natural home. `TrialResult` was intentionally left untouched — per-trial
+  granularity adds nothing here since gating state is constant across a method's trials.
+  A **per-method dict** (not a single flat field) is required precisely because one metadata
+  object can cover multiple tiers in an `--method all` run.
+- **Shape — raw dict passthrough, not a typed sub-model.** Chosen deliberately: the response
+  mirrors a server-owned contract whose `static_thresholds_config` is an opaque nested config
+  the client must not pin a schema to. This matches `TrialResult.token_usage` (also a raw-dict
+  passthrough of a kernel-owned shape) rather than the typed `PolicyActionEntry` (which models a
+  stable, client-relevant shape). A typed sub-model would break every time the kernel adds a
+  gating field.
+- **Populated at:** the `ExperimentMetadata(...)` construction at the end of
+  `_run_method()` (`benchmarks/shared_memory/run_evaluation.py`), filtered to methods actually
+  run and coerced to `None` (not `{}`) when nothing was gating-verified.
+- **Absent-by-construction for non-gating methods.** `_gating_status_by_method` only ever gets
+  entries for the three kernel_shared* tiers (the only ones the pre-flight runs for), so
+  `naive_concat` / `vanilla_rag` / `mem0_default` are naturally absent, and a pure non-gating run
+  yields `gating_status_by_method = None`.
+
+## Decision-side vs outcome-side — kept distinct (final)
+
+`gating_status_by_method` is **DECISION-SIDE / PRE-FLIGHT** provenance: what gating
+tier/config was live *before* trials ran. It is deliberately **NOT** merged with
+`TrialResult.policy_action`, which is **OUTCOME-SIDE / POST-HOC**: which bandit/arm was
+rewarded, joined *after* the run from `policy_trials.jsonl` by `join_policy_actions.py`. They
+answer different questions, live on different models (`ExperimentMetadata` vs `TrialResult`),
+and are populated at different times (pre-trial live path vs post-run join). Both follow the
+same additive `Optional[...] = None` convention.

@@ -822,12 +822,25 @@ class EvaluationOrchestrator:
         else:
             output_filename = f"results_{self.method}.json"
 
+        # Provenance: attach the gating_status responses captured by the
+        # pre-flight check (subtask 5), keyed by method. self._gating_status_by_method
+        # only ever holds entries for the kernel_shared* tiers that were verified,
+        # so non-gating methods (naive_concat/vanilla_rag/mem0_default) are simply
+        # absent. Restrict to methods actually run this invocation, and use None
+        # (not an empty dict) when nothing was verified so the field is cleanly
+        # absent for non-gating runs.
+        captured_gating = getattr(self, "_gating_status_by_method", {})
+        gating_status_by_method = {
+            m: captured_gating[m] for m in methods_to_run if m in captured_gating
+        } or None
+
         metadata = ExperimentMetadata(
             trials_per_condition=self.trials,
             timestamp=datetime.now().isoformat(),
             kernel_url=config.get_kernel_url(),
             conditions_run=methods_to_run,
             methods_run=methods_to_run,
+            gating_status_by_method=gating_status_by_method,
         )
 
         experiment = ExperimentResults(
