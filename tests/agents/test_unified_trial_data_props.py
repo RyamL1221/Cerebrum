@@ -193,6 +193,13 @@ class TestUnifiedTrialDataAcrossMethods:
         ), patch(
             "benchmarks.shared_memory.run_evaluation.tqdm",
             side_effect=lambda iterable, **kw: iterable,
+        ), patch.object(
+            # These tests validate --method all trial-data plumbing, not the
+            # kernel gating pre-flight. Stub the pre-flight so the kernel_shared*
+            # tiers don't attempt a live GET /memory/gating_status (no kernel
+            # here). The pre-flight itself is covered by its own tests.
+            EvaluationOrchestrator, "_verify_gating_status",
+            lambda self, method_name: {},
         ):
             # Configure mock generator to return deterministic trial data
             mock_gen_instance = mock_gen_cls.return_value
@@ -295,6 +302,13 @@ class TestUnifiedTrialDataAcrossMethods:
         ), patch(
             "benchmarks.shared_memory.run_evaluation.tqdm",
             side_effect=lambda iterable, **kw: iterable,
+        ), patch.object(
+            # These tests validate --method all trial-data plumbing, not the
+            # kernel gating pre-flight. Stub the pre-flight so the kernel_shared*
+            # tiers don't attempt a live GET /memory/gating_status (no kernel
+            # here). The pre-flight itself is covered by its own tests.
+            EvaluationOrchestrator, "_verify_gating_status",
+            lambda self, method_name: {},
         ):
             mock_gen_instance = mock_gen_cls.return_value
             mock_gen_instance.generate_trial_data.side_effect = (
@@ -364,6 +378,13 @@ class TestUnifiedTrialDataAcrossMethods:
         ), patch(
             "benchmarks.shared_memory.run_evaluation.tqdm",
             side_effect=lambda iterable, **kw: iterable,
+        ), patch.object(
+            # These tests validate --method all trial-data plumbing, not the
+            # kernel gating pre-flight. Stub the pre-flight so the kernel_shared*
+            # tiers don't attempt a live GET /memory/gating_status (no kernel
+            # here). The pre-flight itself is covered by its own tests.
+            EvaluationOrchestrator, "_verify_gating_status",
+            lambda self, method_name: {},
         ):
             mock_gen_instance = mock_gen_cls.return_value
             mock_gen_instance.generate_trial_data.side_effect = (
@@ -441,6 +462,13 @@ class TestUnifiedTrialDataAcrossMethods:
         ), patch(
             "benchmarks.shared_memory.run_evaluation.tqdm",
             side_effect=lambda iterable, **kw: iterable,
+        ), patch.object(
+            # These tests validate --method all trial-data plumbing, not the
+            # kernel gating pre-flight. Stub the pre-flight so the kernel_shared*
+            # tiers don't attempt a live GET /memory/gating_status (no kernel
+            # here). The pre-flight itself is covered by its own tests.
+            EvaluationOrchestrator, "_verify_gating_status",
+            lambda self, method_name: {},
         ):
             mock_gen_instance = mock_gen_cls.return_value
             mock_gen_instance.generate_trial_data.side_effect = (

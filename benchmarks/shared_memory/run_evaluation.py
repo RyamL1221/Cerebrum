@@ -75,6 +75,35 @@ _ALL_METHODS = [
     "mem0_default",
 ]
 
+# Methods whose correctness depends on the live kernel's memory-gating state,
+# and which therefore require the GET /memory/gating_status pre-flight check.
+# The other three methods (naive_concat, vanilla_rag, mem0_default) do NOT talk
+# to AIOS memory-gating logic and are intentionally excluded — see
+# docs/harness-aios-gating-dependency-scope.md.
+_GATING_VERIFIED_METHODS = (
+    "kernel_shared",
+    "kernel_shared_tuned",
+    "kernel_shared_adaptive",
+)
+
+# Expected kernel gating state per tier, asserted by the pre-flight check.
+# Each entry maps a gating_status field to its required boolean value. Fields
+# not listed are not asserted (e.g. kernel_shared_adaptive does not constrain
+# static_thresholds_enabled). See docs/harness-aios-gating-dependency-scope.md.
+_GATING_EXPECTATIONS: dict[str, dict[str, bool]] = {
+    "kernel_shared": {
+        "adaptive_policy_enabled": False,
+        "static_thresholds_enabled": False,
+    },
+    "kernel_shared_tuned": {
+        "static_thresholds_enabled": True,
+        "adaptive_policy_enabled": False,
+    },
+    "kernel_shared_adaptive": {
+        "adaptive_policy_enabled": True,
+    },
+}
+
 
 def _parse_model_arg(model_str: str | None) -> list | None:
     """Parse a 'name:backend' model string into an llms list.
@@ -618,6 +647,102 @@ class EvaluationOrchestrator:
 
         return experiment
 
+    def _verify_gating_status(self, method_name: str) -> dict:
+        """Pre-flight check of the kernel's memory-gating state for a tier.
+
+        Calls ``GET /memory/gating_status`` on the live AIOS kernel exactly
+        once (per method) and asserts the reported state matches what
+        ``method_name`` requires (see ``_GATING_EXPECTATIONS``). Mirrors the
+        URL-construction style of the existing ``report_reward`` POST.
+
+        This is verify-and-raise only: it performs no retries and no
+        auto-correction. Any endpoint failure (connection error, timeout,
+        non-200 such as the documented 400 "Memory manager not initialized")
+        or any expected-vs-actual mismatch raises ``RuntimeError`` so the run
+        stops before a single trial executes. The parsed response is also
+        cached on ``self._gating_status_by_method[method_name]`` for a later
+        step (provenance recording) to consume; this method does not itself
+        wire it into any result model.
+
+        Args:
+            method_name: The kernel_shared* tier being verified.
+
+        Returns:
+            The parsed ``gating_status`` JSON response (dict).
+
+        Raises:
+            RuntimeError: On endpoint failure or an expected-state mismatch.
+                Raised before any trial runs.
+        """
+        gating_url = f"{config.get_kernel_url().rstrip('/')}/memory/gating_status"
+
+        # --- Fetch (endpoint/transport failures are fatal, not caught-and-continued) ---
+        try:
+            response = requests.get(gating_url, timeout=30)
+        except Exception as e:
+            raise RuntimeError(
+                f"Pre-flight gating check failed for method '{method_name}': "
+                f"could not reach {gating_url} ({type(e).__name__}: {e}). "
+                f"No trials will run."
+            ) from e
+
+        if response.status_code != 200:
+            body_preview = response.text[:500] if response.text else "(empty body)"
+            raise RuntimeError(
+                f"Pre-flight gating check failed for method '{method_name}': "
+                f"{gating_url} returned HTTP {response.status_code} "
+                f"(expected 200). Body: {body_preview}. No trials will run."
+            )
+
+        try:
+            status = response.json()
+        except ValueError as e:
+            raise RuntimeError(
+                f"Pre-flight gating check failed for method '{method_name}': "
+                f"{gating_url} returned non-JSON body ({e}). No trials will run."
+            ) from e
+
+        # --- Extract the three documented fields ---
+        adaptive_policy_enabled = status.get("adaptive_policy_enabled")
+        static_thresholds_enabled = status.get("static_thresholds_enabled")
+        static_thresholds_config = status.get("static_thresholds_config")
+
+        # --- Assert expected state for this tier ---
+        expectations = _GATING_EXPECTATIONS[method_name]
+        actual = {
+            "adaptive_policy_enabled": adaptive_policy_enabled,
+            "static_thresholds_enabled": static_thresholds_enabled,
+        }
+        mismatches = [
+            f"{field}: expected {expected!r}, server reported {actual.get(field)!r}"
+            for field, expected in expectations.items()
+            if actual.get(field) is not expected
+        ]
+        if mismatches:
+            raise RuntimeError(
+                f"Pre-flight gating check failed for method '{method_name}': "
+                f"kernel gating state does not match the tier's requirement. "
+                f"Mismatches: {'; '.join(mismatches)}. "
+                f"Full server response: adaptive_policy_enabled="
+                f"{adaptive_policy_enabled!r}, static_thresholds_enabled="
+                f"{static_thresholds_enabled!r}, static_thresholds_config="
+                f"{static_thresholds_config!r}. No trials will run."
+            )
+
+        logger.info(
+            "Pre-flight gating check passed for '%s': adaptive_policy_enabled=%r, "
+            "static_thresholds_enabled=%r.",
+            method_name, adaptive_policy_enabled, static_thresholds_enabled,
+        )
+
+        # Cache the raw parsed response for a later provenance-recording step
+        # to consume. Not wired into any result model here.
+        if not hasattr(self, "_gating_status_by_method"):
+            self._gating_status_by_method: dict = {}
+        self._gating_status_by_method[method_name] = status
+
+        return status
+
     def _run_method(self) -> ExperimentResults:
         """Run the new --method workflow using MethodPipeline."""
         # Determine which methods to run
@@ -631,6 +756,15 @@ class EvaluationOrchestrator:
         for method_name in methods_to_run:
             pipeline = MethodPipeline(method=method_name, assistant_llms=self.assistant_llms)
             logger.info("Running method '%s'.", method_name)
+
+            # Pre-flight: for the kernel_shared* family, verify the live kernel's
+            # memory-gating state matches what this tier expects BEFORE running
+            # any trials. Fails loudly (raises) on mismatch or endpoint failure —
+            # no trials run. Not applicable to naive_concat/vanilla_rag/mem0_default
+            # (they don't depend on kernel gating state; see
+            # docs/harness-aios-gating-dependency-scope.md). Runs once per method.
+            if method_name in _GATING_VERIFIED_METHODS:
+                self._verify_gating_status(method_name)
 
             trials: list[TrialResult] = []
 
