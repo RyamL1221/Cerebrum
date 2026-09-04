@@ -5,7 +5,7 @@ generation inputs, judge scores, per-trial results, and experiment-level
 aggregation output. No business logic — just data and validation.
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -155,6 +155,13 @@ class TrialResult(BaseModel):
     written_memories: List[WrittenMemoryRecord] = []
     failed: bool = False
     error_message: Optional[str] = None
+    # Per-call token usage from the kernel's /query response, threaded through
+    # AssistantAgent.run() → PipelineResult → here. Shape:
+    # {"prompt_tokens", "completion_tokens", "total_tokens"} with each value an
+    # int or None, or the whole dict None (error paths, or a response that
+    # omitted it). Populated only on the success path where a PipelineResult
+    # is available.
+    token_usage: Optional[Dict[str, Optional[int]]] = None
 
 
 # ---------------------------------------------------------------------------
