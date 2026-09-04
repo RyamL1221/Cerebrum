@@ -130,3 +130,143 @@ Actual mapping:
 - Caveat for downstream code: `trial_id` is nullable and appears as int /
   string / `null`; the log is a discriminated union on `event`, so parsers must
   branch on `event` and normalize `trial_id`.
+
+---
+
+# Subtask 2 findings: `trial_id` compatibility between the benchmark and the policy log
+
+Establishes whether the benchmark-side trial identifier and the `trial_id`
+values in `policy_trials.jsonl` (int / string / `null`, per Subtask 1) can be
+joined. This is the load-bearing check the `policy_action` feature depends on.
+Every claim below is traced to code or to the real log data — not asserted.
+
+## Correction to the brief: the benchmark field is `trial_index`, not `trial_id`
+
+There is **no `trial_id` field on `TrialResult`**. The model
+(`benchmarks/shared_memory/models.py`, `class TrialResult`) declares:
+
+```python
+class TrialResult(BaseModel):
+    trial_index: int
+    condition: str
+    method: str = ""
+    ...
+```
+
+So the benchmark-side identifier is `trial_index: int`. The name `trial_id`
+only appears on the *wire* to the kernel (see below), where `trial_index` is
+sent under the key `"trial_id"`.
+
+## Where `trial_index` comes from (real format)
+
+In `run_evaluation.py`, trials are enumerated by a bare zero-based loop counter,
+not a composite string:
+
+```python
+for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
+    result = self.run_single_trial(i, method_name, pipeline, ...)
+```
+
+`run_single_trial(trial_index=i, ...)` then stores it verbatim as
+`TrialResult(trial_index=trial_index, ...)`. So for a run of N trials the
+benchmark trial identifiers are exactly the integers `0, 1, ..., N-1`. There is
+**no** `"gpt-4o-kernel_shared-task-014"`-style composite id anywhere; method and
+condition are carried in separate fields (`method`, `condition`), not folded
+into the id.
+
+## How `trial_index` reaches the kernel (and becomes a policy-log `trial_id`)
+
+Only **one** harness path sends a trial identifier to the kernel — the
+`report_reward` call in `run_single_trial`:
+
+```python
+reward_metadata = {**trial_metadata, "trial_id": trial_index}
+reward_response = requests.post(
+    f"{config.get_kernel_url().rstrip('/')}/memory/report_reward",
+    json={"agent_name": "assistant_agent",
+          "memory_ids_involved": memory_ids_involved,
+          "reward_value": reward_value,
+          "trial_metadata": reward_metadata},
+    timeout=30,
+)
+```
+
+So the integer `trial_index` is what the kernel's PolicyManager receives as
+`trial_metadata["trial_id"]`, and (per Subtask 1's read of
+`aios/memory/policy_log.py`) it is written verbatim into **`reward`** records.
+
+Critically, the **add/retrieve path does not send any trial id.** The pipeline's
+`create_memory` / `search_memories` / `llm_chat` calls
+(`benchmarks/shared_memory/pipeline.py`) pass metadata containing only
+`owner_agent`, `memory_type`, `sharing_policy`, and `user_id` — never
+`trial_id`. Since **`select`** records take their `trial_id` from the
+add/retrieve query metadata, the harness leaves it unset → the kernel logs
+`trial_id: null` for them.
+
+## Cross-reference against the real log data
+
+Grouping every record by `(event, python-type-of-trial_id)`:
+
+| event    | trial_id type | count | source                                              |
+|----------|---------------|-------|-----------------------------------------------------|
+| `reward` | int           | 180   | benchmark `report_reward` (`trial_index` 0–14)      |
+| `reward` | str           | 11    | manual markers (`probe`, `trial-subtask3-verify`)   |
+| `select` | null          | 125   | harness add/retrieve — **no trial_id sent**         |
+| `select` | str           | 8     | manual markers                                      |
+
+The integer `reward` trial_ids are exactly `{0,1,...,14}` — i.e. the
+`trial_index` values of a 15-trial benchmark run. **No integer ever appears on a
+`select` record**, and **no `null` ever appears on a `reward` record.** This
+matches the code paths above precisely and is strong evidence that the integers
+in the log are the benchmark loop indices, not an unrelated namespace.
+
+## Determination: joinable by DIRECT INTEGER MATCH, on `reward` records only
+
+- **`reward` records ↔ `TrialResult`: DIRECT MATCH (no transform).**
+  `TrialResult.trial_index` (int) equals the policy-log `reward.trial_id` (int)
+  one-for-one within a run. Joining is `policy_reward.trial_id == trial.trial_index`.
+  This is the join the `policy_action` reward-attribution feature needs, and it
+  works directly.
+
+  Caveat — **per-run only, not globally unique.** Because ids restart at 0 each
+  run, joining across multiple runs requires an out-of-band run discriminator
+  (the log has no run id / the ids collide between runs). Within a single run,
+  or when the log is truncated/segmented per run, the direct match is exact.
+
+- **`select` records ↔ `TrialResult`: NOT JOINABLE as-is (all `null`).**
+  The harness never propagates `trial_index` onto add/retrieve queries, so all
+  125 `select` records carry `trial_id: null`. There is no key to join a
+  selection to a benchmark trial today. Joining `select`↔trial would require an
+  upstream change (thread `trial_index` through the pipeline's add/retrieve
+  metadata) — that is a code change on the harness+kernel boundary, not a
+  transform of existing data.
+
+- **String-marker records (`probe`, `trial-subtask3-verify`): EXCLUDE.**
+  These are manual/non-benchmark writes and do not correspond to any
+  `TrialResult`. Filter them out before joining (`trial_id` not an int, or not
+  in the run's `trial_index` set).
+
+## Caveats for Subtask 7's go/no-go decision gate
+
+1. **The 125 `null`-trial_id records are all `select` events** and are **not
+   joinable** to benchmark trials. If `policy_action` needs selection-time
+   context (which threshold/arm was chosen for a given trial), that data cannot
+   be attributed today without threading `trial_index` into add/retrieve
+   metadata (upstream change). Reward attribution — the primary need — does
+   **not** depend on the `select` records and is unaffected.
+
+2. **Mixed-type `trial_id`.** Any join/parse must (a) branch on `event`,
+   (b) treat `trial_id` as nullable, (c) accept only integer `trial_id` values
+   for benchmark joins, and (d) drop string markers. Normalizing everything to
+   `str()` would silently merge the `"probe"`/`"trial-subtask3-verify"` markers
+   into the join space and is unsafe.
+
+3. **Non-uniqueness across runs.** Integer ids restart per run; without a run
+   discriminator in the log, a multi-run corpus cannot be joined unambiguously.
+   Single-run joins are exact.
+
+**Bottom line:** trial_id is **directly joinable (integer equality) for the
+`reward` records** that carry the benchmark's `trial_index`, which is exactly
+what reward attribution requires. It is **incompatible/unjoinable for the
+`select` records** (all `null`) and for the manual string markers (excluded),
+pending an upstream change to thread `trial_index` into add/retrieve metadata.
