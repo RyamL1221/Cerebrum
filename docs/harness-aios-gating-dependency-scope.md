@@ -3,9 +3,34 @@
 **Subtask 1 — investigation only. No code was modified.**
 
 Goal: establish, from the live repo, exactly which `_run_*` condition methods route
-through AIOS kernel endpoints where memory-gating state (`auto_inject` / `auto_extract`,
-the concept a `/memory/gating_status` reading would report) is relevant — so a pre-flight
-gating check is added only where it belongs.
+through AIOS kernel endpoints where the new adaptive-vs-static memory-gating state
+(the `GET /memory/gating_status` contract) is relevant — so a pre-flight gating check is
+added only where it belongs.
+
+## Terminology: two distinct mechanisms — do NOT conflate
+
+This scope concerns the **new three-tier gating** work
+(`kernel_shared` / `kernel_shared_tuned` / `kernel_shared_adaptive`), whose interface is the
+AIOS server endpoint:
+
+```
+GET /memory/gating_status
+  → {adaptive_policy_enabled, static_thresholds_enabled, static_thresholds_config: {...}}
+```
+
+That endpoint (and the adaptive-policy / reward-attribution plumbing behind it) lives
+**server-side in AIOS**, which is out of scope to search or modify from this Cerebrum repo.
+Per prior context the policy module isn't built yet; only the endpoint contract is defined.
+**This contract is trusted as given.**
+
+Separately, Cerebrum references a pre-existing, unrelated kernel config toggle pair,
+`auto_inject` / `auto_extract` (`aios/config/config_loader.py:66-68`): whether the kernel
+auto-injects retrieved memory into context / auto-writes new memory. That pair is **adjacent
+context only** — it is NOT the adaptive-vs-static gating this subtask is about, and subtask 5's
+verification must read `gating_status` fields (`adaptive_policy_enabled` /
+`static_thresholds_enabled` / `static_thresholds_config`), **not** `auto_inject`/`auto_extract`.
+Where this doc mentions `auto_inject` below, it is describing the *existing* kernel-memory
+injection path a condition relies on — not the gating contract being verified.
 
 ## Where the `_run_*` methods live
 
@@ -31,55 +56,64 @@ Every condition ends by calling `AssistantAgent.run()`
 →  `post(base_url, "/query", ...)` (`cerebrum/utils/communication.py:71`).
 
 So **all four conditions hit the AIOS kernel `/query` endpoint.** That fact alone is not
-what makes gating state relevant. What matters is whether the kernel's memory-gating logic
-has anything to *act on* for that condition — i.e. whether shared/injectable memories were
-written to the kernel's Mem0 store under the trial's `user_id` earlier in the same path.
+what makes the gating contract relevant. What matters is whether a condition *claims to be a
+gating-controlled condition* — i.e. whether the pre-flight has anything to verify against.
+The verification trigger is the **requested condition name**
+(`kernel_shared` / `kernel_shared_tuned` / `kernel_shared_adaptive`), not whether the
+underlying transport happens to be shared code.
 
-Important repo fact: **there is no `/memory/gating_status` endpoint anywhere in the current
-codebase.** The only memory-gating concept present is the kernel config pair
-`auto_inject` / `auto_extract` (`aios/config/config_loader.py:66-68`, exercised via `/query`).
-Any pre-flight "gating status" check would be reading that kernel-side state, which is only
-meaningful for a condition that relies on kernel-managed memory injection.
+Note on the grep result: the earlier draft claimed "no `/memory/gating_status` endpoint
+exists in the repo." That observation is **non-informative and has been removed as a
+finding** — the endpoint lives server-side in AIOS (out of scope here), so its absence from
+the Cerebrum repo is expected regardless of whether it exists, and it is not evidence about
+the contract one way or the other.
 
 ## Per-condition call path and gating dependency
 
 | Condition | What it calls | Gating state applies? | Why |
 |-----------|---------------|-----------------------|-----|
 | `kernel_shared` | `_run_kernel_shared` → `AgentPipeline(share_memory=True).run_trial()` → ProfileAgent + TaskAgent write **shared** memories via `create_memory` to the kernel, then AssistantAgent `llm_chat`→`/query`. Relies on kernel `auto_inject` to surface cross-agent shared memories, and reads `injection_diagnostics` from the response. | **YES** | This is the only condition whose *result depends on* the kernel's memory-gating behavior. Writes go to the kernel store with `sharing_policy="shared"`; correct behavior requires kernel `auto_inject` ON so those memories are injected into the AssistantAgent prompt. A gating-status pre-flight is meaningful here. |
-| `mem0_default` | `_run_mem0_default` → `AgentPipeline(share_memory=False).run_trial()` → same 3-agent pipeline, but ProfileAgent/TaskAgent write **private** memories (`sharing_policy="private"`); AssistantAgent `llm_chat`→`/query`. | **BORDERLINE — see deviation note** | It uses the *same kernel pipeline* as `kernel_shared` and writes to the kernel memory store, but with `sharing_policy="private"`, so `auto_inject` is expected to find nothing cross-agent to inject. Its correctness is defined by the *absence* of injection. It still routes through the kernel's memory path, so kernel gating config is not irrelevant to it the way it is for the two purely local baselines. |
+| `mem0_default` | `_run_mem0_default` → `AgentPipeline(share_memory=False).run_trial()` → same 3-agent pipeline, but ProfileAgent/TaskAgent write **private** memories (`sharing_policy="private"`); AssistantAgent `llm_chat`→`/query`. | **NO (resolved — see below)** | Shares the kernel-backed transport with `kernel_shared`, but it does not *claim* to be a gating-controlled condition. The pre-flight is triggered by the requested condition name, and `mem0_default` isn't one of the three gating tiers — so there is nothing for it to verify against. The wire-path overlap is incidental. |
 | `naive_concat` | `_run_naive_concat` builds a plain-text context block from synthetic profile+task, prepends it to the query, and calls `AssistantAgent.run()`. **No `create_memory`, no `search_memories`, no memory endpoint.** `written_memories=[]`, `retrieved_context_count=0`. | **NO** | Pure string concatenation. It hits `/query` only to run the LLM; nothing is written to or retrieved from the kernel memory store, so `auto_inject`/`auto_extract` gating has nothing to act on. |
 | `vanilla_rag` | `_run_vanilla_rag` builds context chunks, runs a **local scikit-learn TF-IDF + cosine similarity** retrieval (`TfidfVectorizer`, `cosine_similarity`), injects top-k chunks into the prompt, then calls `AssistantAgent.run()`. **No kernel memory or Mem0 API is called.** | **NO** | Retrieval is entirely local/in-process against an in-memory TF-IDF index with no relationship to AIOS's gating config. It hits `/query` only for the LLM call. |
 
-## Non-goal assumption: confirmed with one caveat
+## Non-goal assumption: confirmed
 
-The assumption *"naive_concat / vanilla_rag / mem0_default don't talk to AIOS's
-memory-gating logic"* is:
+The assumption *"naive_concat / vanilla_rag / mem0_default don't need a `gating_status`
+pre-flight verification"* holds for all three, though for two different reasons:
 
-- **Confirmed for `naive_concat` and `vanilla_rag`.** Neither writes to nor reads from any
-  kernel memory endpoint. `naive_concat` is plain concatenation; `vanilla_rag` retrieves
-  from a local TF-IDF index. Their only kernel contact is the `/query` LLM call, which
-  carries no memory-gating dependency. A gating pre-flight would be pointless (and
-  misleading) for these two.
+- **`naive_concat` and `vanilla_rag`** — genuinely no kernel memory path at all. `naive_concat`
+  is plain concatenation; `vanilla_rag` retrieves from a local TF-IDF index. Their only kernel
+  contact is the `/query` LLM call. Nothing to gate, nothing to verify.
 
-- **Flagged as an explicit deviation for `mem0_default`.** It does **not** match the "doesn't
-  talk to AIOS memory logic" description. It runs the identical kernel-backed `AgentPipeline`
-  as `kernel_shared` (the only difference is `share_memory=False` →
-  `sharing_policy="private"`; pipeline.py:737-739), writing memories to the kernel store and
-  going through the kernel's `auto_inject`/`auto_extract` path. Its expected behavior is
-  "gating is ON but finds nothing cross-agent to inject." So it *is* coupled to AIOS memory
-  gating — just as the negative/baseline arm of the same mechanism.
+- **`mem0_default`** — shares the kernel-backed transport with `kernel_shared`
+  (identical `AgentPipeline`, only `share_memory=False` → `sharing_policy="private"`;
+  pipeline.py:737-739). This overlap was worth surfacing so it wasn't missed. But the wire-path
+  overlap does **not** pull it into verification scope: the pre-flight is triggered by the
+  requested condition name, and `mem0_default` does not claim to be a gating-controlled
+  condition, so there is nothing for the check to verify against.
+
+## Resolved decision: no `gating_status` verification for `mem0_default`
+
+Recorded explicitly per the master prompt's "confirm or report" requirement:
+
+- The pre-flight `GET /memory/gating_status` verification is scoped to runs targeting
+  **`kernel_shared` / `kernel_shared_tuned` / `kernel_shared_adaptive`** — gated on the
+  requested condition, not on shared transport code.
+- `mem0_default` gets **no verification call**, even though it routes through the same
+  kernel `/query` path, because it isn't asserting a gating tier. This is a deliberate
+  resolution, not an open question.
 
 ## Scope recommendation (for subtask 4/5)
 
-- **Definitely in scope:** `kernel_shared` — its correctness depends on kernel `auto_inject`
-  being ON; a `/memory/gating_status`-style pre-flight is meaningful here.
-- **Decision required (do not silently fold in):** `mem0_default`. Because it shares the exact
-  kernel pipeline as `kernel_shared`, a gating pre-flight would run identically for it. Whether
-  it *should* be gated depends on the intent: if the pre-flight is asserting kernel config is
-  in a known state before any kernel-memory-backed condition runs, `mem0_default` qualifies; if
-  it is asserting that injection *will happen*, `mem0_default` deliberately expects none.
-- **Out of scope (confirmed):** `naive_concat`, `vanilla_rag` — no kernel memory path, gating
-  state has nothing to act on.
+- **In scope:** the three gating tiers — `kernel_shared`, `kernel_shared_tuned`,
+  `kernel_shared_adaptive`. The pre-flight reads `GET /memory/gating_status`
+  (`adaptive_policy_enabled` / `static_thresholds_enabled` / `static_thresholds_config`) and
+  verifies the kernel is in the state the requested tier expects.
+- **Out of scope (confirmed):** `naive_concat`, `vanilla_rag` (no kernel memory path) and
+  `mem0_default` (kernel transport, but not a gating-controlled condition — resolved above).
+- **Do NOT** wire the verification to `auto_inject`/`auto_extract`; those are the pre-existing
+  injection toggles, a separate mechanism from the adaptive/static gating contract.
 
 ## Line references
 
@@ -89,5 +123,7 @@ memory-gating logic"* is:
 - `_run_vanilla_rag`: pipeline.py:609-715 (TF-IDF import pipeline.py:~628-629; "No kernel memory or Mem0 API is called" docstring pipeline.py:~615-621)
 - `_run_mem0_default`: pipeline.py:716-742 (`AgentPipeline(share_memory=False)`, pipeline.py:737)
 - Shared terminal call: `AssistantAgent.run` → `llm_chat` at agent.py:56; `send_request`→`/query` at `cerebrum/llm/apis.py:298` and `cerebrum/utils/communication.py:71`
-- Gating config (only gating concept in repo): `aios/config/config_loader.py:66-68` (`auto_inject`, `auto_extract`)
-- No `/memory/gating_status` endpoint exists in the repo (grep: no matches for `gating_status`)
+- `auto_inject` / `auto_extract` (pre-existing injection toggles — **adjacent context, NOT the
+  gating contract**): `aios/config/config_loader.py:66-68`
+- `GET /memory/gating_status` is a server-side AIOS contract (out of scope to search/modify
+  here); trusted as given. Its absence from the Cerebrum repo is expected and non-informative.
