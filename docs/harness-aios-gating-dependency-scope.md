@@ -127,3 +127,154 @@ Recorded explicitly per the master prompt's "confirm or report" requirement:
   gating contract**): `aios/config/config_loader.py:66-68`
 - `GET /memory/gating_status` is a server-side AIOS contract (out of scope to search/modify
   here); trusted as given. Its absence from the Cerebrum repo is expected and non-informative.
+
+---
+
+# Subtask 2 — Insertion points for tuned/adaptive conditions (re-confirmed)
+
+**Investigation only. No source files were modified.** Line numbers verified against the
+live repo on this pass (not carried over from the prior investigation). Where the prior pass's
+assumptions drifted, it is called out explicitly.
+
+## Category 1 — the valid-condition-names constant
+
+- **Name / location:** `_ALL_METHODS`, `benchmarks/shared_memory/run_evaluation.py:66`
+- **Current content:**
+  ```python
+  # All valid method names (excluding the meta-value "all")
+  _ALL_METHODS = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+  ```
+- **Used at:** `run_evaluation.py:607` (`methods_to_run = list(_ALL_METHODS)` when `--method all`).
+- **Drift from prior assumption:** The prior investigation (subtask 1) said this constant
+  lived in `pipeline.py`. **DRIFT — it does not.** `_ALL_METHODS` is defined in
+  `run_evaluation.py:66`, module-level, not in `pipeline.py`. `pipeline.py` has no analogous
+  constant — its `MethodPipeline` validates method names only via the dispatch chain (Category 3).
+  Subtasks 4–6 must edit `run_evaluation.py:66`, not `pipeline.py`, for the constant.
+- **Note for subtask 4:** the meta-value `"all"` is **not** in `_ALL_METHODS` (excluded by
+  design, per the comment) but **is** in the `--method` argparse `choices` (Category 2). Adding
+  the two new tiers means editing both the constant and the choices list — they are maintained
+  separately.
+
+## Category 2 — argparse `choices=` lists constraining condition/method selection
+
+Two flags in the **same** parser (`build_arg_parser()` in
+`benchmarks/shared_memory/run_evaluation.py`), and no others anywhere in the benchmark tooling:
+
+- **`--method`** — `run_evaluation.py:132`
+  ```python
+  parser.add_argument(
+      "--method",
+      choices=["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default", "all"],
+      default="kernel_shared",
+      ...
+  ```
+- **`--condition`** — `run_evaluation.py:122` (legacy)
+  ```python
+  parser.add_argument(
+      "--condition",
+      choices=["both", "phase1", "phase2"],
+      default=None,
+      ...
+  ```
+  Legacy: `phase1` → `kernel_shared` share_memory=False, `phase2` → share_memory=True. The
+  new tuned/adaptive tiers belong on `--method`, not here — `--condition` should be left alone.
+
+- **Confirmed flag names:** the master prompt's "`--condition`/`--method`" is accurate; both
+  exist, both in `run_evaluation.py`.
+- **Is the list duplicated in a separate analysis/reporting CLI? NO (with nuance).** The
+  master prompt warned there may be a second CLI (e.g. a reporting tool) duplicating the list.
+  Checked: `assert_injection_rate.py` (post-run gate) and the `benchmarks/human_rating/*` CLIs
+  do **not** re-declare a method/condition `choices` list. The method names are, however,
+  **hard-coded as literals in tests** — `tests/agents/test_unified_trial_data_props.py:225`,
+  `tests/agents/test_results_writer.py:91`, and `tests/agents/test_results_writer.py` filename
+  assertions. These are not `choices=` lists and are out of implementation scope, but new-tier
+  work should expect some of these tests to need updating.
+- **Drift:** none for the production CLI — single parser, two flags, exactly where expected.
+
+## Category 3 — the dispatcher (name string → `_run_*` method)
+
+- **Location:** `MethodPipeline.run_trial()`, `benchmarks/shared_memory/pipeline.py:502-513`
+- **Current mapping (if/elif chain, not a dict):**
+  ```python
+  method_user_id = f"{trial_data.user_id}__{self.method}"   # line 502
+  if self.method == "kernel_shared":                        # line 503
+      return self._run_kernel_shared(trial_data, method_user_id)
+  elif self.method == "naive_concat":                       # line 505
+      return self._run_naive_concat(trial_data, method_user_id)
+  elif self.method == "vanilla_rag":                        # line 507
+      return self._run_vanilla_rag(trial_data, method_user_id)
+  elif self.method == "mem0_default":                       # line 509
+      return self._run_mem0_default(trial_data, method_user_id)
+  else:                                                     # line 512
+      raise ValueError(f"Unknown method: {self.method!r}. ...")
+  ```
+- **Drift from prior assumption:** subtask 1 said "likely a dict lookup or if/elif chain in
+  pipeline.py's MethodPipeline." **Confirmed — it is an if/elif chain** (not a dict), in
+  `MethodPipeline.run_trial`, at pipeline.py:502-513. Location matches; the "dict lookup"
+  half of the guess does not apply.
+- **Note for subtask 4/5:** adding tiers means new `elif` branches here plus the corresponding
+  `_run_kernel_shared_tuned` / `_run_kernel_shared_adaptive` methods. The `method_user_id`
+  namespacing pattern (`{user_id}__{method}`) at line 502 applies uniformly, so new tiers get
+  isolated memory namespaces automatically.
+
+## Category 4 — `ExperimentMetadata` and `TrialResult` (field collision check)
+
+Both are Pydantic `BaseModel`s in `benchmarks/shared_memory/models.py`.
+
+### `TrialResult` — models.py:154-188 (full current field list)
+```
+trial_index: int
+condition: str
+method: str = ""
+profile_usage_score: Optional[int] = None
+task_usage_score: Optional[int] = None
+integration_score: Optional[int] = None
+memory_counts: MemoryCounts = MemoryCounts()
+retrieved_context_count: Optional[int] = None
+latency_seconds: Optional[float] = None
+follow_up_query: str = ""
+assistant_response: str = ""
+synthetic_profile: Optional[SyntheticProfile] = None
+synthetic_task_context: Optional[SyntheticTaskContext] = None
+retrieval_log: Optional[RetrievalLog] = None
+injection_diagnostics: Optional[InjectionDiagnostics] = None
+written_memories: List[WrittenMemoryRecord] = []
+failed: bool = False
+error_message: Optional[str] = None
+token_usage: Optional[Dict[str, Optional[int]]] = None
+policy_action: Optional[List[PolicyActionEntry]] = None
+```
+
+### `ExperimentMetadata` — models.py:219-225 (full current field list)
+```
+trials_per_condition: int
+timestamp: str
+kernel_url: str
+conditions_run: List[str]
+methods_run: List[str] = []
+```
+
+- **Drift from prior assumption — IMPORTANT.** `TrialResult` already carries **two fields the
+  prior investigation likely predates**: `token_usage` (models.py:180) and
+  `policy_action: Optional[List[PolicyActionEntry]]` (models.py:188). `ExperimentMetadata`
+  already carries `methods_run` (models.py:225). If subtask 6 planned to add any of these
+  names, they **already exist** — re-adding would collide. Confirm subtask 6's intended new
+  field names against these lists before implementing.
+- **Supporting type present:** `PolicyActionEntry` (models.py:137, fields `bandit`, `arm_index`,
+  `reward`, `memory_id`) already exists — the adaptive-policy reward plumbing on the *data-model
+  side* is partly in place via the standalone post-hoc join
+  (`join_policy_actions.py`), per the field comment at models.py:181-188. This is consistent
+  with prior context that only the join/model side exists, not the live adaptive policy.
+- **Additivity guidance:** any subtask-6 additions should remain `Optional[...] = None` (or a
+  default) to stay backward-compatible with existing serialized results, matching the pattern
+  of `token_usage` / `policy_action` / `methods_run`.
+
+## Summary of drift called out
+
+| Item | Prior assumption | Actual (this pass) |
+|------|------------------|--------------------|
+| `_ALL_METHODS` location | `pipeline.py` | `run_evaluation.py:66` — **drift** |
+| Dispatcher form | dict lookup *or* if/elif | if/elif chain, pipeline.py:502-513 — confirmed |
+| CLI choices duplication | maybe a 2nd reporting CLI | only one parser (`run_evaluation.py`); method names also hard-coded in tests |
+| `TrialResult` fields | (pre-`token_usage`/`policy_action`?) | already has `token_usage`, `policy_action` — **drift, collision risk** |
+| `ExperimentMetadata` fields | (pre-`methods_run`?) | already has `methods_run` — **drift, collision risk** |
