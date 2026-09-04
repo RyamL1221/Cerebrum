@@ -134,6 +134,23 @@ class WrittenMemoryRecord(BaseModel):
     user_id: str
 
 
+class PolicyActionEntry(BaseModel):
+    """One adaptive-policy reward record attributed to a trial.
+
+    Mirrors a single ``event == "reward"`` record from the kernel's
+    ``policy_trials.jsonl`` (see docs/policy-trials-jsonl-findings.md). A trial
+    typically has several of these — one per bandit rewarded — so
+    ``TrialResult.policy_action`` is a list, not a single entry. This is the
+    outcome-side signal only (which bandit/arm was credited and with what
+    reward); the decision-side ``select`` records are NOT joinable per trial
+    (their ``trial_id`` is always null), so they are intentionally absent."""
+
+    bandit: str
+    arm_index: int
+    reward: float
+    memory_id: Optional[str] = None
+
+
 class TrialResult(BaseModel):
     """Complete result for one trial."""
 
@@ -162,6 +179,13 @@ class TrialResult(BaseModel):
     # omitted it). Populated only on the success path where a PipelineResult
     # is available.
     token_usage: Optional[Dict[str, Optional[int]]] = None
+    # Adaptive-policy reward records attributed to this trial by the standalone
+    # post-hoc join (benchmarks/shared_memory/join_policy_actions.py). NOT
+    # threaded through the live path (AssistantAgent/PipelineResult are
+    # untouched) — populated after the run by joining the kernel's
+    # policy_trials.jsonl reward events on reward.trial_id == trial_index.
+    # None = not yet joined; [] = joined but no reward records for this trial.
+    policy_action: Optional[List[PolicyActionEntry]] = None
 
 
 # ---------------------------------------------------------------------------
