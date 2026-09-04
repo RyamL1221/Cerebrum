@@ -90,9 +90,9 @@ def test_phase1_uses_share_memory_false():
     from benchmarks.shared_memory.pipeline import AgentPipeline
     original_init = AgentPipeline.__init__
 
-    def tracking_init(self, share_memory):
+    def tracking_init(self, share_memory, assistant_llms=None):
         pipelines_created.append(share_memory)
-        original_init(self, share_memory)
+        original_init(self, share_memory, assistant_llms)
 
     with patch(
         "benchmarks.shared_memory.run_evaluation.config.get_kernel_url",
@@ -124,9 +124,9 @@ def test_phase2_uses_share_memory_true():
     from benchmarks.shared_memory.pipeline import AgentPipeline
     original_init = AgentPipeline.__init__
 
-    def tracking_init(self, share_memory):
+    def tracking_init(self, share_memory, assistant_llms=None):
         pipelines_created.append(share_memory)
-        original_init(self, share_memory)
+        original_init(self, share_memory, assistant_llms)
 
     with patch(
         "benchmarks.shared_memory.run_evaluation.config.get_kernel_url",
