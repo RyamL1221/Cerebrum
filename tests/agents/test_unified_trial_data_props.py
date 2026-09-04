@@ -148,7 +148,10 @@ class TestUnifiedTrialDataAcrossMethods:
         }
 
         # Track which trial_data was passed to each (method, trial_index) call
-        calls_by_method: dict = {m: [] for m in ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]}
+        # Derive the expected method set from the harness constant so this
+        # test cannot drift as tiers are added (e.g. kernel_shared_tuned).
+        from benchmarks.shared_memory.run_evaluation import _ALL_METHODS
+        calls_by_method: dict = {m: [] for m in _ALL_METHODS}
 
         def make_mock_run_trial(method_name: str):
             """Return a mock run_trial that records the trial_data argument."""
@@ -170,8 +173,8 @@ class TestUnifiedTrialDataAcrossMethods:
         original_init = pipeline_module.MethodPipeline.__init__
         original_run_trial = pipeline_module.MethodPipeline.run_trial
 
-        def tracking_init(self, method: str, top_k: int = 3):
-            original_init(self, method=method, top_k=top_k)
+        def tracking_init(self, method: str, top_k: int = 3, assistant_llms=None):
+            original_init(self, method=method, top_k=top_k, assistant_llms=assistant_llms)
             pipeline_instances[method] = self
             # Monkey-patch run_trial on this instance
             self.run_trial = make_mock_run_trial(method)
@@ -221,8 +224,9 @@ class TestUnifiedTrialDataAcrossMethods:
             )
             orch.run()
 
-        # Verify all four methods were called
-        all_methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+        # Verify every valid method was called (derived from the harness
+        # constant so new tiers are covered automatically).
+        all_methods = list(_ALL_METHODS)
         for method_name in all_methods:
             assert len(calls_by_method[method_name]) == num_trials, (
                 f"Method '{method_name}' was called {len(calls_by_method[method_name])} times, "
@@ -261,7 +265,7 @@ class TestUnifiedTrialDataAcrossMethods:
         exactly once per trial index (not once per method × trial).
 
         This verifies that the orchestrator caches the generated data and
-        reuses it across all four methods rather than regenerating it.
+        reuses it across all methods rather than regenerating it.
         """
         from benchmarks.shared_memory.run_evaluation import EvaluationOrchestrator
 
@@ -273,8 +277,8 @@ class TestUnifiedTrialDataAcrossMethods:
 
         original_init = pipeline_module.MethodPipeline.__init__
 
-        def tracking_init(self, method: str, top_k: int = 3):
-            original_init(self, method=method, top_k=top_k)
+        def tracking_init(self, method: str, top_k: int = 3, assistant_llms=None):
+            original_init(self, method=method, top_k=top_k, assistant_llms=assistant_llms)
             self.run_trial = lambda td: _make_pipeline_result()
 
         with patch.object(
@@ -342,8 +346,8 @@ class TestUnifiedTrialDataAcrossMethods:
 
         original_init = pipeline_module.MethodPipeline.__init__
 
-        def tracking_init(self, method: str, top_k: int = 3):
-            original_init(self, method=method, top_k=top_k)
+        def tracking_init(self, method: str, top_k: int = 3, assistant_llms=None):
+            original_init(self, method=method, top_k=top_k, assistant_llms=assistant_llms)
             self.run_trial = lambda td: _make_pipeline_result()
 
         with patch.object(
@@ -404,9 +408,12 @@ class TestUnifiedTrialDataAcrossMethods:
     @settings(max_examples=20)
     def test_methods_run_populated_in_metadata(self, num_trials: int):
         """When running --method all, ExperimentMetadata.methods_run SHALL
-        contain all four method names.
+        contain every valid method name (all entries of _ALL_METHODS).
         """
-        from benchmarks.shared_memory.run_evaluation import EvaluationOrchestrator
+        from benchmarks.shared_memory.run_evaluation import (
+            EvaluationOrchestrator,
+            _ALL_METHODS,
+        )
 
         expected_trial_data = {
             i: _make_synthetic_trial_data(i) for i in range(num_trials)
@@ -416,8 +423,8 @@ class TestUnifiedTrialDataAcrossMethods:
 
         original_init = pipeline_module.MethodPipeline.__init__
 
-        def tracking_init(self, method: str, top_k: int = 3):
-            original_init(self, method=method, top_k=top_k)
+        def tracking_init(self, method: str, top_k: int = 3, assistant_llms=None):
+            original_init(self, method=method, top_k=top_k, assistant_llms=assistant_llms)
             self.run_trial = lambda td: _make_pipeline_result()
 
         with patch.object(
@@ -461,7 +468,7 @@ class TestUnifiedTrialDataAcrossMethods:
             )
             experiment = orch.run()
 
-        expected_methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+        expected_methods = list(_ALL_METHODS)
         actual_methods = experiment.experiment_metadata.methods_run
         assert sorted(actual_methods) == sorted(expected_methods), (
             f"methods_run mismatch.\n"

@@ -62,8 +62,18 @@ from cerebrum.config.config_manager import config
 
 logger = logging.getLogger(__name__)
 
-# All valid method names (excluding the meta-value "all")
-_ALL_METHODS = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+# All valid method names (excluding the meta-value "all").
+# The three kernel_shared* tiers share an identical client-side call path
+# (AgentPipeline with share_memory=True); they differ only in server-side
+# kernel memory-gating config (adaptive vs. static thresholds).
+_ALL_METHODS = [
+    "kernel_shared",
+    "kernel_shared_tuned",
+    "kernel_shared_adaptive",
+    "naive_concat",
+    "vanilla_rag",
+    "mem0_default",
+]
 
 
 def _parse_model_arg(model_str: str | None) -> list | None:
@@ -129,7 +139,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--method",
-        choices=["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default", "all"],
+        choices=[
+            "kernel_shared",
+            "kernel_shared_tuned",
+            "kernel_shared_adaptive",
+            "naive_concat",
+            "vanilla_rag",
+            "mem0_default",
+            "all",
+        ],
         default="kernel_shared",
         help=(
             "Personalization method to evaluate (default: kernel_shared). "

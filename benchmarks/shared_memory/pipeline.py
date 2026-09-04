@@ -472,8 +472,11 @@ class MethodPipeline:
     is called unchanged for the ``kernel_shared`` method.
 
     Args:
-        method: One of ``"kernel_shared"``, ``"naive_concat"``,
-            ``"vanilla_rag"``, or ``"mem0_default"``.
+        method: One of ``"kernel_shared"``, ``"kernel_shared_tuned"``,
+            ``"kernel_shared_adaptive"``, ``"naive_concat"``,
+            ``"vanilla_rag"``, or ``"mem0_default"``. The three
+            ``kernel_shared*`` tiers share one client-side call path and
+            differ only in server-side kernel memory-gating config.
         top_k: Number of chunks/entries to retrieve for ``vanilla_rag``
             and ``mem0_default`` (default 3).
     """
@@ -502,6 +505,15 @@ class MethodPipeline:
         method_user_id = f"{trial_data.user_id}__{self.method}"
         if self.method == "kernel_shared":
             return self._run_kernel_shared(trial_data, method_user_id)
+        elif self.method in ("kernel_shared_tuned", "kernel_shared_adaptive"):
+            # The tuned/adaptive tiers share kernel_shared's exact client-side
+            # call path (AgentPipeline with share_memory=True). They differ ONLY
+            # in server-side kernel memory-gating config (static thresholds vs.
+            # adaptive policy), which the client never passes — so delegating to
+            # the same helper is correct, not a shortcut. The distinct method
+            # string still drives per-tier user_id namespacing (method_user_id)
+            # and the recorded result.method.
+            return self._run_kernel_shared(trial_data, method_user_id)
         elif self.method == "naive_concat":
             return self._run_naive_concat(trial_data, method_user_id)
         elif self.method == "vanilla_rag":
@@ -510,8 +522,9 @@ class MethodPipeline:
             return self._run_mem0_default(trial_data, method_user_id)
         else:
             raise ValueError(
-                f"Unknown method: {self.method!r}. "
-                "Valid methods are: kernel_shared, naive_concat, vanilla_rag, mem0_default."
+                f"Unknown method: {self.method!r}. Valid methods are: "
+                "kernel_shared, kernel_shared_tuned, kernel_shared_adaptive, "
+                "naive_concat, vanilla_rag, mem0_default."
             )
 
     def _run_kernel_shared(
@@ -523,18 +536,25 @@ class MethodPipeline:
         so that memory namespacing is scoped to this method, then runs the
         existing AgentPipeline with share_memory=True.
 
+        Shared by all three kernel_shared* tiers (``kernel_shared``,
+        ``kernel_shared_tuned``, ``kernel_shared_adaptive``). The tiers are
+        identical on the client side — they diverge only in server-side kernel
+        memory-gating config — so the recorded ``result.method`` is taken from
+        ``self.method`` rather than a hardcoded literal, letting the same helper
+        correctly label whichever tier invoked it.
+
         Args:
             trial_data: Original trial data.
-            method_user_id: Method-scoped user ID (e.g. ``alice__kernel_shared``).
+            method_user_id: Method-scoped user ID (e.g. ``alice__kernel_shared``,
+                ``alice__kernel_shared_tuned``).
 
         Returns:
-            PipelineResult from AgentPipeline with method set to
-            ``"kernel_shared"``.
+            PipelineResult from AgentPipeline with method set to ``self.method``.
         """
         scoped_trial = trial_data.model_copy(update={"user_id": method_user_id})
         pipeline = AgentPipeline(share_memory=True, assistant_llms=self.assistant_llms)
         result = pipeline.run_trial(scoped_trial)
-        result.method = "kernel_shared"
+        result.method = self.method
         return result
 
     def _run_naive_concat(
