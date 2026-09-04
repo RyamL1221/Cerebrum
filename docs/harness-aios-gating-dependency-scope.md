@@ -278,3 +278,116 @@ methods_run: List[str] = []
 | CLI choices duplication | maybe a 2nd reporting CLI | only one parser (`run_evaluation.py`); method names also hard-coded in tests |
 | `TrialResult` fields | (pre-`token_usage`/`policy_action`?) | already has `token_usage`, `policy_action` — **drift, collision risk** |
 | `ExperimentMetadata` fields | (pre-`methods_run`?) | already has `methods_run` — **drift, collision risk** |
+
+---
+
+# Subtask 3 — Natural home for the `gating_status` pre-flight check (confirmed)
+
+**Investigation only. No source files were modified.** Two checks from the prior discussion
+were folded in and are resolved below before the main finding.
+
+## Folded-in check A — does `EvaluationOrchestrator` actually exist?
+
+**YES — verified by grep, not recollection.** `grep 'class \w*Orchestrator'` returns exactly
+one match repo-wide: `class EvaluationOrchestrator:` at
+`benchmarks/shared_memory/run_evaluation.py:192`. There is no other orchestrator class
+anywhere, and it is **not** in a separate `orchestrator.py` / `pipeline.py`. So the prior
+investigation's "EvaluationOrchestrator is the natural home" names a real class — the open
+question was only *which method within it* (resolved below), not whether it exists.
+
+## Folded-in check B — what populates the pre-existing scaffolding fields today?
+
+Resolved by `grep 'policy_action|token_usage|methods_run'`:
+
+- **`token_usage`** — LIVE, fully threaded: kernel response → `AssistantAgent.run()`
+  (agent.py:66, :74) → `PipelineResult` (pipeline.py:194/606/713) → `TrialResult`
+  (run_evaluation.py:522). Also a field on `LLMResponse` (cerebrum/llm/apis.py:214).
+- **`methods_run`** — LIVE, written by the orchestrator at run_evaluation.py:678.
+- **`policy_action`** — populated **only post-hoc** by the standalone
+  `benchmarks/shared_memory/join_policy_actions.py:192`, joining the kernel's
+  `policy_trials.jsonl` reward events on `reward.trial_id == trial_index`. **Not threaded
+  through the live trial loop** (`AssistantAgent`/`PipelineResult` untouched, per models.py:183-188
+  and the join script docstring). This is **outcome-side** (which bandit/arm was credited).
+  The **decision-side `select` records are explicitly NOT joinable** (their `trial_id` is
+  always null — models.py:145-146).
+
+**Design consequence for subtask 6 (agreed):** gating provenance = *what tier/config was live
+when the trial ran* = **decision-side, pre-trial**. `policy_action` = **outcome-side, post-hoc**.
+They are different fields and must not be merged. Subtask 6's new gating-provenance field
+should be a **distinct** `Optional[...] = None`, additive field on `TrialResult`, documented in
+the same style as `policy_action` (explicit None-vs-empty semantics), but populated on the
+live path (pre-trial), not by the post-hoc reward join.
+
+## Main finding — where the pre-flight `GET /memory/gating_status` check belongs
+
+`EvaluationOrchestrator` has two run paths (`run()` at run_evaluation.py:526 dispatches):
+
+- `_run_legacy_condition()` — run_evaluation.py:548, the `--condition phase1/phase2` path.
+- `_run_method()` — run_evaluation.py:603, the `--method` path (the one that reaches the new
+  `kernel_shared` / `kernel_shared_tuned` / `kernel_shared_adaptive` tiers).
+
+The per-method loop that constructs a pipeline and runs trials is in `_run_method()`:
+
+```python
+for method_name in methods_to_run:                                  # run_evaluation.py:613
+    pipeline = MethodPipeline(method=method_name, ...)              # :614
+    logger.info("Running method '%s'.", method_name)               # :615
+    ...
+    for i in tqdm(range(self.trials), ...):                        # per-trial loop
+        result = self.run_single_trial(i, method_name, pipeline, ...)
+```
+
+**Recommended insertion point: inside `_run_method()`, at the top of the
+`for method_name in methods_to_run:` loop body (run_evaluation.py:~613-615), immediately
+after the `MethodPipeline` is constructed and before the per-trial loop begins.** Rationale:
+
+1. **Right granularity — once per method, pre-trial.** The check should run before any trials
+   for a gating-controlled method execute (a pre-flight), and only for the requested method.
+   The top of the per-method loop is exactly that boundary. Putting it deeper (in
+   `run_single_trial`, run_evaluation.py:311) would re-issue the check every trial — wasteful
+   and wrong granularity for a config pre-flight.
+2. **Condition-name gating is trivial here.** `method_name` is in scope, so gating the check to
+   `method_name in {"kernel_shared", "kernel_shared_tuned", "kernel_shared_adaptive"}`
+   (subtask 1's resolved scope — excludes `naive_concat`/`vanilla_rag`/`mem0_default`) is a
+   one-line guard at this location.
+3. **The HTTP-call pattern already exists in this file — mirror it, don't invent it.**
+   `run_single_trial` already issues `requests.post(f"{config.get_kernel_url().rstrip('/')}/memory/report_reward", ...)`
+   at run_evaluation.py:~465-470 (a dedicated `/memory/*` route, **not** `/query`). The
+   `gating_status` pre-flight is the read-side analogue:
+   `requests.get(f"{config.get_kernel_url().rstrip('/')}/memory/gating_status", timeout=...)`.
+   `requests` (run_evaluation.py:36) and `config` (:61) are already imported — no new deps.
+4. **`_run_legacy_condition()` is out of scope.** The legacy `phase1/phase2` path never targets
+   the new tiers, so no pre-flight is added there. (Consistent with subtask 1: legacy maps to
+   `kernel_shared` share_memory on/off, and the tuned/adaptive tiers live only on `--method`.)
+
+### Natural home: confirmed with a refinement
+
+- **Confirmed:** `EvaluationOrchestrator` (run_evaluation.py:192) is the correct home — not
+  `MethodPipeline` in pipeline.py. `MethodPipeline` runs a single trial with no notion of
+  "before the batch"; the orchestrator owns the per-method batch loop and already owns kernel
+  HTTP calls (`report_reward`) and kernel URL resolution (`self.kernel_url`, :230).
+- **Refinement:** the precise insertion point is the **`_run_method()` per-method loop head
+  (run_evaluation.py:~613-615)**, not the orchestrator broadly and not `run_single_trial`.
+  Optionally the check result is cached per method_name to avoid a redundant call under
+  `--method all` (though `all` doesn't include the gating tiers today, so in practice the
+  guard short-circuits for the four current methods).
+
+## Drift / correction to my own subtask-2 note
+
+- Subtask 2 mentioned `EvaluationOrchestrator.__init__` "at line ~194"; the **class** is at
+  run_evaluation.py:192 and `__init__` begins shortly after — corrected here for precision.
+- No other drift: `_ALL_METHODS` (:66), the two `choices` lists (:122 `--condition`, :132
+  `--method`), and the `MethodPipeline` dispatcher (pipeline.py:502-513) are unchanged from the
+  subtask-2 reading.
+
+## Line references (this pass)
+
+- `class EvaluationOrchestrator`: run_evaluation.py:192 (only `*Orchestrator` in repo)
+- `run()` dispatch: run_evaluation.py:526 → `_run_legacy_condition` (:548) / `_run_method` (:603)
+- **Recommended pre-flight insertion point:** `_run_method()` per-method loop head,
+  run_evaluation.py:~613-615 (after `MethodPipeline(...)`, before the `tqdm` trial loop)
+- Existing kernel HTTP pattern to mirror: `requests.post(.../memory/report_reward)` at
+  run_evaluation.py:~465-470; `requests` import at :36, `config` import at :61
+- `policy_action` sole writer (post-hoc, outcome-side): join_policy_actions.py:192
+- `token_usage` live writers: agent.py:66/74, pipeline.py:194/606/713, run_evaluation.py:522
+- `methods_run` writer: run_evaluation.py:678
