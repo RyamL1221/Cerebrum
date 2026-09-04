@@ -1,0 +1,260 @@
+{
+  "experiment_metadata": {
+    "trials_per_condition": 3,
+    "timestamp": "2026-09-04T17:32:45.550090",
+    "kernel_url": "http://127.0.0.1:8000",
+    "conditions_run": [
+      "kernel_shared_tuned"
+    ],
+    "methods_run": [
+      "kernel_shared_tuned"
+    ],
+    "gating_status_by_method": {
+      "kernel_shared_tuned": {
+        "adaptive_policy_enabled": false,
+        "static_thresholds_enabled": true,
+        "static_thresholds_config": {
+          "relevance_threshold": 0.3,
+          "max_injected_memories": 10,
+          "max_memory_tokens": 2000
+        }
+      }
+    }
+  },
+  "conditions": [
+    {
+      "condition": "kernel_shared_tuned",
+      "trials": [
+        {
+          "trial_index": 0,
+          "condition": "kernel_shared_tuned",
+          "method": "kernel_shared_tuned",
+          "profile_usage_score": 2,
+          "task_usage_score": 2,
+          "integration_score": 2,
+          "memory_counts": {
+            "total": 0,
+            "shared": 0,
+            "private": 0
+          },
+          "retrieved_context_count": null,
+          "latency_seconds": 0.0012230873107910156,
+          "follow_up_query": "Given where I am, what should I prioritize next?",
+          "assistant_response": "[simulated assistant] Based on your profile and task context, here is a focused, grounded recommendation.",
+          "synthetic_profile": {
+            "user_name": "Jordan Ellis",
+            "preferred_tools": [
+              "Visual Studio Code",
+              "Git",
+              "Docker"
+            ],
+            "preferred_language": "Python",
+            "response_style": "detailed"
+          },
+          "synthetic_task_context": {
+            "current_project": "AtlasDB \u2014 Distributed Query Engine",
+            "active_experiment": "Benchmarking join-order optimization on skewed data",
+            "goals": [
+              "Cut p99 query latency below 200ms",
+              "Ship the cost-based optimizer"
+            ],
+            "blockers": [
+              "Flaky integration tests on the sharding layer"
+            ],
+            "next_steps": [
+              "Add histogram stats to the planner",
+              "Wire the optimizer into the executor"
+            ]
+          },
+          "retrieval_log": {
+            "shared_memory_count": 0,
+            "retrieved_memories": [],
+            "cross_agent_found": false,
+            "injection_status": "unknown",
+            "injected_memory_ids": []
+          },
+          "injection_diagnostics": null,
+          "written_memories": [],
+          "failed": false,
+          "error_message": null,
+          "token_usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 21,
+            "total_tokens": 63
+          },
+          "policy_action": null
+        },
+        {
+          "trial_index": 1,
+          "condition": "kernel_shared_tuned",
+          "method": "kernel_shared_tuned",
+          "profile_usage_score": 2,
+          "task_usage_score": 2,
+          "integration_score": 2,
+          "memory_counts": {
+            "total": 0,
+            "shared": 0,
+            "private": 0
+          },
+          "retrieved_context_count": null,
+          "latency_seconds": 0.0017888545989990234,
+          "follow_up_query": "Given where I am, what should I prioritize next?",
+          "assistant_response": "[simulated assistant] Based on your profile and task context, here is a focused, grounded recommendation.",
+          "synthetic_profile": {
+            "user_name": "Jordan Ellis",
+            "preferred_tools": [
+              "Visual Studio Code",
+              "Git",
+              "Docker"
+            ],
+            "preferred_language": "Python",
+            "response_style": "detailed"
+          },
+          "synthetic_task_context": {
+            "current_project": "AtlasDB \u2014 Distributed Query Engine",
+            "active_experiment": "Benchmarking join-order optimization on skewed data",
+            "goals": [
+              "Cut p99 query latency below 200ms",
+              "Ship the cost-based optimizer"
+            ],
+            "blockers": [
+              "Flaky integration tests on the sharding layer"
+            ],
+            "next_steps": [
+              "Add histogram stats to the planner",
+              "Wire the optimizer into the executor"
+            ]
+          },
+          "retrieval_log": {
+            "shared_memory_count": 0,
+            "retrieved_memories": [],
+            "cross_agent_found": false,
+            "injection_status": "unknown",
+            "injected_memory_ids": []
+          },
+          "injection_diagnostics": null,
+          "written_memories": [],
+          "failed": false,
+          "error_message": null,
+          "token_usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 21,
+            "total_tokens": 63
+          },
+          "policy_action": null
+        },
+        {
+          "trial_index": 2,
+          "condition": "kernel_shared_tuned",
+          "method": "kernel_shared_tuned",
+          "profile_usage_score": 2,
+          "task_usage_score": 2,
+          "integration_score": 2,
+          "memory_counts": {
+            "total": 0,
+            "shared": 0,
+            "private": 0
+          },
+          "retrieved_context_count": null,
+          "latency_seconds": 0.0017192363739013672,
+          "follow_up_query": "Given where I am, what should I prioritize next?",
+          "assistant_response": "[simulated assistant] Based on your profile and task context, here is a focused, grounded recommendation.",
+          "synthetic_profile": {
+            "user_name": "Jordan Ellis",
+            "preferred_tools": [
+              "Visual Studio Code",
+              "Git",
+              "Docker"
+            ],
+            "preferred_language": "Python",
+            "response_style": "detailed"
+          },
+          "synthetic_task_context": {
+            "current_project": "AtlasDB \u2014 Distributed Query Engine",
+            "active_experiment": "Benchmarking join-order optimization on skewed data",
+            "goals": [
+              "Cut p99 query latency below 200ms",
+              "Ship the cost-based optimizer"
+            ],
+            "blockers": [
+              "Flaky integration tests on the sharding layer"
+            ],
+            "next_steps": [
+              "Add histogram stats to the planner",
+              "Wire the optimizer into the executor"
+            ]
+          },
+          "retrieval_log": {
+            "shared_memory_count": 0,
+            "retrieved_memories": [],
+            "cross_agent_found": false,
+            "injection_status": "unknown",
+            "injected_memory_ids": []
+          },
+          "injection_diagnostics": null,
+          "written_memories": [],
+          "failed": false,
+          "error_message": null,
+          "token_usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 21,
+            "total_tokens": 63
+          },
+          "policy_action": null
+        }
+      ],
+      "summary": {
+        "profile_usage": {
+          "mean": 2.0,
+          "std": 0.0,
+          "min": 2.0,
+          "max": 2.0
+        },
+        "task_usage": {
+          "mean": 2.0,
+          "std": 0.0,
+          "min": 2.0,
+          "max": 2.0
+        },
+        "integration": {
+          "mean": 2.0,
+          "std": 0.0,
+          "min": 2.0,
+          "max": 2.0
+        },
+        "latency": {
+          "mean": 0.0015770594278971355,
+          "std": 0.00030851883100206125,
+          "min": 0.0012230873107910156,
+          "max": 0.0017888545989990234
+        },
+        "memory_total": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "memory_shared": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "memory_private": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "injected_memories": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "total_trials": 3,
+        "failed_trials": 0
+      }
+    }
+  ]
+}
