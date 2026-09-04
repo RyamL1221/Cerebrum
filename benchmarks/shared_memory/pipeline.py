@@ -14,7 +14,7 @@ import logging
 import time
 import json
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,11 @@ class PipelineResult:
     written_memories: List[WrittenMemoryRecord] = field(default_factory=list)
     method: str = ""
     retrieved_context_count: Optional[int] = None
+    # Per-call token usage surfaced by AssistantAgent.run() (the kernel's
+    # top-level /query sibling key). Shape: {"prompt_tokens", "completion_tokens",
+    # "total_tokens"} with each value an int or None, or the whole dict None
+    # when the response omitted it / no agent-return dict was available.
+    token_usage: Optional[Dict[str, Optional[int]]] = None
 
 
 class AgentPipeline:
@@ -186,6 +191,7 @@ class AgentPipeline:
             retrieval_log=retrieval_log,
             injection_diagnostics=injection_diagnostics,
             written_memories=written_records,
+            token_usage=assistant_result.get("token_usage"),
         )
 
     def _extract_injection_diagnostics(
@@ -597,6 +603,7 @@ class MethodPipeline:
             written_memories=[],
             method="naive_concat",
             retrieved_context_count=0,
+            token_usage=assistant_result.get("token_usage"),
         )
 
     def _run_vanilla_rag(
@@ -703,6 +710,7 @@ class MethodPipeline:
             written_memories=[],
             method="vanilla_rag",
             retrieved_context_count=len(selected_chunks),
+            token_usage=assistant_result.get("token_usage"),
         )
 
     def _run_mem0_default(
