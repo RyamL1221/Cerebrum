@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -1165,6 +1166,8 @@ def search_one_threshold(
     apply_fn=None,
     run_fn=None,
     state: Optional[CoordinateSearchState] = None,
+    progress_log: Optional["ProgressLog"] = None,
+    prior_attempts: Optional[Dict[float, CandidateAttempt]] = None,
 ) -> tuple[float, List[CandidateAttempt]]:
     """Search one threshold's candidate grid; return the winning value.
 
@@ -1193,6 +1196,13 @@ def search_one_threshold(
         run_id_prefix: Prefix for per-candidate run-ids/output dirs.
         apply_fn / run_fn: Injected for testing; default to the real primitives.
         state: Optional :class:`CoordinateSearchState` to record history onto.
+        progress_log: Optional :class:`ProgressLog`; each newly-run candidate
+            is appended to it immediately (incremental, crash-safe).
+        prior_attempts: Optional map of ``value → CandidateAttempt`` recovered
+            from a previous run. A candidate whose value is present here is
+            SKIPPED (its persisted score is reused) — never re-run, so resume
+            wastes no real trial time. Skipped attempts are NOT re-appended to
+            the log (they are already on disk).
 
     Returns:
         ``(winning_value, attempts)``.
@@ -1203,12 +1213,26 @@ def search_one_threshold(
         run_fn = run_candidate_trials
 
     output_root = Path(output_root)
+    prior_attempts = prior_attempts or {}
     attempts: List[CandidateAttempt] = []
 
     if state is not None:
         state.current_threshold = threshold_name
 
     for value in candidates:
+        # Resume: reuse a persisted attempt for this value; do not re-run.
+        if value in prior_attempts:
+            attempt = prior_attempts[value]
+            logger.info(
+                "Resume: reusing persisted candidate model=%s %s=%s "
+                "(score=%s) — not re-running.",
+                model_name, threshold_name, value, attempt.batch_mean_score,
+            )
+            attempts.append(attempt)
+            if state is not None:
+                state.history.append(attempt)
+            continue
+
         candidate = CandidateConfig(
             model_name=model_name,
             threshold_name=threshold_name,
@@ -1256,6 +1280,10 @@ def search_one_threshold(
         attempts.append(attempt)
         if state is not None:
             state.history.append(attempt)
+        # Persist THIS candidate immediately (before moving on), so a crash
+        # loses at most this candidate's successor, never this one.
+        if progress_log is not None:
+            progress_log.append_attempt(model_name, model_backend, attempt)
 
     winning_value, winning_score = select_winner(attempts)
     logger.info(
@@ -1277,6 +1305,9 @@ def search_one_model(
     judge_model: str = DEFAULT_SEARCH_JUDGE_MODEL,
     apply_fn=None,
     run_fn=None,
+    progress_log: Optional["ProgressLog"] = None,
+    resume_state: Optional[CoordinateSearchState] = None,
+    all_states: Optional[Dict[str, "CoordinateSearchState"]] = None,
 ) -> CoordinateSearchState:
     """Run the full three-step coordinate search for one model.
 
@@ -1286,10 +1317,20 @@ def search_one_model(
     :class:`CoordinateSearchState` (winners + full history). Does NOT write the
     real config — persistence of the winners is the caller's final step.
 
+    Resume: when ``resume_state`` is supplied (from :func:`load_progress`), any
+    threshold it already has a winner for is SKIPPED entirely, and the
+    in-progress threshold reuses its already-attempted candidates (only the
+    remaining grid values are actually run).
+
     Args:
         model_name: The model to search.
         model_backend: Its backend; defaults from
             :data:`DEFAULT_MODEL_BACKENDS` (falls back to ``"ollama"``).
+        progress_log: Optional log; passed to each threshold step so candidates
+            persist incrementally, and rewritten as a summary after each step.
+        resume_state: Optional recovered state for this model to resume from.
+        all_states: Optional dict of all models' states (for the summary
+            checkpoint spanning every model); defaults to just this model.
         (others as in :func:`search_one_threshold`.)
 
     Returns:
@@ -1298,9 +1339,27 @@ def search_one_model(
     if model_backend is None:
         model_backend = DEFAULT_MODEL_BACKENDS.get(model_name, "ollama")
 
-    state = CoordinateSearchState(model_name=model_name, model_backend=model_backend)
+    # Seed from recovered state (winners already fixed carry over verbatim).
+    if resume_state is not None:
+        state = resume_state
+        state.model_backend = state.model_backend or model_backend
+    else:
+        state = CoordinateSearchState(model_name=model_name, model_backend=model_backend)
+
+    # Prior attempts recovered per threshold, for resuming the in-progress one.
+    prior_by_threshold: Dict[str, Dict[float, CandidateAttempt]] = {}
+    for a in state.history:
+        prior_by_threshold.setdefault(a.threshold_name, {})[a.value] = a
 
     for threshold_name in _SEARCH_ORDER:
+        # Already-won threshold (from a prior run): skip entirely.
+        if threshold_name in state.winners:
+            logger.info(
+                "Resume: model=%s %s already won at %s — skipping step.",
+                model_name, threshold_name, state.winners[threshold_name],
+            )
+            continue
+
         held = state.held_defaults(searching=threshold_name)
         winning_value, _attempts = search_one_threshold(
             model_name=model_name,
@@ -1317,9 +1376,16 @@ def search_one_model(
             apply_fn=apply_fn,
             run_fn=run_fn,
             state=state,
+            progress_log=progress_log,
+            prior_attempts=prior_by_threshold.get(threshold_name),
         )
         # Thread this step's winner forward into subsequent steps.
         state.winners[threshold_name] = winning_value
+        # Checkpoint the summary after each threshold milestone (atomic write).
+        if progress_log is not None:
+            snapshot = dict(all_states) if all_states is not None else {}
+            snapshot[model_name] = state
+            progress_log.write_summary(snapshot)
 
     state.current_threshold = None
     state.completed = True
@@ -1331,6 +1397,7 @@ def run_full_search(
     config_path: str | Path,
     aios_repo_dir: str | Path,
     output_root: str | Path,
+    search_run_id: str,
     models=DEFAULT_SEARCH_MODELS,
     model_backends: Optional[Dict[str, str]] = None,
     candidates=DEFAULT_CANDIDATE_GRID,
@@ -1340,17 +1407,27 @@ def run_full_search(
     apply_fn=None,
     run_fn=None,
     write_final: bool = True,
+    resume: bool = True,
+    progress_root: str | Path | None = None,
 ) -> Dict[str, CoordinateSearchState]:
     """Search all models independently, then write the 9 winners ONCE.
 
-    Each model is searched with its own fresh :class:`CoordinateSearchState`
+    Each model is searched with its own :class:`CoordinateSearchState`
     (no cross-model state). Only AFTER every model completes are the collected
     winners written to the real ``config.yaml`` — in a single
     :func:`write_final_overrides` call — so no intermediate/candidate value is
     ever persisted mid-search.
 
+    Resume (default): when ``resume=True`` the run first calls
+    :func:`load_progress` for ``search_run_id``. A fully-completed model is
+    skipped entirely (its recovered winners are kept); a partially-completed
+    model resumes — already-won thresholds skipped, the in-progress threshold's
+    already-attempted candidates reused (only remaining grid values run). A
+    candidate whose result is already on disk is NEVER re-run.
+
     Args:
         config_path / aios_repo_dir / output_root: search plumbing.
+        search_run_id: Identifier for the progress log dir (enables resume).
         models: Models to search (default :data:`DEFAULT_SEARCH_MODELS`).
         model_backends: Optional overrides for model→backend.
         candidates / trials_per_candidate / kernel_url / judge_model: passthrough.
@@ -1358,15 +1435,41 @@ def run_full_search(
         write_final: When True (default), write the winners to the real config
             after all models finish. Tests pass False to assert timing without
             touching a real file.
+        resume: When True (default), load and resume from prior progress.
+        progress_root: Override the progress-log root (tests).
 
     Returns:
         Model name → its completed :class:`CoordinateSearchState`.
     """
     model_backends = model_backends or DEFAULT_MODEL_BACKENDS
+    progress_log = ProgressLog(search_run_id, progress_root=progress_root)
+
+    recovered: Dict[str, CoordinateSearchState] = {}
+    if resume:
+        recovered = load_progress(
+            search_run_id, progress_root=progress_root, candidates=candidates,
+        )
+        if recovered:
+            logger.info(
+                "Resuming search %s: recovered state for models %s",
+                search_run_id, list(recovered.keys()),
+            )
+
     states: Dict[str, CoordinateSearchState] = {}
 
     for model_name in models:
         backend = model_backends.get(model_name, "ollama")
+        recovered_state = recovered.get(model_name)
+
+        # Fully-completed model: skip entirely, keep recovered winners.
+        if recovered_state is not None and recovered_state.completed:
+            logger.info(
+                "Resume: model=%s already fully complete (winners=%s) — skipping.",
+                model_name, recovered_state.winners,
+            )
+            states[model_name] = recovered_state
+            continue
+
         states[model_name] = search_one_model(
             model_name=model_name,
             model_backend=backend,
@@ -1379,6 +1482,9 @@ def run_full_search(
             judge_model=judge_model,
             apply_fn=apply_fn,
             run_fn=run_fn,
+            progress_log=progress_log,
+            resume_state=recovered_state,
+            all_states=states,
         )
 
     # Exactly-once final persistence, only after ALL models are done.
@@ -1460,3 +1566,234 @@ def _terminate_proc(proc) -> None:
                     kill()
                 except Exception:
                     pass
+
+
+# ---------------------------------------------------------------------------
+# 7. Crash-safe incremental progress logging + resume
+# ---------------------------------------------------------------------------
+#
+# On-disk layout, under ``benchmarks/shared_memory/threshold_search_progress/
+# <search_run_id>/``:
+#
+#   attempts.jsonl   Append-only. One JSON object per COMPLETED candidate
+#                    attempt (model, threshold, value, batch_mean_score, trial
+#                    counts, results path, timestamp). Written + flushed +
+#                    fsync'd immediately after each candidate's trials finish,
+#                    so a crash loses at most the single in-flight candidate,
+#                    never earlier candidates in the same threshold. Append-only
+#                    JSONL is inherently crash-safe: a hard kill mid-write can
+#                    only corrupt the final partial line, which the reader
+#                    tolerates (see _read_jsonl_tolerant) — every prior line is
+#                    intact.
+#
+#   summary.json     A convenience checkpoint rewritten ATOMICALLY (write temp
+#                    then os.replace) after each threshold winner is fixed:
+#                    per-model winners + which thresholds are "done". Atomic
+#                    replace means a crash mid-write leaves either the old or
+#                    the new complete file, never a corrupt one. summary.json is
+#                    NOT the source of truth for resume — attempts.jsonl is
+#                    (it is finer-grained and updated first). The summary just
+#                    speeds inspection and records the completed/winner view.
+#
+# Resume is driven from attempts.jsonl: winners are recomputed deterministically
+# from the recorded attempts via select_winner, so resume never depends on the
+# summary having been written before a crash.
+
+_PROGRESS_ROOT_NAME = "threshold_search_progress"
+
+
+def default_progress_root() -> Path:
+    """Return ``<repo>/benchmarks/shared_memory/threshold_search_progress``."""
+    return Path(__file__).resolve().parent / _PROGRESS_ROOT_NAME
+
+
+class ProgressLog:
+    """Crash-safe, append-only progress log for one search run.
+
+    One instance per ``search_run_id``. Call :meth:`append_attempt` after every
+    candidate completes (incrementally) and :meth:`write_summary` after each
+    threshold/model milestone. The attempts file is the resume source of truth.
+    """
+
+    def __init__(self, search_run_id: str, progress_root: str | Path | None = None):
+        root = Path(progress_root) if progress_root else default_progress_root()
+        self.dir = root / search_run_id
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.attempts_path = self.dir / "attempts.jsonl"
+        self.summary_path = self.dir / "summary.json"
+        self.search_run_id = search_run_id
+
+    def append_attempt(
+        self, model_name: str, model_backend: str, attempt: CandidateAttempt
+    ) -> None:
+        """Append one completed candidate attempt, flushed + fsync'd to disk.
+
+        Append-only + fsync means this candidate's record survives an immediate
+        hard kill, and a kill *during* this write can only truncate this one
+        line (tolerated on read) — earlier candidates are already durable.
+        """
+        record = {
+            "model_name": model_name,
+            "model_backend": model_backend,
+            "threshold_name": attempt.threshold_name,
+            "value": attempt.value,
+            "batch_mean_score": attempt.batch_mean_score,
+            "num_trials_completed": attempt.num_trials_completed,
+            "num_trials_failed": attempt.num_trials_failed,
+            "results_json_path": attempt.results_json_path,
+            "ts": time.time(),
+        }
+        line = json.dumps(record) + "\n"
+        # Open in append mode, write, flush, fsync — durable before returning.
+        with open(self.attempts_path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+
+    def write_summary(self, states: Dict[str, "CoordinateSearchState"]) -> None:
+        """Atomically (temp + os.replace) rewrite the summary checkpoint.
+
+        Records per-model winners, completed thresholds, and completion flag.
+        A crash mid-write leaves either the previous or the new complete file.
+        """
+        summary = {
+            "search_run_id": self.search_run_id,
+            "updated_ts": time.time(),
+            "models": {
+                m: {
+                    "model_backend": s.model_backend,
+                    "winners": dict(s.winners),
+                    "completed_thresholds": [
+                        t for t in _SEARCH_ORDER if t in s.winners
+                    ],
+                    "completed": s.completed,
+                }
+                for m, s in states.items()
+            },
+        }
+        tmp_path = self.summary_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, self.summary_path)
+
+
+def _read_jsonl_tolerant(path: Path) -> List[dict]:
+    """Read a JSONL file, skipping a trailing partial/corrupt final line.
+
+    Every fully-written line parses; a hard kill mid-append can only leave the
+    LAST line partial, which is silently dropped (with a warning) so the rest
+    of the recovered history is usable.
+    """
+    if not path.exists():
+        return []
+    records: List[dict] = []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            # Only the final line may legitimately be a torn write.
+            if i == len(lines) - 1:
+                logger.warning(
+                    "Dropping torn final line in %s (crash mid-write); "
+                    "%d prior records recovered.", path, len(records),
+                )
+            else:
+                logger.warning(
+                    "Skipping unparseable line %d in %s.", i, path,
+                )
+    return records
+
+
+def load_progress(
+    search_run_id: str,
+    progress_root: str | Path | None = None,
+    candidates=DEFAULT_CANDIDATE_GRID,
+) -> Dict[str, CoordinateSearchState]:
+    """Reconstruct per-model :class:`CoordinateSearchState` from disk.
+
+    Rebuilds state purely from ``attempts.jsonl`` (the finer-grained,
+    crash-safe source of truth): groups attempts by model, replays them in the
+    fixed threshold order, and — for any threshold whose full candidate grid
+    has been attempted — fixes its winner via :func:`select_winner` and threads
+    it forward. A model is ``completed`` when all three thresholds have a
+    winner. The in-progress threshold and its already-attempted candidate values
+    are recoverable from each state's ``history``.
+
+    Returns an empty dict when there is no log for ``search_run_id`` (fresh run).
+
+    Args:
+        search_run_id: The run whose progress to load.
+        progress_root: Override the progress root (tests). Defaults to
+            :func:`default_progress_root`.
+        candidates: The candidate grid a threshold must have fully attempted to
+            count as "done" (must match the search's grid).
+
+    Returns:
+        model name → reconstructed :class:`CoordinateSearchState`.
+    """
+    full_grid = set(candidates)
+    root = Path(progress_root) if progress_root else default_progress_root()
+    attempts_path = root / search_run_id / "attempts.jsonl"
+    records = _read_jsonl_tolerant(attempts_path)
+
+    # Group attempts by model, preserving append order.
+    by_model: Dict[str, List[dict]] = {}
+    backends: Dict[str, str] = {}
+    for r in records:
+        m = r.get("model_name")
+        if m is None:
+            continue
+        by_model.setdefault(m, []).append(r)
+        if r.get("model_backend"):
+            backends[m] = r["model_backend"]
+
+    states: Dict[str, CoordinateSearchState] = {}
+    for model_name, recs in by_model.items():
+        state = CoordinateSearchState(
+            model_name=model_name,
+            model_backend=backends.get(model_name, "ollama"),
+        )
+        # Rebuild history and, per threshold, the attempts made for it.
+        per_threshold: Dict[str, List[CandidateAttempt]] = {}
+        for r in recs:
+            attempt = CandidateAttempt(
+                threshold_name=r["threshold_name"],
+                value=r["value"],
+                batch_mean_score=r.get("batch_mean_score"),
+                num_trials_completed=r.get("num_trials_completed", 0),
+                num_trials_failed=r.get("num_trials_failed", 0),
+                results_json_path=r.get("results_json_path"),
+            )
+            state.history.append(attempt)
+            per_threshold.setdefault(r["threshold_name"], []).append(attempt)
+
+        # Replay in fixed order: a threshold with a FULL grid of attempts has a
+        # fixed winner; the first threshold lacking a full grid is in-progress.
+        for tname in _SEARCH_ORDER:
+            attempts_for_t = per_threshold.get(tname, [])
+            # Dedupe by value keeping the LAST recorded (a resumed re-run of the
+            # same candidate would append again; last wins).
+            latest_by_value: Dict[float, CandidateAttempt] = {}
+            for a in attempts_for_t:
+                latest_by_value[a.value] = a
+            attempted_values = set(latest_by_value.keys())
+            if attempted_values >= full_grid:
+                winning_value, _ = select_winner(list(latest_by_value.values()))
+                state.winners[tname] = winning_value
+            else:
+                # First incomplete threshold: this is where resume continues.
+                state.current_threshold = tname if attempts_for_t else None
+                break
+
+        state.completed = all(t in state.winners for t in _SEARCH_ORDER)
+        if state.completed:
+            state.current_threshold = None
+        states[model_name] = state
+
+    return states

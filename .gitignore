@@ -216,3 +216,6 @@ cache
 # mem0
 
 /.mem0
+
+# threshold search progress logs (per-run, generated at runtime)
+/benchmarks/shared_memory/threshold_search_progress

@@ -599,6 +599,7 @@ def test_run_full_search_independent_models_single_final_write():
         tmp = Path(tempfile.mkdtemp())
         states = run_full_search(
             config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            search_run_id="ffs_test", progress_root=tmp / "progress", resume=False,
             models=("A", "B"),
             model_backends={"A": "ollama", "B": "ollama"},
             candidates=grid, trials_per_candidate=2,
@@ -628,6 +629,7 @@ def test_run_full_search_no_write_when_disabled():
         tmp = Path(tempfile.mkdtemp())
         run_full_search(
             config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            search_run_id="ffs_nowrite", progress_root=tmp / "progress", resume=False,
             models=("A",), model_backends={"A": "ollama"},
             candidates=grid, trials_per_candidate=2,
             apply_fn=apply_fn, run_fn=run_fn, write_final=False,
@@ -652,6 +654,219 @@ def test_write_final_overrides_multi_model():
     assert '{llm_core: "qwen2.5:7b", value: 0.6}' in text
     assert '{llm_core: "gpt-4o", value: 0.5}' in text
     print("PASSED: write_final_overrides writes multi-model wildcard overrides")
+
+
+# ---------------------------------------------------------------------------
+# Resumability + crash-safe progress logging (no live kernel)
+# ---------------------------------------------------------------------------
+
+from benchmarks.shared_memory.threshold_search import (  # noqa: E402
+    ProgressLog,
+    load_progress,
+    _read_jsonl_tolerant,
+)
+
+
+def _seed_attempts_jsonl(progress_root, run_id, records):
+    """Write an attempts.jsonl fixture representing a partial run."""
+    d = Path(progress_root) / run_id
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d / "attempts.jsonl", "w", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+    return d
+
+
+def _rec(model, threshold, value, score, backend="ollama"):
+    return {
+        "model_name": model, "model_backend": backend,
+        "threshold_name": threshold, "value": value,
+        "batch_mean_score": score, "num_trials_completed": (0 if score is None else 8),
+        "num_trials_failed": (8 if score is None else 0),
+        "results_json_path": f"/tmp/{model}_{threshold}_{value}.json", "ts": 1.0,
+    }
+
+
+def test_progresslog_append_is_durable_and_readable():
+    """append_attempt writes a parseable JSONL line per candidate."""
+    tmp = Path(tempfile.mkdtemp())
+    log = ProgressLog("run1", progress_root=tmp)
+    log.append_attempt("m", "ollama", _attempt("novelty_threshold", 0.5, 3.0))
+    log.append_attempt("m", "ollama", _attempt("novelty_threshold", 0.6, 4.0))
+    recs = _read_jsonl_tolerant(log.attempts_path)
+    assert len(recs) == 2 and recs[1]["value"] == 0.6
+    print("PASSED: ProgressLog append is durable and readable")
+
+
+def test_read_jsonl_tolerates_torn_final_line():
+    """A hard-kill mid-write torn final line is dropped; prior lines survive."""
+    tmp = Path(tempfile.mkdtemp())
+    p = tmp / "attempts.jsonl"
+    good = json.dumps(_rec("m", "novelty_threshold", 0.5, 3.0))
+    # Simulate a crash mid-write: valid line + newline, then a partial line.
+    p.write_text(good + "\n" + '{"model_name": "m", "threshold_name": "nov', encoding="utf-8")
+    recs = _read_jsonl_tolerant(p)
+    assert len(recs) == 1 and recs[0]["value"] == 0.5, recs
+    print("PASSED: torn final line tolerated, prior record recovered")
+
+
+def test_summary_write_is_atomic_temp_then_replace():
+    """write_summary leaves a complete summary.json and no leftover temp."""
+    tmp = Path(tempfile.mkdtemp())
+    log = ProgressLog("run2", progress_root=tmp)
+    st = CoordinateSearchState(model_name="m", model_backend="ollama")
+    st.winners = {"novelty_threshold": 0.6}
+    log.write_summary({"m": st})
+    assert log.summary_path.exists()
+    assert not log.summary_path.with_suffix(".json.tmp").exists(), "temp cleaned up"
+    data = json.loads(log.summary_path.read_text())
+    assert data["models"]["m"]["winners"] == {"novelty_threshold": 0.6}
+    print("PASSED: summary write is atomic (temp then replace)")
+
+
+def test_load_progress_reconstructs_done_inprogress_pending():
+    """load_progress: full grid → winner fixed; partial grid → in-progress."""
+    tmp = Path(tempfile.mkdtemp())
+    grid = (0.5, 0.6, 0.7, 0.8, 0.9)
+    records = []
+    # novelty fully attempted → winner should be the top score (0.7 here).
+    for v in grid:
+        records.append(_rec("m", "novelty_threshold", v, 5.0 if v == 0.7 else 1.0))
+    # similarity: only 3/5 attempted → in-progress, no winner yet.
+    for v in (0.5, 0.6, 0.7):
+        records.append(_rec("m", "similarity_threshold", v, 2.0))
+    _seed_attempts_jsonl(tmp, "runX", records)
+
+    states = load_progress("runX", progress_root=tmp, candidates=grid)
+    st = states["m"]
+    assert st.winners.get("novelty_threshold") == 0.7, st.winners
+    assert "similarity_threshold" not in st.winners, "similarity not done yet"
+    assert st.current_threshold == "similarity_threshold", st.current_threshold
+    assert not st.completed
+    print("PASSED: load_progress reconstructs done/in-progress/pending")
+
+
+def test_run_full_search_resume_skips_done_model_and_attempted_candidates():
+    """The headline resume test.
+
+    Fixture: model 'A' fully done (all 3 thresholds), model 'B' mid-way through
+    similarity_threshold with 3/5 candidates attempted (novelty already done).
+    run_full_search(resume=True) must:
+      - skip model A entirely (0 runs for A),
+      - skip B's already-done novelty step (0 runs),
+      - skip B's 3 already-attempted similarity candidates,
+      - run ONLY the 2 remaining similarity candidates + all 5 redundancy.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    grid = (0.5, 0.6, 0.7, 0.8, 0.9)
+    records = []
+    # Model A: fully complete (all three thresholds, full grid each).
+    for t in THRESHOLD_NAMES:
+        for v in grid:
+            records.append(_rec("A", t, v, 5.0 if v == 0.5 else 1.0))
+    # Model B: novelty done (full grid), similarity 3/5 attempted.
+    for v in grid:
+        records.append(_rec("B", "novelty_threshold", v, 5.0 if v == 0.6 else 1.0))
+    for v in (0.5, 0.6, 0.7):
+        records.append(_rec("B", "similarity_threshold", v, 2.0))
+    _seed_attempts_jsonl(tmp, "resumeRun", records)
+
+    # Mock scoring for anything actually run now. Make B's remaining similarity
+    # candidate 0.8 the top so we can assert threading, and redundancy 0.9 top.
+    scores = {}
+    for v in grid:
+        scores[("B", "similarity_threshold", v)] = 9.0 if v == 0.8 else 3.0
+        scores[("B", "redundancy_threshold", v)] = 9.0 if v == 0.9 else 3.0
+    apply_fn, run_fn, log, _ = _make_mocks(scores)
+
+    import benchmarks.shared_memory.threshold_search as ts
+    writes = []
+    orig = ts.write_final_overrides
+    ts.write_final_overrides = lambda cfg, winners: writes.append(dict(winners))
+    try:
+        states = run_full_search(
+            config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            search_run_id="resumeRun", progress_root=tmp,
+            models=("A", "B"), model_backends={"A": "ollama", "B": "ollama"},
+            candidates=grid, trials_per_candidate=8,
+            apply_fn=apply_fn, run_fn=run_fn, resume=True, write_final=True,
+        )
+    finally:
+        ts.write_final_overrides = orig
+
+    runs = [e for e in log if e[0] == "run"]
+    # Model A: zero runs (fully complete, skipped).
+    assert all(e[1] != "A" for e in runs), "model A must not be re-run"
+    # Model B similarity: only the 2 unattempted candidates (0.8, 0.9) run.
+    b_sim = sorted(e[3] for e in runs if e[1] == "B" and e[2] == "similarity_threshold")
+    assert b_sim == [0.8, 0.9], f"expected only 0.8,0.9 rerun for B similarity, got {b_sim}"
+    # Model B novelty: zero runs (already done).
+    assert not any(e[2] == "novelty_threshold" for e in runs if e[1] == "B"), (
+        "B novelty already done — must not be re-run"
+    )
+    # Model B redundancy: full grid run (was pending).
+    b_red = sorted(e[3] for e in runs if e[1] == "B" and e[2] == "redundancy_threshold")
+    assert b_red == list(grid), f"B redundancy should run full grid, got {b_red}"
+
+    # Winners: A recovered; B novelty recovered (0.6), similarity winner from
+    # combining the 3 persisted (all 2.0) with the 2 new (0.8→9.0) → 0.8.
+    assert states["A"].completed and states["A"].winners["novelty_threshold"] == 0.5
+    assert states["B"].winners["novelty_threshold"] == 0.6
+    assert states["B"].winners["similarity_threshold"] == 0.8
+    assert states["B"].winners["redundancy_threshold"] == 0.9
+    # Single final write, after both models.
+    assert len(writes) == 1, f"expected one final write, got {len(writes)}"
+    print("PASSED: resume skips done model + attempted candidates, runs only remaining")
+
+
+def test_run_full_search_resume_no_prior_is_fresh():
+    """resume=True with no prior log behaves like a fresh run."""
+    tmp = Path(tempfile.mkdtemp())
+    grid = (0.5, 0.6)
+    scores = {("A", t, v): (9.0 if v == 0.5 else 1.0) for t in THRESHOLD_NAMES for v in grid}
+    apply_fn, run_fn, log, _ = _make_mocks(scores)
+    import benchmarks.shared_memory.threshold_search as ts
+    orig = ts.write_final_overrides
+    ts.write_final_overrides = lambda cfg, winners: None
+    try:
+        states = run_full_search(
+            config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            search_run_id="freshRun", progress_root=tmp,
+            models=("A",), model_backends={"A": "ollama"},
+            candidates=grid, trials_per_candidate=2,
+            apply_fn=apply_fn, run_fn=run_fn, resume=True, write_final=True,
+        )
+    finally:
+        ts.write_final_overrides = orig
+    runs = [e for e in log if e[0] == "run"]
+    assert len(runs) == 3 * len(grid), f"fresh run should run full grid, got {len(runs)}"
+    assert states["A"].completed
+    print("PASSED: resume=True with no prior log is a fresh run")
+
+
+def test_incremental_logging_per_candidate():
+    """Progress is appended per-candidate, not just per-threshold/model."""
+    tmp = Path(tempfile.mkdtemp())
+    grid = (0.5, 0.6, 0.7)
+    scores = {("A", t, v): v for t in THRESHOLD_NAMES for v in grid}
+    apply_fn, run_fn, _, _ = _make_mocks(scores)
+    import benchmarks.shared_memory.threshold_search as ts
+    orig = ts.write_final_overrides
+    ts.write_final_overrides = lambda cfg, winners: None
+    try:
+        run_full_search(
+            config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            search_run_id="incRun", progress_root=tmp,
+            models=("A",), model_backends={"A": "ollama"},
+            candidates=grid, trials_per_candidate=2,
+            apply_fn=apply_fn, run_fn=run_fn, resume=False, write_final=True,
+        )
+    finally:
+        ts.write_final_overrides = orig
+    recs = _read_jsonl_tolerant(tmp / "incRun" / "attempts.jsonl")
+    # 3 thresholds × 3 candidates = 9 per-candidate records.
+    assert len(recs) == 9, f"expected 9 incremental records, got {len(recs)}"
+    print("PASSED: incremental per-candidate logging")
 
 
 if __name__ == "__main__":
@@ -681,4 +896,11 @@ if __name__ == "__main__":
     test_run_full_search_independent_models_single_final_write()
     test_run_full_search_no_write_when_disabled()
     test_write_final_overrides_multi_model()
+    test_progresslog_append_is_durable_and_readable()
+    test_read_jsonl_tolerates_torn_final_line()
+    test_summary_write_is_atomic_temp_then_replace()
+    test_load_progress_reconstructs_done_inprogress_pending()
+    test_run_full_search_resume_skips_done_model_and_attempted_candidates()
+    test_run_full_search_resume_no_prior_is_fresh()
+    test_incremental_logging_per_candidate()
     print("\nAll threshold-search primitive tests passed.")
