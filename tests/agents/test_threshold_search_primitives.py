@@ -746,6 +746,30 @@ def test_load_progress_reconstructs_done_inprogress_pending():
     print("PASSED: load_progress reconstructs done/in-progress/pending")
 
 
+def test_load_progress_partitions_by_model():
+    """Two models interleaved in ONE attempts.jsonl are reconstructed
+    independently — no cross-model leakage of attempts or winners."""
+    tmp = Path(tempfile.mkdtemp())
+    grid = (0.5, 0.6, 0.7, 0.8, 0.9)
+    records = []
+    # Interleave A and B records for the same threshold, different winners.
+    for v in grid:
+        records.append(_rec("A", "novelty_threshold", v, 5.0 if v == 0.5 else 1.0))
+        records.append(_rec("B", "novelty_threshold", v, 5.0 if v == 0.9 else 1.0))
+    _seed_attempts_jsonl(tmp, "partition", records)
+
+    states = load_progress("partition", progress_root=tmp, candidates=grid)
+    assert set(states.keys()) == {"A", "B"}
+    # Each model only has its own 5 attempts, not the interleaved 10.
+    assert len(states["A"].history) == 5, len(states["A"].history)
+    assert len(states["B"].history) == 5, len(states["B"].history)
+    assert all(a.threshold_name == "novelty_threshold" for a in states["A"].history)
+    # Winners computed per model, independently.
+    assert states["A"].winners["novelty_threshold"] == 0.5, states["A"].winners
+    assert states["B"].winners["novelty_threshold"] == 0.9, states["B"].winners
+    print("PASSED: load_progress partitions attempts by model (no leakage)")
+
+
 def test_run_full_search_resume_skips_done_model_and_attempted_candidates():
     """The headline resume test.
 
@@ -900,6 +924,7 @@ if __name__ == "__main__":
     test_read_jsonl_tolerates_torn_final_line()
     test_summary_write_is_atomic_temp_then_replace()
     test_load_progress_reconstructs_done_inprogress_pending()
+    test_load_progress_partitions_by_model()
     test_run_full_search_resume_skips_done_model_and_attempted_candidates()
     test_run_full_search_resume_no_prior_is_fresh()
     test_incremental_logging_per_candidate()
