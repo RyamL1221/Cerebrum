@@ -4,10 +4,12 @@
 `memory.static_thresholds`, run against a live AIOS kernel via the
 `kernel_shared_tuned` benchmark method).
 
-**Status:** Investigation, implementation, and a real minimal dry run are
-complete. **The full 45-candidate search has NOT been run.** This report is the
-go/no-go deliverable; running the full search requires a separate, explicit
-go-ahead (see §6).
+**Status:** Investigation, implementation, and real minimal dry runs for **all
+three models** (qwen2.5:7b, llama3.1:8b, gpt-4o) are complete. **The full
+45-candidate search has NOT been run.** This report is the go/no-go deliverable;
+the cost/time estimate (§4–5) is now based on **measured** per-trial times and real
+token usage for every model, not placeholders. Running the full search requires a
+separate, explicit go-ahead (see §6).
 
 > Pure synthesis of already-captured evidence. No AIOS code was modified and no
 > live kernel was started for this report.
@@ -144,37 +146,47 @@ Restart+verify is a fixed ~15s/candidate → **45 × 15.1s ≈ 680s ≈ 11 min**
 restart overhead (small term). Trial time dominates and is **model-dependent**, so
 estimates are given **per model** (a single blended number would be misleading).
 
-### Per-model per-trial time — data availability
-- **qwen2.5:7b (local):** measured **62.8s/trial** (Subtask 8, 4 trials).
-  *(Subtask 3's 2-trial run showed ~11.7s assistant latency but higher total
-  including generation+judge; the 62.8s figure is the more complete end-to-end
-  per-trial wall time and is used here.)*
-- **llama3.1:8b (local):** **no direct measurement.** Similar size/host to qwen
-  (8B vs 7B, same Ollama backend). Used as **~60–75s/trial (placeholder,
-  qwen-anchored)** — flagged as an assumption, not measured.
-- **gpt-4o (Azure API):** **no direct end-to-end trial measurement.** API latency
-  is typically lower per token than a local 7–8B model, but each trial still runs
-  the full 3-agent pipeline + a GPT-5.4 judge call. Used as **~30–45s/trial
-  (placeholder, assumption)** — could be faster (API parallelism) or slower
-  (network/rate limits). Flagged.
+### Per-model per-trial time — NOW ALL MEASURED
 
-### Per-model wall-clock (15 candidates × [15.1s + 8 × per_trial])
-| Model | per-trial (basis) | per-candidate | × 15 candidates |
-|-------|-------------------|---------------|-----------------|
-| qwen2.5:7b | 62.8s (measured) | 15.1 + 502.4 = 517.5s | **~2.16 h** |
-| llama3.1:8b | ~68s (assumed) | 15.1 + 544 = 559s | **~2.33 h** |
-| gpt-4o | ~38s (assumed) | 15.1 + 304 = 319s | **~1.33 h** |
+> **UPDATE (Subtasks 3 & 5 dry runs):** the two placeholder per-trial times have
+> been **replaced with real measurements**. Both local-vs-cloud placeholders were
+> **large overestimates.** See the old-vs-new table and delta callout below.
 
-**Total estimated wall-clock ≈ 2.16 + 2.33 + 1.33 ≈ 5.8 hours**, dominated by the
-two local models. Realistic band, accounting for the placeholder assumptions and
-occasional slow trials/restarts: **~5–8 hours**. Runs are serial (one kernel at a
-time by design), so the models' times add.
+- **qwen2.5:7b (local):** **62.8s/trial** — measured (Subtask 8, 4 trials).
+  Unchanged.
+- **llama3.1:8b (local):** **18.18s/trial** — **MEASURED** (this session, 4 trials:
+  14.21, 18.91, 13.80, 25.81s). Replaces the ~60–75s placeholder. **~3.7× faster
+  than assumed.** (The qwen-anchored placeholder wrongly assumed an 8B Ollama model
+  would track a 7B one; in practice this llama build ran much faster per trial.)
+- **gpt-4o (Azure API):** **6.44s/trial** — **MEASURED** (this session, 4 trials:
+  9.38, 4.67, 6.91, 4.81s). Replaces the ~30–45s placeholder. **~6× faster than
+  assumed** — the cloud API round-trip for the 3-agent pipeline + GPT-5.4 judge is
+  far quicker than the local models.
 
-> All arithmetic shown. The only measured input is qwen's 62.8s/trial and
-> ~15s/candidate restart; llama and gpt-4o per-trial times are **assumptions**
-> (flagged) pending their own measurement — a fast way to tighten this is a
-> 2-trial dry run per remaining model (as in Subtask 8) before committing to the
-> full run.
+### Old (placeholder) vs. new (measured) — per-trial and per-model wall-clock
+
+Per-model wall-clock = 15 candidates × [15.1s restart+verify + 8 × per_trial].
+
+| Model | per-trial OLD (assumed) | per-trial NEW (measured) | wall-clock OLD | wall-clock NEW |
+|-------|-------------------------|--------------------------|----------------|----------------|
+| qwen2.5:7b | 62.8s (measured) | **62.8s** (measured) | ~2.16 h | **~2.16 h** |
+| llama3.1:8b | ~68s (assumed) | **18.18s** (measured) | ~2.33 h | **~0.67 h** |
+| gpt-4o | ~38s (assumed) | **6.44s** (measured) | ~1.33 h | **~0.28 h** |
+| **Total** | | | **~5.8 h** | **~3.1 h** |
+
+> ### ⚠️ LARGE DELTA: full-run wall-clock drops from ~5.8 h to ~3.1 h (≈ 2.7 h / ~47% less)
+> The entire reduction comes from the two measured models being **much** faster than
+> their placeholders (llama 68→18.2s, gpt-4o 38→6.4s per trial). **qwen2.5:7b is now
+> the dominant cost at ~2.16 h (≈ 70% of the total)** — the full-run time is
+> essentially "qwen + ~1 h for the other two". Restart+verify overhead is
+> negligible: 45 × 15.1s ≈ **11 min** across the whole search. Runs are serial (one
+> kernel at a time by design), so the three models' times add. Realistic band
+> allowing for occasional slow trials/restarts: **~3–4 hours** (down from the prior
+> ~5–8 h band).
+
+> All three per-trial times are now measured, not assumed. Only the fixed
+> restart+verify (~15.1s/candidate) is carried over from the qwen dry run; it is a
+> small term and not model-specific.
 
 ---
 
@@ -184,55 +196,68 @@ Only the **gpt-4o model tier** incurs API spend on the assistant side; **all thr
 tiers** incur GPT-5.4 judge spend (the search judge default is `gpt-5.4:azure`).
 The two local-assistant tiers (qwen, llama) cost nothing on the assistant side.
 
-### Token anchor (real, captured)
-Subtask 3's real run captured per-trial `token_usage` for the **assistant** call
-(qwen, but token counts are model-agnostic for the prompt/response shape):
-`{prompt 322, completion 582, total 904}` and `{prompt 316, completion 223, total
-539}` ⇒ assistant ≈ **300–330 prompt + 220–580 completion**, call it **~750
-tokens/assistant-call** average. Each trial also runs ProfileAgent + TaskAgent LLM
-calls (structured, smaller) and one judge call.
+### Token anchor — NOW REAL for BOTH assistant and judge
 
-### Assumptions (flagged — judge token usage was NOT directly captured; the smoke
-tests used a local judge)
-- **Judge (GPT-5.4)** input ≈ profile + task + response + rubric ≈ **~1,500 prompt
-  tokens**, output ≈ **~400 completion tokens** per trial (rough; the judge prompt
-  embeds the full assistant response). **Assumption.**
-- **gpt-4o assistant** per trial ≈ the 3 agent calls ≈ **~1,500 prompt + ~1,000
-  completion** combined (profile/task calls + the main assistant call).
-  **Assumption, anchored on the ~750-token assistant call + two smaller structured
-  calls.**
+> **UPDATE (Subtask 5):** judge `token_usage` is now captured end-to-end
+> (`TrialResult.judge_token_usage`, threaded in Subtask 2). The prior report's
+> judge-token figure was an **assumption**; it is now **measured** from 8 real
+> GPT-5.4 judge calls across the llama and gpt-4o dry runs.
 
-### Trial counts by tier
+Real per-trial averages (this session):
+
+| Call | prompt (in) | completion (out) | basis |
+|------|-------------|------------------|-------|
+| gpt-4o main assistant call | 306 | 483 | 4 gpt-4o trials (Subtask 5) |
+| ProfileAgent + TaskAgent gen calls (gpt-4o tier, each) | ~135 | ~110 | AIOS `kernel.log`, 2 calls/trial |
+| **GPT-5.4 judge** | **1,128** | **241** | **8 real judge calls** (llama+gpt-4o runs) |
+
+The old report assumed the judge at ~1,500 in / ~400 out — **real is lower**
+(~1,128 in / ~241 out), so the prior judge-cost figure was a slight overestimate.
+
+### Trial counts by tier (unchanged — formula confirmed in `threshold_search.py`)
 - gpt-4o tier: 15 candidates × 8 = **120 trials** (GPT-4o assistant **and** GPT-5.4
   judge).
 - qwen + llama tiers: 30 candidates × 8 = **240 trials** (GPT-5.4 judge **only**;
   local assistant is free).
-- **Judge runs on all 360 trials.**
+- **Judge (GPT-5.4) runs on all 360 trials.**
 
-### Token totals (order-of-magnitude)
-- **Judge (GPT-5.4), 360 trials:** 360 × (1,500 in + 400 out) ≈ **540K input +
-  144K output**.
-- **GPT-4o assistant, 120 trials:** 120 × (1,500 in + 1,000 out) ≈ **180K input +
-  120K output**.
+### Token totals (real anchors)
+- **GPT-5.4 judge, 360 trials:** 360 × (1,128 in + 241 out) ≈ **406K input +
+  87K output**.
+- **GPT-4o assistant, 120 trials:** 120 × (306 + 2×135 = 576 in ; 483 + 2×110 =
+  703 out) ≈ **69K input + 84K output** (main call + the two structured generation
+  calls).
 
-### Cost (using representative Azure list prices — VERIFY current rates before relying on this)
-> Prices change and depend on the deployment/region; the numbers below use
-> commonly-cited list rates as of the model generations named and are an **estimate
-> to be re-checked**, not a quote.
-- GPT-4o ≈ $2.50 / 1M input, $10 / 1M output (representative).
-  - Assistant: 0.18M×$2.50 + 0.12M×$10 ≈ $0.45 + $1.20 = **~$1.65**.
-- GPT-5.4-as-judge: pricing **unknown to this report** (a newer/hypothetical judge
-  model in this environment). Using a GPT-4o-class rate as a **placeholder**:
-  0.54M×$2.50 + 0.144M×$10 ≈ $1.35 + $1.44 = **~$2.80**. If GPT-5.4 is priced
-  higher, scale accordingly.
-- **Total estimated API spend ≈ $4–5, plausibly up to ~$10–15** if GPT-5.4 judge
-  pricing is several× GPT-4o. This is **small** relative to the ~6-hour wall-clock;
-  **time, not API cost, is the binding constraint.**
+### Pricing (Azure Global Standard, PAYG — sourced; GPT-5.4 rate is the one estimate)
+- **GPT-4o: $2.50 / 1M input, $10.00 / 1M output** — consistently confirmed across
+  multiple 2026 sources
+  ([futureagi](http://www.futureagi.com/llm-cost-calculator/azure-openai/gpt-4o),
+  [markaicode](https://markaicode.com/pricing/azure-openai-pricing/),
+  [rapidevelopers](https://www.rapidevelopers.com/ai-api-limits-performance-matrix/gpt-4o)).
+- **GPT-5.4: no cleanly published standalone rate found.** GPT-5.4 is confirmed
+  live on Azure ([cloudzero](https://www.cloudzero.com/blog/azure-openai-pricing/)),
+  bracketed by its neighbors —
+  [GPT-5 / GPT-5-chat $1.25 in / $10 out](https://futureagi.com/llm-cost-calculator/azure-openai/gpt-5/)
+  and [GPT-5.2 $1.75 in / $14 out](https://futureagi.com/llm-cost-calculator/azure-openai/gpt-5-2/).
+  This estimate uses the **GPT-5.2 rate ($1.75 in / $14 out)** as a conservative
+  (higher) proxy for 5.4. **Flagged: verify the exact GPT-5.4 rate before relying
+  on the cost.** (Pricing content rephrased from the cited sources for compliance.)
 
-> Cost caveats: judge token estimate and GPT-5.4 pricing are the two biggest
-> unknowns and are explicitly flagged. The assistant-token anchor is real; the
-> judge-token figure is an assumption. A single real gpt-4o-tier candidate (8
-> trials) would capture true judge `token_usage` and pin this down.
+### Cost
+- **GPT-4o assistant** (120 trials): 0.069M × $2.50 + 0.084M × $10 ≈ $0.17 + $0.84
+  = **~$1.02**.
+- **GPT-5.4 judge** (360 trials): 0.406M × $1.75 + 0.087M × $14 ≈ $0.71 + $1.22
+  = **~$1.93** (at the GPT-5.2-proxy rate). *If GPT-5.4 tracks GPT-5 ($1.25/$10)
+  instead: ~$1.38.*
+- **Total estimated API spend ≈ $2.4 – $2.9** (range spans the GPT-5-vs-5.2 proxy
+  for the judge). Down from the prior **~$4–15** band — the real judge tokens are
+  lower than assumed and the sourced pricing is tighter. Still **small** relative to
+  the ~3-hour wall-clock; **time, not API cost, is the binding constraint.**
+
+> Remaining flagged unknown: the **exact GPT-5.4 Azure rate** (bracketed
+> $1.25–$1.75 in / $10–$14 out from its neighbors). Both token anchors are now real
+> (assistant and judge). The ~$2.4–2.9 total is robust to the judge-pricing
+> uncertainty because the judge is only ~$1.4–1.9 of it.
 
 ---
 
@@ -241,15 +266,18 @@ tests used a local judge)
 **The real 45-candidate / 360-trial search has not been run, has not been
 simulated, and no partial results are presented as if it had.** Only the 4-trial
 dry run (§3) has actually executed. Running the full search:
-- takes an estimated **~5–8 hours** wall-clock (§4),
-- costs an estimated **~$4–15** in API spend (§5),
+- takes an estimated **~3.1 hours** wall-clock (§4, all per-trial times now
+  measured; realistic band ~3–4 h),
+- costs an estimated **~$2.4–2.9** in API spend (§5, real token anchors; only the
+  exact GPT-5.4 rate remains bracketed),
 - writes the 9 winning overrides to the real `config.yaml` **once at the end** via
   `run_full_search(..., write_final=True)`.
 
-It **requires a separate, explicit go-ahead.** Recommended pre-flight to tighten
-the estimate first: a 2-trial dry run for `llama3.1:8b` and `gpt-4o` (mirroring
-Subtask 8) to replace the two placeholder per-trial times and capture real GPT-5.4
-judge `token_usage`.
+It **requires a separate, explicit go-ahead.** The recommended pre-flight (per-model
+dry runs for `llama3.1:8b` and `gpt-4o`) has **now been done** (Subtasks 3 & 5):
+both placeholder per-trial times are replaced with measurements and real GPT-5.4
+judge `token_usage` is captured. The estimate above is updated accordingly:
+**~3.1 h** (was ~5.8 h) and **~$2.4–2.9** (was ~$4–15).
 
 ---
 
@@ -278,7 +306,10 @@ The full offline threshold-search pipeline is **built, unit-tested (34 tests), a
 proven end-to-end on real infrastructure at minimal scale.** The confirmed
 mechanics (full restart between candidates; static-on/adaptive-off; GPT-5.4 judge;
 fresh per-trial generation) are encapsulated in reusable, resumable, crash-safe
-primitives. The full 45-candidate run is estimated at **~5–8 hours** and
-**~$4–15** in API spend, with the two local-model per-trial times and the GPT-5.4
-judge token/price being the flagged assumptions worth pinning down with a small
-per-model dry run first. **The full search awaits a separate, explicit go-ahead.**
+primitives. With all three per-trial times **now measured** (Subtasks 3 & 5) and
+real GPT-5.4 judge tokens captured, the full 45-candidate run is estimated at
+**~3.1 hours** (was ~5.8 h — llama and gpt-4o are far faster than the placeholders;
+qwen now dominates at ~70% of the total) and **~$2.4–2.9** in API spend (was
+~$4–15). The only remaining flagged assumption is the exact GPT-5.4 Azure price
+(bracketed by its published neighbors). **The full search awaits a separate,
+explicit go-ahead.**
