@@ -18,6 +18,7 @@ These need no running AIOS kernel. Run directly:
 import sys
 sys.path.insert(0, ".")
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -256,6 +257,151 @@ def test_candidate_config_validation():
     raise AssertionError("expected ValueError for empty model_name")
 
 
+# ---------------------------------------------------------------------------
+# Candidate trial runner: score parsing + averaging (no kernel / no subprocess)
+# ---------------------------------------------------------------------------
+
+from benchmarks.shared_memory.threshold_search import (  # noqa: E402
+    CandidateTrialResult,
+    TrialRunError,
+    aggregate_judge_scores,
+    parse_candidate_results,
+)
+
+
+def _results_fixture(trials):
+    """Wrap a list of trial dicts in the results_<method>.json structure."""
+    return {
+        "experiment_metadata": {"methods_run": ["kernel_shared_tuned"]},
+        "conditions": [{"condition": "kernel_shared_tuned", "trials": trials}],
+    }
+
+
+def _trial(idx, p, t, i, failed=False):
+    return {
+        "trial_index": idx,
+        "condition": "kernel_shared_tuned",
+        "method": "kernel_shared_tuned",
+        "profile_usage_score": p,
+        "task_usage_score": t,
+        "integration_score": i,
+        "failed": failed,
+    }
+
+
+def test_aggregate_all_succeed():
+    """All trials succeed: batch mean = mean of per-trial means."""
+    data = _results_fixture([
+        _trial(0, 5, 5, 5),   # per-trial reward 5.0
+        _trial(1, 2, 3, 4),   # per-trial reward 3.0
+    ])
+    mean, rewards, completed, failed = aggregate_judge_scores(data)
+    assert rewards == [5.0, 3.0], rewards
+    assert completed == 2 and failed == 0
+    assert abs(mean - 4.0) < 1e-9, mean
+    print("PASSED: aggregate all-succeed → batch mean 4.0")
+
+
+def test_aggregate_some_failed_excluded():
+    """failed:true trials are excluded from the mean but counted."""
+    data = _results_fixture([
+        _trial(0, 4, 4, 4),                  # reward 4.0
+        _trial(1, None, None, None, failed=True),  # failed → excluded
+        _trial(2, 2, 2, 2),                  # reward 2.0
+    ])
+    mean, rewards, completed, failed = aggregate_judge_scores(data)
+    assert rewards == [4.0, 2.0], rewards
+    assert completed == 2 and failed == 1
+    assert abs(mean - 3.0) < 1e-9, mean
+    print("PASSED: aggregate some-failed excludes failed, mean over survivors")
+
+
+def test_aggregate_null_scores_not_zero():
+    """A non-failed trial with all-null scores is excluded, NOT counted as 0."""
+    data = _results_fixture([
+        _trial(0, 4, 4, 4),                        # reward 4.0
+        _trial(1, None, None, None, failed=False), # all-null, not failed → excluded
+    ])
+    mean, rewards, completed, failed = aggregate_judge_scores(data)
+    assert rewards == [4.0], rewards
+    assert completed == 1 and failed == 1
+    assert abs(mean - 4.0) < 1e-9, (
+        "null scores must be excluded, not folded in as 0.0"
+    )
+    print("PASSED: all-null non-failed trial excluded (not 0.0)")
+
+
+def test_aggregate_partial_null_averages_present():
+    """A trial with some null scores averages only its non-null dimensions."""
+    data = _results_fixture([
+        # profile=4, task=None, integration=2 → reward mean(4,2)=3.0
+        _trial(0, 4, None, 2),
+    ])
+    mean, rewards, completed, failed = aggregate_judge_scores(data)
+    assert rewards == [3.0], rewards
+    assert completed == 1 and failed == 0
+    print("PASSED: partial-null trial averages only present dimensions")
+
+
+def test_aggregate_all_failed_returns_none():
+    """When every trial fails, batch mean is None (no signal), never 0.0."""
+    data = _results_fixture([
+        _trial(0, None, None, None, failed=True),
+        _trial(1, None, None, None, failed=True),
+    ])
+    mean, rewards, completed, failed = aggregate_judge_scores(data)
+    assert mean is None, "all-failed batch must yield None, not 0.0"
+    assert rewards == [] and completed == 0 and failed == 2
+    print("PASSED: all-failed batch → batch_mean None")
+
+
+def test_parse_candidate_results_builds_struct(tmp_path=None):
+    """parse_candidate_results loads a fixture file into CandidateTrialResult."""
+    tmp = Path(tempfile.mkdtemp())
+    jpath = tmp / "results_kernel_shared_tuned.json"
+    jpath.write_text(json.dumps(_results_fixture([
+        _trial(0, 5, 5, 5),
+        _trial(1, 3, 3, 3),
+        _trial(2, None, None, None, failed=True),
+    ])), encoding="utf-8")
+
+    res = parse_candidate_results(
+        results_json_path=jpath,
+        model_name="qwen2.5:7b",
+        threshold_name="novelty_threshold",
+        value=0.6,
+        num_trials_requested=3,
+        output_dir=tmp,
+    )
+    assert isinstance(res, CandidateTrialResult)
+    assert res.model_name == "qwen2.5:7b"
+    assert res.threshold_name == "novelty_threshold"
+    assert res.value == 0.6
+    assert res.num_trials_requested == 3
+    assert res.num_trials_completed == 2
+    assert res.num_trials_failed == 1
+    assert abs(res.batch_mean_score - 4.0) < 1e-9
+    assert res.results_json_path.endswith("results_kernel_shared_tuned.json")
+    assert Path(res.results_json_path).is_absolute()
+    print("PASSED: parse_candidate_results builds structured result")
+
+
+def test_parse_candidate_results_missing_file_raises():
+    """A missing results file raises TrialRunError, not a bare crash."""
+    missing = Path(tempfile.mkdtemp()) / "nope.json"
+    try:
+        parse_candidate_results(
+            results_json_path=missing,
+            model_name="m", threshold_name="novelty_threshold",
+            value=0.6, num_trials_requested=2,
+        )
+    except TrialRunError as e:
+        assert "did not produce" in str(e)
+        print("PASSED: missing results file raises TrialRunError")
+        return
+    raise AssertionError("expected TrialRunError for missing results file")
+
+
 if __name__ == "__main__":
     test_write_candidate_flips_both_toggles()
     test_write_candidate_sets_only_varied_override()
@@ -267,4 +413,11 @@ if __name__ == "__main__":
     test_verify_raises_on_default_mismatch()
     test_verify_raises_on_override_mismatch()
     test_candidate_config_validation()
+    test_aggregate_all_succeed()
+    test_aggregate_some_failed_excluded()
+    test_aggregate_null_scores_not_zero()
+    test_aggregate_partial_null_averages_present()
+    test_aggregate_all_failed_returns_none()
+    test_parse_candidate_results_builds_struct()
+    test_parse_candidate_results_missing_file_raises()
     print("\nAll threshold-search primitive tests passed.")

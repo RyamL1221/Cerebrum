@@ -49,13 +49,15 @@ kernel's ``config.yaml`` on disk and talks to the running kernel over HTTP.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -691,3 +693,300 @@ def apply_candidate_and_verify(
         raise
 
     return proc
+
+
+# ---------------------------------------------------------------------------
+# 5. Candidate trial runner (run N trials, collect + average judge scores)
+# ---------------------------------------------------------------------------
+
+# Judge model for the threshold search. GPT-5.4 (azure) is used — the same
+# high-quality judge the rest of the benchmark reporting uses — NOT the local
+# qwen2.5:7b model used for the Subtask 3/4 smoke tests. Rationale: the search
+# optimizes thresholds against a judge signal, so the signal must be as reliable
+# as the one the final reporting run uses; a weak local judge would bias the
+# search toward whatever the weak judge happens to reward. The smoke test below
+# may override this with a local model purely to exercise wiring cheaply.
+DEFAULT_SEARCH_JUDGE_MODEL = "gpt-5.4:azure"
+
+# Per-trial judge score dimensions, in the order the harness averages them.
+_JUDGE_SCORE_FIELDS = (
+    "profile_usage_score",
+    "task_usage_score",
+    "integration_score",
+)
+
+
+class TrialRunError(RuntimeError):
+    """Raised when the harness subprocess fails or its output can't be found
+    or parsed. Distinct from gating/config errors so a runner failure is
+    attributable to the trial batch, not the config/verify cycle."""
+
+
+@dataclass
+class CandidateTrialResult:
+    """Structured outcome of scoring one candidate over a batch of trials.
+
+    Carries enough detail to both drive the search (``batch_mean_score``) and
+    debug any suspicious candidate later (raw file paths, per-trial rewards,
+    counts). A bare float would lose the provenance needed to inspect a
+    transcript when a score looks off.
+
+    Attributes:
+        model_name: The ``llm_core`` (assistant model) this batch scored.
+        threshold_name: Gate being varied for this candidate.
+        value: Candidate threshold value.
+        num_trials_requested: ``--trials`` passed to the harness.
+        num_trials_completed: Trials that were NOT ``failed`` and had at least
+            one non-null judge score (i.e. contributed to the mean).
+        num_trials_failed: Trials excluded from the mean (``failed: true`` or
+            all-null scores). ``requested`` may exceed ``completed + failed``
+            only if the harness wrote fewer trial records than requested.
+        batch_mean_score: Mean over completed trials of each trial's own
+            reward (mean of that trial's non-null scores). ``None`` when no
+            trial completed (all failed) — the search must treat ``None`` as
+            "no usable signal", never as 0.0.
+        per_trial_rewards: The completed trials' per-trial reward values, in
+            file order, for inspection.
+        results_json_path: Absolute path to ``results_kernel_shared_tuned.json``.
+        results_csv_path: Absolute path to ``results.csv`` (None if not written).
+        output_dir: The batch's output directory.
+    """
+
+    model_name: str
+    threshold_name: str
+    value: float
+    num_trials_requested: int
+    num_trials_completed: int
+    num_trials_failed: int
+    batch_mean_score: Optional[float]
+    per_trial_rewards: List[float]
+    results_json_path: str
+    results_csv_path: Optional[str]
+    output_dir: str
+
+
+def _trial_reward(trial: Dict[str, Any]) -> Optional[float]:
+    """Compute one trial's reward: mean of its non-null judge scores.
+
+    Mirrors the harness's own per-trial reward formula
+    (``run_evaluation.py:462-469``): collect the non-null values among
+    ``profile_usage_score`` / ``task_usage_score`` / ``integration_score`` and
+    average them. Returns ``None`` when the trial has NO non-null score, so the
+    caller can exclude it rather than fold a null-derived 0.0 into the mean.
+    (Note: the harness records 0.0 for its own reward-report side-channel in the
+    all-null case; for search aggregation we deliberately treat all-null as
+    "no signal" = excluded, matching the failed-trial policy below.)
+    """
+    vals = [
+        trial.get(f)
+        for f in _JUDGE_SCORE_FIELDS
+        if trial.get(f) is not None
+    ]
+    if not vals:
+        return None
+    return sum(vals) / len(vals)
+
+
+def aggregate_judge_scores(
+    results_json: Dict[str, Any],
+) -> tuple[Optional[float], List[float], int, int]:
+    """Aggregate per-trial judge scores from a parsed results JSON.
+
+    Failed-trial policy (documented): a trial is EXCLUDED from the batch mean
+    when it is marked ``failed: true`` OR has no non-null judge score. Excluded
+    trials are counted in ``num_failed`` but never folded into the mean as 0.
+    The batch mean is the mean of the surviving trials' per-trial rewards
+    (each reward itself the mean of that trial's non-null scores). When no
+    trial survives, the batch mean is ``None`` (no usable signal), never 0.0.
+
+    Args:
+        results_json: The parsed ``results_<method>.json`` structure, i.e. a
+            dict with ``conditions: [{trials: [...]}, ...]``.
+
+    Returns:
+        ``(batch_mean, per_trial_rewards, num_completed, num_failed)``.
+    """
+    trials: List[Dict[str, Any]] = []
+    for cond in results_json.get("conditions", []) or []:
+        trials.extend(cond.get("trials", []) or [])
+
+    per_trial_rewards: List[float] = []
+    num_failed = 0
+    for trial in trials:
+        if trial.get("failed") is True:
+            num_failed += 1
+            continue
+        reward = _trial_reward(trial)
+        if reward is None:
+            # Not flagged failed, but no usable score — exclude and count.
+            num_failed += 1
+            continue
+        per_trial_rewards.append(reward)
+
+    num_completed = len(per_trial_rewards)
+    batch_mean = (
+        sum(per_trial_rewards) / num_completed if num_completed else None
+    )
+    return batch_mean, per_trial_rewards, num_completed, num_failed
+
+
+def parse_candidate_results(
+    results_json_path: str | Path,
+    model_name: str,
+    threshold_name: str,
+    value: float,
+    num_trials_requested: int,
+    results_csv_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> CandidateTrialResult:
+    """Load a results JSON file and build a :class:`CandidateTrialResult`.
+
+    Pure of subprocess/kernel concerns so it can be unit-tested against a
+    fabricated fixture.
+
+    Raises:
+        TrialRunError: If the file is missing or not valid JSON.
+    """
+    path = Path(results_json_path)
+    if not path.exists():
+        raise TrialRunError(
+            f"Harness did not produce expected results file: {path}"
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        raise TrialRunError(f"Could not read/parse results file {path}: {e}") from e
+
+    batch_mean, rewards, completed, failed = aggregate_judge_scores(data)
+    return CandidateTrialResult(
+        model_name=model_name,
+        threshold_name=threshold_name,
+        value=value,
+        num_trials_requested=num_trials_requested,
+        num_trials_completed=completed,
+        num_trials_failed=failed,
+        batch_mean_score=batch_mean,
+        per_trial_rewards=rewards,
+        results_json_path=str(path.resolve()),
+        results_csv_path=str(Path(results_csv_path).resolve()) if results_csv_path else None,
+        output_dir=str(Path(output_dir).resolve()) if output_dir else str(path.parent.resolve()),
+    )
+
+
+def run_candidate_trials(
+    model_name: str,
+    model_backend: str,
+    threshold_name: str,
+    value: float,
+    num_trials: int,
+    output_dir: str | Path,
+    run_id: str,
+    kernel_url: str = "http://localhost:8000",
+    judge_model: str = DEFAULT_SEARCH_JUDGE_MODEL,
+    cerebrum_repo_dir: str | Path | None = None,
+    python_executable: str | None = None,
+    timeout_s: float = 3600.0,
+) -> CandidateTrialResult:
+    """Run N trials for one candidate against an already-verified live kernel.
+
+    Invokes ``run_evaluation.py`` via subprocess with the exact flags confirmed
+    in Subtask 3 (``docs/threshold-search-harness-invocation.md``):
+    ``--trials N --method kernel_shared_tuned --assistant-model "<name>:<backend>"
+    --judge-model <judge_model> --kernel-url <url> --output <dir> --run-id <id>
+    --csv``. It does NOT configure or verify gating — the caller
+    (:func:`apply_candidate_and_verify`, Subtask 4) must have already put the
+    kernel into a verified-ready state.
+
+    Args:
+        model_name: Assistant ``llm_core`` name (e.g. ``"qwen2.5:7b"``). Must
+            match the candidate whose override is live on the kernel.
+        model_backend: Assistant backend (e.g. ``"ollama"``, ``"azure"``).
+        threshold_name: Gate this candidate varies (recorded on the result).
+        value: Candidate threshold value (recorded on the result).
+        num_trials: Number of trials to run (``--trials``).
+        output_dir: Directory for this batch's result files (should be unique
+            per candidate so batches don't overwrite each other).
+        run_id: ``--run-id`` for memory-namespace isolation (should be unique
+            per candidate).
+        kernel_url: Kernel base URL.
+        judge_model: Judge model string; defaults to
+            :data:`DEFAULT_SEARCH_JUDGE_MODEL` (GPT-5.4). Overridable for cheap
+            local smoke tests.
+        cerebrum_repo_dir: Repo root to run the subprocess from. Defaults to the
+            repo containing this file.
+        python_executable: Python to run the harness with. Defaults to
+            ``sys.executable``.
+        timeout_s: Max seconds for the whole trial batch.
+
+    Returns:
+        A :class:`CandidateTrialResult` with the batch mean and provenance.
+
+    Raises:
+        TrialRunError: If the subprocess fails (non-zero exit / timeout) or its
+            output is missing/unparseable.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if cerebrum_repo_dir is None:
+        # threshold_search.py lives at <repo>/benchmarks/shared_memory/, so the
+        # repo root is three parents up.
+        cerebrum_repo_dir = Path(__file__).resolve().parents[2]
+    if python_executable is None:
+        python_executable = sys.executable
+
+    assistant_arg = f"{model_name}:{model_backend}"
+    cmd = [
+        python_executable,
+        "benchmarks/shared_memory/run_evaluation.py",
+        "--trials", str(num_trials),
+        "--method", "kernel_shared_tuned",
+        "--assistant-model", assistant_arg,
+        "--judge-model", judge_model,
+        "--kernel-url", kernel_url,
+        "--output", str(output_dir),
+        "--run-id", run_id,
+        "--csv",
+    ]
+    logger.info("Running candidate trials: %s", " ".join(cmd))
+
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=str(cerebrum_repo_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise TrialRunError(
+            f"Trial batch timed out after {timeout_s:.0f}s "
+            f"(model={model_name}, {threshold_name}={value})."
+        ) from e
+
+    if completed.returncode != 0:
+        raise TrialRunError(
+            f"Harness exited {completed.returncode} for candidate "
+            f"model={model_name} {threshold_name}={value}.\n"
+            f"stderr tail:\n{completed.stderr[-2000:]}"
+        )
+
+    results_json_path = output_dir / "results_kernel_shared_tuned.json"
+    results_csv_path = output_dir / "results.csv"
+    result = parse_candidate_results(
+        results_json_path=results_json_path,
+        model_name=model_name,
+        threshold_name=threshold_name,
+        value=value,
+        num_trials_requested=num_trials,
+        results_csv_path=results_csv_path if results_csv_path.exists() else None,
+        output_dir=output_dir,
+    )
+    logger.info(
+        "Candidate scored: model=%s %s=%s → batch_mean=%s "
+        "(completed=%d, failed=%d, requested=%d) | results=%s",
+        model_name, threshold_name, value, result.batch_mean_score,
+        result.num_trials_completed, result.num_trials_failed,
+        num_trials, result.results_json_path,
+    )
+    return result
