@@ -252,6 +252,12 @@ class LLMJudge:
             },
         }
 
+        # Per-call judge token usage: the kernel emits it as a top-level
+        # sibling of "response" in the /query body (NOT nested under
+        # "response"), exactly like the assistant path. Capture it here from
+        # whichever call actually produced the scored response (primary or
+        # fallback) so it can be threaded onto the returned JudgeScores.
+        judge_token_usage: Any = None
         try:
             llm_response = llm_chat_with_json_output(
                 agent_name=self.agent_name,
@@ -260,6 +266,7 @@ class LLMJudge:
                 response_format=response_format,
                 llms=self.llms,
             )
+            judge_token_usage = llm_response.get("token_usage")
 
             raw = llm_response["response"]["response_message"]
             logger.debug("Judge raw response_message: %r", raw)
@@ -276,6 +283,10 @@ class LLMJudge:
                     base_url=self.kernel_url,
                     llms=self.llms,
                 )
+                # Prefer the fallback call's usage since it produced the
+                # response we actually parse. Fall back to the primary call's
+                # usage only if the fallback omitted it.
+                judge_token_usage = llm_response.get("token_usage") or judge_token_usage
                 raw = llm_response["response"]["response_message"]
                 if raw is None:
                     logger.warning(
@@ -285,7 +296,7 @@ class LLMJudge:
                         self.llms,
                         self.kernel_url,
                     )
-                    return JudgeScores()
+                    return JudgeScores(token_usage=judge_token_usage)
             # Try to parse as JSON; if it fails, try to extract JSON from text
             if isinstance(raw, str):
                 try:
@@ -295,12 +306,12 @@ class LLMJudge:
                     data = _extract_json_from_text(raw)
                     if data is None:
                         logger.warning("Judge LLM returned non-JSON text: %s", raw[:200])
-                        return JudgeScores()
+                        return JudgeScores(token_usage=judge_token_usage)
             else:
                 data = raw
             if not isinstance(data, dict):
                 logger.warning("Judge LLM returned non-dict data: %r", data)
-                return JudgeScores()
+                return JudgeScores(token_usage=judge_token_usage)
             logger.debug("Judge parsed data before normalization: %s", data)
 
             # If the dict already has the exact keys we need, use them directly
@@ -315,7 +326,7 @@ class LLMJudge:
 
             if pu is None or tu is None or ig is None:
                 logger.warning("Judge returned incomplete scores: %s", data)
-                return JudgeScores()
+                return JudgeScores(token_usage=judge_token_usage)
 
             scores = JudgeScores(
                 profile_usage_score=_clamp_score(pu, "profile_usage_score"),
@@ -324,6 +335,7 @@ class LLMJudge:
                 profile_usage_reasoning=data.get("profile_usage_reasoning"),
                 task_usage_reasoning=data.get("task_usage_reasoning"),
                 integration_reasoning=data.get("integration_reasoning"),
+                token_usage=judge_token_usage,
             )
 
             return scores
@@ -455,4 +467,7 @@ class HybridJudge:
                 f"keyword_integration={kw_integration}/5; "
                 + (llm_scores.integration_reasoning or "")
             ),
+            # Pass through the LLM judge's per-call token usage unchanged; the
+            # keyword component makes no LLM call and adds no tokens.
+            token_usage=llm_scores.token_usage,
         )

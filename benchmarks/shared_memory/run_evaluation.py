@@ -567,6 +567,7 @@ class EvaluationOrchestrator:
             injection_diagnostics=pipeline_result.injection_diagnostics,
             written_memories=pipeline_result.written_memories,
             token_usage=pipeline_result.token_usage,
+            judge_token_usage=scores.token_usage,
         )
 
     def run(self) -> ExperimentResults:

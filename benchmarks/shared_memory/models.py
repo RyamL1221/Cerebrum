@@ -97,6 +97,13 @@ class JudgeScores(BaseModel):
     profile_usage_reasoning: Optional[str] = None
     task_usage_reasoning: Optional[str] = None
     integration_reasoning: Optional[str] = None
+    # Per-call token usage from the judge LLM's /query response (the kernel's
+    # top-level sibling key), captured by LLMJudge.evaluate() and propagated
+    # through HybridJudge.evaluate(). Shape mirrors the assistant path:
+    # {"prompt_tokens", "completion_tokens", "total_tokens"} with each value an
+    # int or None, or the whole dict None when the response omitted it / the
+    # judge call failed. Distinct from the assistant's token_usage.
+    token_usage: Optional[Dict[str, Optional[int]]] = None
 
 
 class MemoryCounts(BaseModel):
@@ -179,6 +186,14 @@ class TrialResult(BaseModel):
     # omitted it). Populated only on the success path where a PipelineResult
     # is available.
     token_usage: Optional[Dict[str, Optional[int]]] = None
+    # Per-call token usage from the JUDGE LLM's /query response (GPT-5.4 in the
+    # threshold search), captured in LLMJudge.evaluate() and propagated through
+    # HybridJudge → JudgeScores.token_usage → here. Distinct from the
+    # assistant-only ``token_usage`` field above; do not overload/merge them.
+    # Same shape ({"prompt_tokens", "completion_tokens", "total_tokens"} / int
+    # or None values / whole dict None). Populated only on the success path
+    # where judging occurred; None on failure/early-return paths.
+    judge_token_usage: Optional[Dict[str, Optional[int]]] = None
     # Adaptive-policy reward records attributed to this trial by the standalone
     # post-hoc join (benchmarks/shared_memory/join_policy_actions.py). NOT
     # threaded through the live path (AssistantAgent/PipelineResult are
