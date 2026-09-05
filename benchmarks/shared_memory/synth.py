@@ -57,6 +57,51 @@ def _robust_llm_json_call(agent_name, messages, kernel_url, response_format, llm
     return raw
 
 
+def _loads_json_tolerant(raw):
+    """Parse an LLM JSON response, tolerating markdown code fences.
+
+    Some models (notably gpt-4o) intermittently wrap their JSON output in
+    ```json ... ``` fences, which makes a bare ``json.loads`` fail with
+    "Expecting value: line 1 column 1 (char 0)". This widens acceptance to
+    include fenced JSON WITHOUT weakening error detection: genuinely
+    unparseable input still raises.
+
+    Strategy (mirrors judge.py's ``_extract_json_from_text`` extraction —
+    first ``{`` to last ``}`` — kept local so this module fails loudly by
+    raising, whereas the judge helper returns None):
+
+    1. If ``raw`` is not a str, return it unchanged (already-parsed dict).
+    2. Try ``json.loads(raw)`` directly (the bare-JSON fast path).
+    3. On failure, extract the substring from the first ``{`` to the last
+       ``}`` and parse that (strips ```json fences, prose, etc.).
+    4. If that also fails or no braces are present, raise ``json.JSONDecodeError``
+       so a bad generation surfaces instead of being silently swallowed.
+
+    Args:
+        raw: The raw ``response_message`` (str expected, but tolerates a
+            pre-parsed dict/other for the isinstance guard).
+
+    Returns:
+        The parsed object (typically a dict).
+
+    Raises:
+        json.JSONDecodeError: If ``raw`` is a string containing no valid JSON
+            object.
+    """
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Fence/prose-tolerant fallback: first '{' .. last '}'.
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(raw[start:end + 1])  # may raise → loud failure
+        # No brace-delimited object at all: re-raise the original loud error.
+        raise
+
+
 def _unwrap_nested(data: dict, required_keys: List[str]) -> dict:
     """Unwrap a potentially nested LLM response to find the expected keys."""
     if all(k in data for k in required_keys):
@@ -177,7 +222,7 @@ class SyntheticDataGenerator:
         raw = _robust_llm_json_call(
             self.agent_name, messages, self.kernel_url, response_format, self.llms
         )
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = _loads_json_tolerant(raw)
         data = _unwrap_nested(data, ["user_name", "preferred_tools", "preferred_language", "response_style"])
         return SyntheticProfile(**data)
 
@@ -267,7 +312,7 @@ class SyntheticDataGenerator:
         )
 
         raw = llm_response["response"]["response_message"]
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = _loads_json_tolerant(raw)
         data = _unwrap_nested(data, ["current_project", "active_experiment", "goals", "blockers", "next_steps"])
         return SyntheticTaskContext(**data)
 
@@ -363,7 +408,7 @@ class SyntheticDataGenerator:
             )
 
             raw = llm_response["response"]["response_message"]
-            data = json.loads(raw) if isinstance(raw, str) else raw
+            data = _loads_json_tolerant(raw)
             data = _unwrap_nested(data, ["query"])
             last_query = data["query"]
 
@@ -453,7 +498,7 @@ class SyntheticDataGenerator:
         )
 
         raw = llm_response["response"]["response_message"]
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = _loads_json_tolerant(raw)
         data = _unwrap_nested(data, ["actions"])
         return data["actions"]
 

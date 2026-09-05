@@ -213,6 +213,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 profile_usage_score=3,
                 task_usage_score=3,
                 integration_score=3,
+                token_usage=None,
             )
 
             # Configure mock writer
@@ -320,6 +321,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 profile_usage_score=3,
                 task_usage_score=3,
                 integration_score=3,
+                token_usage=None,
             )
 
             mock_writer_instance = mock_writer_cls.return_value
@@ -396,6 +398,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 profile_usage_score=3,
                 task_usage_score=3,
                 integration_score=3,
+                token_usage=None,
             )
 
             mock_writer_instance = mock_writer_cls.return_value
@@ -480,6 +483,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 profile_usage_score=3,
                 task_usage_score=3,
                 integration_score=3,
+                token_usage=None,
             )
 
             mock_writer_instance = mock_writer_cls.return_value
