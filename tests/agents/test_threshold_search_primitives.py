@@ -402,6 +402,258 @@ def test_parse_candidate_results_missing_file_raises():
     raise AssertionError("expected TrialRunError for missing results file")
 
 
+# ---------------------------------------------------------------------------
+# Coordinate search loop: control flow with mocked apply/run (no live kernel)
+# ---------------------------------------------------------------------------
+
+from benchmarks.shared_memory.threshold_search import (  # noqa: E402
+    CandidateAttempt,
+    CoordinateSearchState,
+    DEFAULT_CANDIDATE_GRID,
+    THRESHOLD_NAMES,
+    search_one_threshold,
+    search_one_model,
+    run_full_search,
+    select_winner,
+    write_final_overrides,
+)
+
+
+def _attempt(threshold, value, score):
+    return CandidateAttempt(
+        threshold_name=threshold, value=value, batch_mean_score=score,
+        num_trials_completed=(0 if score is None else 8),
+        num_trials_failed=(8 if score is None else 0),
+    )
+
+
+def test_select_winner_highest_wins():
+    attempts = [
+        _attempt("novelty_threshold", 0.5, 2.0),
+        _attempt("novelty_threshold", 0.6, 4.5),
+        _attempt("novelty_threshold", 0.7, 3.0),
+    ]
+    value, score = select_winner(attempts)
+    assert value == 0.6 and score == 4.5, (value, score)
+    print("PASSED: select_winner picks highest score")
+
+
+def test_select_winner_tie_breaks_to_first():
+    """On a tie, the earliest-in-grid (lowest) candidate wins."""
+    attempts = [
+        _attempt("novelty_threshold", 0.5, 4.0),
+        _attempt("novelty_threshold", 0.6, 4.0),   # tie — must NOT displace 0.5
+        _attempt("novelty_threshold", 0.7, 4.0),
+    ]
+    value, score = select_winner(attempts)
+    assert value == 0.5 and score == 4.0, (value, score)
+    print("PASSED: select_winner tie-breaks to first/lowest")
+
+
+def test_select_winner_none_treated_as_worst():
+    """A None (all-failed) candidate never wins when a scored one exists."""
+    attempts = [
+        _attempt("novelty_threshold", 0.5, None),
+        _attempt("novelty_threshold", 0.6, 1.0),
+        _attempt("novelty_threshold", 0.7, None),
+    ]
+    value, score = select_winner(attempts)
+    assert value == 0.6 and score == 1.0, (value, score)
+    print("PASSED: select_winner treats None as worst")
+
+
+def test_select_winner_all_none_degenerate():
+    """Every candidate None → first candidate returned, score None (flagged)."""
+    attempts = [
+        _attempt("novelty_threshold", 0.5, None),
+        _attempt("novelty_threshold", 0.6, None),
+    ]
+    value, score = select_winner(attempts)
+    assert value == 0.5 and score is None, (value, score)
+    print("PASSED: select_winner all-None degenerate falls back to first, score None")
+
+
+class _FakeProc:
+    """Stand-in for a kernel Popen handle; records terminate() calls."""
+    def __init__(self):
+        self.terminated = False
+    def terminate(self):
+        self.terminated = True
+    def wait(self, timeout=None):
+        return 0
+
+
+def _make_mocks(score_map):
+    """Build (apply_fn, run_fn, log) mocks.
+
+    score_map maps (model, threshold, value) → batch_mean_score. apply_fn
+    records the CandidateConfig it was called with and returns a _FakeProc;
+    run_fn records its call and returns a CandidateTrialResult with the mapped
+    score. The shared ``log`` list captures the exact call order for assertions.
+    """
+    log = []
+    procs = []
+
+    def apply_fn(candidate, config_path, aios_repo_dir, kernel_url="http://localhost:8000"):
+        log.append(("apply", candidate.model_name, candidate.threshold_name,
+                    candidate.value, dict(candidate.other_thresholds_at)))
+        p = _FakeProc()
+        procs.append(p)
+        return p
+
+    def run_fn(model_name, model_backend, threshold_name, value, num_trials,
+               output_dir, run_id, kernel_url="http://localhost:8000",
+               judge_model="x", **kw):
+        score = score_map.get((model_name, threshold_name, value))
+        log.append(("run", model_name, threshold_name, value, num_trials))
+        completed = 0 if score is None else num_trials
+        failed = num_trials if score is None else 0
+        return CandidateTrialResult(
+            model_name=model_name, threshold_name=threshold_name, value=value,
+            num_trials_requested=num_trials, num_trials_completed=completed,
+            num_trials_failed=failed, batch_mean_score=score,
+            per_trial_rewards=[], results_json_path=str(Path(output_dir) / "r.json"),
+            results_csv_path=None, output_dir=str(output_dir),
+        )
+
+    return apply_fn, run_fn, log, procs
+
+
+def test_search_one_threshold_order_and_terminate():
+    """Candidates tried in grid order; each candidate's proc is terminated."""
+    scores = {("m", "novelty_threshold", v): v for v in DEFAULT_CANDIDATE_GRID}
+    apply_fn, run_fn, log, procs = _make_mocks(scores)
+    tmp = Path(tempfile.mkdtemp())
+    winner, attempts = search_one_threshold(
+        model_name="m", model_backend="ollama",
+        threshold_name="novelty_threshold",
+        other_thresholds_at={t: 0.7 for t in THRESHOLD_NAMES},
+        config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+        apply_fn=apply_fn, run_fn=run_fn,
+    )
+    tried = [entry[3] for entry in log if entry[0] == "run"]
+    assert tried == list(DEFAULT_CANDIDATE_GRID), tried
+    assert winner == 0.9, winner  # highest score in this synthetic map
+    assert all(p.terminated for p in procs), "every candidate proc terminated"
+    assert len(attempts) == 5
+    print("PASSED: search_one_threshold tries grid in order and cleans up procs")
+
+
+def test_search_one_model_threads_winners():
+    """Each step holds prior winners; not-yet-searched gates at baseline."""
+    # Rig winners: novelty→0.6, similarity→0.8, redundancy→0.5.
+    scores = {}
+    for v in DEFAULT_CANDIDATE_GRID:
+        scores[("m", "novelty_threshold", v)] = 10 if v == 0.6 else 1
+        scores[("m", "similarity_threshold", v)] = 10 if v == 0.8 else 1
+        scores[("m", "redundancy_threshold", v)] = 10 if v == 0.5 else 1
+    apply_fn, run_fn, log, _ = _make_mocks(scores)
+    tmp = Path(tempfile.mkdtemp())
+    state = search_one_model(
+        model_name="m", model_backend="ollama",
+        config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+        apply_fn=apply_fn, run_fn=run_fn,
+    )
+    assert state.winners == {
+        "novelty_threshold": 0.6, "similarity_threshold": 0.8, "redundancy_threshold": 0.5,
+    }, state.winners
+    assert state.completed and state.current_threshold is None
+
+    # Inspect the held-defaults threaded into each step via apply calls.
+    applies = [e for e in log if e[0] == "apply"]
+    # similarity step (2nd group of 5) must hold novelty at its winner 0.6.
+    sim_apply = next(e for e in applies if e[2] == "similarity_threshold")
+    assert sim_apply[4]["novelty_threshold"] == 0.6, sim_apply[4]
+    assert sim_apply[4]["redundancy_threshold"] == 0.7, "redundancy still baseline"
+    # redundancy step must hold BOTH prior winners.
+    red_apply = next(e for e in applies if e[2] == "redundancy_threshold")
+    assert red_apply[4]["novelty_threshold"] == 0.6
+    assert red_apply[4]["similarity_threshold"] == 0.8
+    # 3 thresholds × 5 candidates = 15 runs.
+    assert sum(1 for e in log if e[0] == "run") == 15
+    print("PASSED: search_one_model threads winners forward correctly")
+
+
+def test_run_full_search_independent_models_single_final_write():
+    """Models independent; final config write happens exactly once, at the end."""
+    grid = (0.5, 0.6)
+    # Different winners per model to prove independence (no cross-leakage).
+    scores = {}
+    winners_target = {
+        "A": {"novelty_threshold": 0.5, "similarity_threshold": 0.6, "redundancy_threshold": 0.5},
+        "B": {"novelty_threshold": 0.6, "similarity_threshold": 0.5, "redundancy_threshold": 0.6},
+    }
+    for model, wmap in winners_target.items():
+        for t in THRESHOLD_NAMES:
+            for v in grid:
+                scores[(model, t, v)] = 10 if v == wmap[t] else 1
+    apply_fn, run_fn, log, _ = _make_mocks(scores)
+
+    # Track final-write calls without touching a real config file.
+    writes = []
+    import benchmarks.shared_memory.threshold_search as ts
+
+    orig_write = ts.write_final_overrides
+    ts.write_final_overrides = lambda cfg, winners: writes.append(dict(winners))
+    try:
+        tmp = Path(tempfile.mkdtemp())
+        states = run_full_search(
+            config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            models=("A", "B"),
+            model_backends={"A": "ollama", "B": "ollama"},
+            candidates=grid, trials_per_candidate=2,
+            apply_fn=apply_fn, run_fn=run_fn, write_final=True,
+        )
+    finally:
+        ts.write_final_overrides = orig_write
+
+    assert states["A"].winners == winners_target["A"], states["A"].winners
+    assert states["B"].winners == winners_target["B"], states["B"].winners
+    # Exactly ONE final write, after both models, carrying both models' winners.
+    assert len(writes) == 1, f"expected exactly one final write, got {len(writes)}"
+    assert writes[0] == winners_target, writes[0]
+    print("PASSED: run_full_search — independent models, single final write")
+
+
+def test_run_full_search_no_write_when_disabled():
+    """write_final=False performs no config write."""
+    grid = (0.5, 0.6)
+    scores = {("A", t, v): (10 if v == 0.5 else 1) for t in THRESHOLD_NAMES for v in grid}
+    apply_fn, run_fn, _, _ = _make_mocks(scores)
+    import benchmarks.shared_memory.threshold_search as ts
+    writes = []
+    orig = ts.write_final_overrides
+    ts.write_final_overrides = lambda cfg, winners: writes.append(1)
+    try:
+        tmp = Path(tempfile.mkdtemp())
+        run_full_search(
+            config_path=tmp / "config.yaml", aios_repo_dir=tmp, output_root=tmp,
+            models=("A",), model_backends={"A": "ollama"},
+            candidates=grid, trials_per_candidate=2,
+            apply_fn=apply_fn, run_fn=run_fn, write_final=False,
+        )
+    finally:
+        ts.write_final_overrides = orig
+    assert writes == [], "no write should occur when write_final=False"
+    print("PASSED: run_full_search honors write_final=False")
+
+
+def test_write_final_overrides_multi_model():
+    """Final write emits one wildcard per model per threshold, toggles set."""
+    cfg = _write_temp_config()
+    write_final_overrides(cfg, {
+        "qwen2.5:7b": {"novelty_threshold": 0.6, "similarity_threshold": 0.7, "redundancy_threshold": 0.8},
+        "gpt-4o": {"novelty_threshold": 0.5, "similarity_threshold": 0.9, "redundancy_threshold": 0.5},
+    })
+    text = cfg.read_text()
+    assert "enabled: true       # master switch for this variant" in text
+    assert "enabled: false       # master switch; false = frozen baseline" in text
+    # novelty must carry both models' wildcard entries.
+    assert '{llm_core: "qwen2.5:7b", value: 0.6}' in text
+    assert '{llm_core: "gpt-4o", value: 0.5}' in text
+    print("PASSED: write_final_overrides writes multi-model wildcard overrides")
+
+
 if __name__ == "__main__":
     test_write_candidate_flips_both_toggles()
     test_write_candidate_sets_only_varied_override()
@@ -420,4 +672,13 @@ if __name__ == "__main__":
     test_aggregate_all_failed_returns_none()
     test_parse_candidate_results_builds_struct()
     test_parse_candidate_results_missing_file_raises()
+    test_select_winner_highest_wins()
+    test_select_winner_tie_breaks_to_first()
+    test_select_winner_none_treated_as_worst()
+    test_select_winner_all_none_degenerate()
+    test_search_one_threshold_order_and_terminate()
+    test_search_one_model_threads_winners()
+    test_run_full_search_independent_models_single_final_write()
+    test_run_full_search_no_write_when_disabled()
+    test_write_final_overrides_multi_model()
     print("\nAll threshold-search primitive tests passed.")

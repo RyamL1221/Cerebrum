@@ -990,3 +990,473 @@ def run_candidate_trials(
         num_trials, result.results_json_path,
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# 6. Coordinate search loop
+# ---------------------------------------------------------------------------
+#
+# Algorithm (per the master prompt), run INDEPENDENTLY for each model:
+#
+#   1. Search novelty_threshold over the candidate grid, holding
+#      similarity+redundancy at BASELINE. Fix novelty at its winner.
+#   2. Search similarity_threshold, holding novelty at its winner and
+#      redundancy at BASELINE. Fix similarity at its winner.
+#   3. Search redundancy_threshold, holding novelty+similarity at their winners.
+#      Fix redundancy at its winner.
+#
+# The three winners for a model are its result. Models never share state. The
+# "real" config.yaml is NOT written with any intermediate/candidate value —
+# only after ALL models finish are the 9 winners written in one final step.
+#
+# Fixed search order (novelty → similarity → redundancy).
+_SEARCH_ORDER = (
+    "novelty_threshold",
+    "similarity_threshold",
+    "redundancy_threshold",
+)
+
+# Default candidate grid and per-candidate trial count (master-prompt spec).
+DEFAULT_CANDIDATE_GRID = (0.5, 0.6, 0.7, 0.8, 0.9)
+DEFAULT_TRIALS_PER_CANDIDATE = 8
+# Baseline value each not-yet-searched threshold's `default` is held at.
+DEFAULT_BASELINE_THRESHOLD = 0.7
+
+# Target models for the full search (master-prompt spec).
+DEFAULT_SEARCH_MODELS = ("gpt-4o", "llama3.1:8b", "qwen2.5:7b")
+
+# Model → backend map for constructing the ``--assistant-model`` arg. Mirrors
+# the active entries in the AIOS config.yaml (see
+# docs/threshold-search-harness-invocation.md §3).
+DEFAULT_MODEL_BACKENDS = {
+    "gpt-4o": "azure",
+    "llama3.1:8b": "ollama",
+    "qwen2.5:7b": "ollama",
+}
+
+
+@dataclass
+class CandidateAttempt:
+    """One candidate value tried during a threshold search, with its score.
+
+    History record (persisted by Subtask 7). ``batch_mean_score`` is ``None``
+    for an all-failed batch — recorded, not dropped, so the full search is
+    auditable.
+    """
+
+    threshold_name: str
+    value: float
+    batch_mean_score: Optional[float]
+    num_trials_completed: int
+    num_trials_failed: int
+    results_json_path: Optional[str] = None
+
+
+@dataclass
+class CoordinateSearchState:
+    """Mutable per-model search state — the unit Subtask 7 will persist.
+
+    Attributes:
+        model_name: The model this search is for.
+        model_backend: Its assistant backend.
+        winners: Threshold name → winning value, filled in as each step
+            completes. A threshold not yet searched is absent.
+        current_threshold: The threshold currently being searched, or None when
+            not mid-step (before start / after all three done).
+        history: Every candidate tried across all three steps, in order.
+        completed: True once all three thresholds have a winner.
+    """
+
+    model_name: str
+    model_backend: str
+    winners: Dict[str, float] = field(default_factory=dict)
+    current_threshold: Optional[str] = None
+    history: List[CandidateAttempt] = field(default_factory=list)
+    completed: bool = False
+
+    def held_defaults(self, searching: str) -> Dict[str, float]:
+        """Return the ``default`` values to hold while searching ``searching``.
+
+        A gate already searched (in ``winners``) is held at its winner; every
+        other gate (including the one being searched) is held at baseline. The
+        varied gate's candidate value is applied via its override, not its
+        default, so its held default is irrelevant to the candidate but is
+        still written (baseline) for a clean, deterministic config.
+        """
+        held: Dict[str, float] = {}
+        for tname in THRESHOLD_NAMES:
+            if tname in self.winners:
+                held[tname] = self.winners[tname]
+            else:
+                held[tname] = DEFAULT_BASELINE_THRESHOLD
+        return held
+
+
+def select_winner(
+    attempts: List[CandidateAttempt],
+) -> tuple[float, Optional[float]]:
+    """Pick the winning candidate value from a step's attempts.
+
+    Selection rule (explicit, not accidental):
+
+    * **Highest ``batch_mean_score`` wins.**
+    * **Tie-break:** the FIRST candidate (earliest in grid order) with the top
+      score wins. We iterate in the order attempts were made and only replace
+      the incumbent on a *strictly greater* score, so ties resolve to the
+      lower grid index (typically the lower threshold value).
+    * **None / all-failed candidates are treated as worst** (score ``-inf``),
+      so they can never win when any scored candidate exists, but they are NOT
+      dropped from ``attempts`` — they remain in history for audit.
+    * **Degenerate case — every candidate is None:** no candidate produced a
+      usable signal. Rather than crash, the FIRST attempted candidate is
+      returned as the winner and the returned best-score is ``None`` so the
+      caller can flag it. (This keeps the search progressing; the persisted
+      history makes the degeneracy visible for later inspection.)
+
+    Args:
+        attempts: The step's candidate attempts, in the order tried
+            (must be non-empty).
+
+    Returns:
+        ``(winning_value, winning_score)`` where ``winning_score`` is ``None``
+        only in the all-None degenerate case.
+
+    Raises:
+        ValueError: If ``attempts`` is empty.
+    """
+    if not attempts:
+        raise ValueError("select_winner requires at least one attempt")
+
+    best_value: Optional[float] = None
+    best_score = float("-inf")
+    for a in attempts:
+        score = a.batch_mean_score
+        if score is None:
+            continue
+        if score > best_score:
+            best_score = score
+            best_value = a.value
+
+    if best_value is None:
+        # Every candidate was None — degenerate. Fall back to the first tried.
+        return attempts[0].value, None
+    return best_value, best_score
+
+
+# A callable matching run_candidate_trials' signature, injectable for testing.
+# (model_name, model_backend, threshold_name, value, num_trials, output_dir,
+#  run_id, kernel_url) -> CandidateTrialResult
+# and apply_candidate_and_verify-like: (CandidateConfig) -> proc (context).
+
+
+def search_one_threshold(
+    model_name: str,
+    model_backend: str,
+    threshold_name: str,
+    other_thresholds_at: Dict[str, float],
+    config_path: str | Path,
+    aios_repo_dir: str | Path,
+    output_root: str | Path,
+    candidates=DEFAULT_CANDIDATE_GRID,
+    trials_per_candidate: int = DEFAULT_TRIALS_PER_CANDIDATE,
+    kernel_url: str = "http://localhost:8000",
+    judge_model: str = DEFAULT_SEARCH_JUDGE_MODEL,
+    run_id_prefix: str = "search",
+    apply_fn=None,
+    run_fn=None,
+    state: Optional[CoordinateSearchState] = None,
+) -> tuple[float, List[CandidateAttempt]]:
+    """Search one threshold's candidate grid; return the winning value.
+
+    For each candidate value: apply it (config edit → restart → verify) via
+    ``apply_fn`` (default :func:`apply_candidate_and_verify`), then score it
+    over ``trials_per_candidate`` trials via ``run_fn`` (default
+    :func:`run_candidate_trials`). The kernel process started for a candidate
+    is terminated before the next candidate, so at most one kernel runs at a
+    time. The winner is chosen by :func:`select_winner` (highest batch mean;
+    ties → first/lowest; None treated as worst).
+
+    ``apply_fn``/``run_fn`` are injectable so the control flow can be
+    unit-tested without any real kernel restart or trial (mocked in tests).
+
+    Args:
+        model_name / model_backend: The model under search.
+        threshold_name: The gate to vary.
+        other_thresholds_at: ``default`` values to hold for all gates (the
+            varied gate's default is included but its candidate is applied via
+            the override).
+        config_path / aios_repo_dir: Passed to ``apply_fn``.
+        output_root: Parent dir; each candidate gets a unique subdir.
+        candidates: The candidate grid (default :data:`DEFAULT_CANDIDATE_GRID`).
+        trials_per_candidate: Trials per candidate (default 8).
+        kernel_url / judge_model: Passed through.
+        run_id_prefix: Prefix for per-candidate run-ids/output dirs.
+        apply_fn / run_fn: Injected for testing; default to the real primitives.
+        state: Optional :class:`CoordinateSearchState` to record history onto.
+
+    Returns:
+        ``(winning_value, attempts)``.
+    """
+    if apply_fn is None:
+        apply_fn = apply_candidate_and_verify
+    if run_fn is None:
+        run_fn = run_candidate_trials
+
+    output_root = Path(output_root)
+    attempts: List[CandidateAttempt] = []
+
+    if state is not None:
+        state.current_threshold = threshold_name
+
+    for value in candidates:
+        candidate = CandidateConfig(
+            model_name=model_name,
+            threshold_name=threshold_name,
+            value=value,
+            other_thresholds_at=dict(other_thresholds_at),
+        )
+        # Unique per (model, threshold, value) so batches never collide.
+        tag = f"{run_id_prefix}_{_sanitize(model_name)}_{threshold_name}_{_fmt_float(value)}"
+        out_dir = output_root / tag
+
+        logger.info(
+            "Search step: model=%s %s=%s (holding %s)",
+            model_name, threshold_name, value, other_thresholds_at,
+        )
+        proc = apply_fn(
+            candidate=candidate,
+            config_path=config_path,
+            aios_repo_dir=aios_repo_dir,
+            kernel_url=kernel_url,
+        )
+        try:
+            result = run_fn(
+                model_name=model_name,
+                model_backend=model_backend,
+                threshold_name=threshold_name,
+                value=value,
+                num_trials=trials_per_candidate,
+                output_dir=out_dir,
+                run_id=tag,
+                kernel_url=kernel_url,
+                judge_model=judge_model,
+            )
+        finally:
+            # Always stop the candidate's kernel before the next candidate.
+            _terminate_proc(proc)
+
+        attempt = CandidateAttempt(
+            threshold_name=threshold_name,
+            value=value,
+            batch_mean_score=result.batch_mean_score,
+            num_trials_completed=result.num_trials_completed,
+            num_trials_failed=result.num_trials_failed,
+            results_json_path=result.results_json_path,
+        )
+        attempts.append(attempt)
+        if state is not None:
+            state.history.append(attempt)
+
+    winning_value, winning_score = select_winner(attempts)
+    logger.info(
+        "Winner for model=%s %s: value=%s score=%s",
+        model_name, threshold_name, winning_value, winning_score,
+    )
+    return winning_value, attempts
+
+
+def search_one_model(
+    model_name: str,
+    config_path: str | Path,
+    aios_repo_dir: str | Path,
+    output_root: str | Path,
+    model_backend: Optional[str] = None,
+    candidates=DEFAULT_CANDIDATE_GRID,
+    trials_per_candidate: int = DEFAULT_TRIALS_PER_CANDIDATE,
+    kernel_url: str = "http://localhost:8000",
+    judge_model: str = DEFAULT_SEARCH_JUDGE_MODEL,
+    apply_fn=None,
+    run_fn=None,
+) -> CoordinateSearchState:
+    """Run the full three-step coordinate search for one model.
+
+    Order is fixed: novelty → similarity → redundancy. Each step holds
+    already-won gates at their winners and not-yet-searched gates at baseline,
+    threading winners forward. Returns the completed
+    :class:`CoordinateSearchState` (winners + full history). Does NOT write the
+    real config — persistence of the winners is the caller's final step.
+
+    Args:
+        model_name: The model to search.
+        model_backend: Its backend; defaults from
+            :data:`DEFAULT_MODEL_BACKENDS` (falls back to ``"ollama"``).
+        (others as in :func:`search_one_threshold`.)
+
+    Returns:
+        The completed :class:`CoordinateSearchState` for this model.
+    """
+    if model_backend is None:
+        model_backend = DEFAULT_MODEL_BACKENDS.get(model_name, "ollama")
+
+    state = CoordinateSearchState(model_name=model_name, model_backend=model_backend)
+
+    for threshold_name in _SEARCH_ORDER:
+        held = state.held_defaults(searching=threshold_name)
+        winning_value, _attempts = search_one_threshold(
+            model_name=model_name,
+            model_backend=model_backend,
+            threshold_name=threshold_name,
+            other_thresholds_at=held,
+            config_path=config_path,
+            aios_repo_dir=aios_repo_dir,
+            output_root=output_root,
+            candidates=candidates,
+            trials_per_candidate=trials_per_candidate,
+            kernel_url=kernel_url,
+            judge_model=judge_model,
+            apply_fn=apply_fn,
+            run_fn=run_fn,
+            state=state,
+        )
+        # Thread this step's winner forward into subsequent steps.
+        state.winners[threshold_name] = winning_value
+
+    state.current_threshold = None
+    state.completed = True
+    logger.info("Model %s search complete. Winners: %s", model_name, state.winners)
+    return state
+
+
+def run_full_search(
+    config_path: str | Path,
+    aios_repo_dir: str | Path,
+    output_root: str | Path,
+    models=DEFAULT_SEARCH_MODELS,
+    model_backends: Optional[Dict[str, str]] = None,
+    candidates=DEFAULT_CANDIDATE_GRID,
+    trials_per_candidate: int = DEFAULT_TRIALS_PER_CANDIDATE,
+    kernel_url: str = "http://localhost:8000",
+    judge_model: str = DEFAULT_SEARCH_JUDGE_MODEL,
+    apply_fn=None,
+    run_fn=None,
+    write_final: bool = True,
+) -> Dict[str, CoordinateSearchState]:
+    """Search all models independently, then write the 9 winners ONCE.
+
+    Each model is searched with its own fresh :class:`CoordinateSearchState`
+    (no cross-model state). Only AFTER every model completes are the collected
+    winners written to the real ``config.yaml`` — in a single
+    :func:`write_final_overrides` call — so no intermediate/candidate value is
+    ever persisted mid-search.
+
+    Args:
+        config_path / aios_repo_dir / output_root: search plumbing.
+        models: Models to search (default :data:`DEFAULT_SEARCH_MODELS`).
+        model_backends: Optional overrides for model→backend.
+        candidates / trials_per_candidate / kernel_url / judge_model: passthrough.
+        apply_fn / run_fn: injected for testing.
+        write_final: When True (default), write the winners to the real config
+            after all models finish. Tests pass False to assert timing without
+            touching a real file.
+
+    Returns:
+        Model name → its completed :class:`CoordinateSearchState`.
+    """
+    model_backends = model_backends or DEFAULT_MODEL_BACKENDS
+    states: Dict[str, CoordinateSearchState] = {}
+
+    for model_name in models:
+        backend = model_backends.get(model_name, "ollama")
+        states[model_name] = search_one_model(
+            model_name=model_name,
+            model_backend=backend,
+            config_path=config_path,
+            aios_repo_dir=aios_repo_dir,
+            output_root=output_root,
+            candidates=candidates,
+            trials_per_candidate=trials_per_candidate,
+            kernel_url=kernel_url,
+            judge_model=judge_model,
+            apply_fn=apply_fn,
+            run_fn=run_fn,
+        )
+
+    # Exactly-once final persistence, only after ALL models are done.
+    if write_final:
+        winners_by_model = {m: s.winners for m, s in states.items()}
+        write_final_overrides(config_path, winners_by_model)
+        logger.info("Final config written with winners: %s", winners_by_model)
+
+    return states
+
+
+def write_final_overrides(
+    config_path: str | Path,
+    winners_by_model: Dict[str, Dict[str, float]],
+) -> None:
+    """Persist the multi-model search winners into the real ``config.yaml``.
+
+    For each threshold, writes one wildcard override per model that has a
+    winner for it: ``[{llm_core: <model>, value: <v>}, ...]``. Sets
+    ``static_thresholds.enabled: true`` / ``adaptive_policy.enabled: false``
+    (the tuned regime) and leaves each threshold's ``default`` untouched.
+    Surgical, format-preserving editing (same approach as
+    :func:`write_candidate_config`) — this is the ONE persisted write at the
+    end of :func:`run_full_search`, never called per-candidate.
+
+    Args:
+        config_path: Path to the kernel's ``config.yaml``.
+        winners_by_model: model → {threshold_name → winning value}.
+
+    Raises:
+        ConfigEditError: If an expected block/line cannot be located.
+    """
+    path = Path(config_path)
+    text = path.read_text(encoding="utf-8")
+
+    text = _replace_block_toggle(text, "static_thresholds", "enabled", "true")
+    text = _replace_block_toggle(text, "adaptive_policy", "enabled", "false")
+
+    # Build, per threshold, the list of wildcard overrides across all models.
+    for tname in THRESHOLD_NAMES:
+        entries = []
+        for model_name, winners in winners_by_model.items():
+            if tname in winners:
+                entries.append(
+                    f'{{llm_core: "{model_name}", value: {_fmt_float(winners[tname])}}}'
+                )
+        overrides_literal = "[" + ", ".join(entries) + "]"
+        text = _set_threshold(
+            text, tname, default_value=None, overrides_literal=overrides_literal
+        )
+
+    path.write_text(text, encoding="utf-8")
+
+
+def _sanitize(name: str) -> str:
+    """Filesystem-safe token from a model name (e.g. 'qwen2.5:7b' → 'qwen2.5_7b')."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
+def _terminate_proc(proc) -> None:
+    """Best-effort stop of a kernel process handle returned by apply_fn.
+
+    Tolerates a None / mock handle (tests inject fakes) — only calls
+    ``terminate``/``wait`` when present.
+    """
+    if proc is None:
+        return
+    terminate = getattr(proc, "terminate", None)
+    if callable(terminate):
+        try:
+            terminate()
+            wait = getattr(proc, "wait", None)
+            if callable(wait):
+                wait(timeout=15)
+        except Exception:  # noqa: BLE001 - cleanup must not mask search errors
+            kill = getattr(proc, "kill", None)
+            if callable(kill):
+                try:
+                    kill()
+                except Exception:
+                    pass
