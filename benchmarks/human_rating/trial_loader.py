@@ -186,6 +186,14 @@ def load_result_file(
         tu = trial.get("task_usage_score")
         ig = trial.get("integration_score")
 
+        # SCOPE (v2 judge): the human-rating pipeline is v1-only by design —
+        # its rating UX, 1–5 rubric (rubric.py), and confusion matrix
+        # (range(1,6)) are all built around the holistic [1,5] scale. The
+        # [1,5] bound below is therefore intentional and correct for the
+        # artifacts this pipeline consumes; it is NOT a v2 [0,5] bug. Aliasing
+        # integration_score as judge_score stays valid under v2 (same field),
+        # but consuming v2 [0,5] artifacts would require migrating the whole
+        # rating subsystem to [0,5] — deliberately out of scope here.
         scores_valid = True
         for name, val in [("profile_usage_score", pu), ("task_usage_score", tu), ("integration_score", ig)]:
             if val is None or not isinstance(val, int) or val < 1 or val > 5:

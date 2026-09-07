@@ -811,6 +811,27 @@ def aggregate_judge_scores(
     for cond in results_json.get("conditions", []) or []:
         trials.extend(cond.get("trials", []) or [])
 
+    # Rubric-version guard: the per-trial reward is a mean of raw judge scores,
+    # and v1 (holistic [1,5]) and v2 (decomposed [0,5]) scores are on different
+    # scales/instruments. Averaging a batch that mixes them — or comparing one
+    # candidate's v1-scaled reward against another's v2-scaled reward during the
+    # search — is meaningless. A normal search run is single-rubric (the harness
+    # is invoked with a fixed --method and no rubric switching mid-run), so this
+    # should always be a single version; refuse loudly if a results file ever
+    # mixes them rather than silently misweighting. Trials without the field
+    # (older results predating rubric_version) default to "v1".
+    versions = {
+        (t.get("rubric_version") or "v1")
+        for t in trials
+        if t.get("failed") is not True
+    }
+    if len(versions) > 1:
+        raise TrialRunError(
+            "results file mixes rubric versions "
+            f"{sorted(versions)}; refusing to aggregate rewards across "
+            "different judge scales. Aggregate each rubric_version separately."
+        )
+
     per_trial_rewards: List[float] = []
     num_failed = 0
     for trial in trials:

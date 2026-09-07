@@ -136,6 +136,13 @@ class ResultsWriter:
         """
         os.makedirs(self.output_dir, exist_ok=True)
         file_path = os.path.join(self.output_dir, "results.csv")
+        # NOTE: JudgeScores/TrialResult.criteria_breakdown (the v2 per-criterion
+        # 0/1 map + justifications) is intentionally NOT a CSV column: it is a
+        # nested dict per dimension and does not serialize to a flat cell
+        # cleanly. It is preserved in full in the JSON results file (via
+        # write_json → model_dump), which is the authoritative artifact for
+        # per-criterion analysis. The CSV stays flat and v1/v2 share the same
+        # numeric columns (distinguished by rubric_version).
         columns = [
             "condition",
             "method",
