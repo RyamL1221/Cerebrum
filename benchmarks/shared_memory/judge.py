@@ -257,13 +257,12 @@ class LLMJudge:
         score is the SUM of its five criteria (0-5). This forces the model to
         justify a high score rather than defaulting to a 5.
 
-        The five criteria per dimension are derived from the established v1
-        rubric wording (see ``benchmarks/human_rating/rubric.py``, which treats
-        the v1 judge prompt as canonical): each v1 "5" descriptor enumerates the
-        specific attributes a top score requires, which decompose cleanly into
-        binary checks. Still a SINGLE LLM call covering all three dimensions —
-        matching v1's architecture and the documented token-cost tradeoff — not
-        three separate calls.
+        The criteria text below is the VERBATIM rubric from the source spec at
+        ``docs/judge-rubric-v2.md`` — one-for-one by dimension and index. Do not
+        reword, renumber, or reorder them here; edit the doc and mirror it. Still
+        a SINGLE LLM call covering all three dimensions — matching v1's
+        architecture and the documented token-cost tradeoff — not three separate
+        calls.
         """
         # Build plausible actions section (only when provided and non-empty).
         # Mirrors v1 so the two prompts differ only in the rubric/contract.
@@ -303,33 +302,42 @@ class LLMJudge:
             "otherwise award 0. Do not award a 5 by default; a 5 requires all "
             "five criteria to hold. The dimension score is the SUM of its five "
             "criteria (an integer 0-5).\n\n"
+            "For Profile Usage and Task Usage: Do not let a strong performance "
+            "on one criterion inflate another.\n\n"
             "Profile Usage — criteria:\n"
-            "  1. References the user's preferred tools by name.\n"
-            "  2. References the user's preferred language.\n"
-            "  3. Reflects the user's stated response style.\n"
-            "  4. Uses these profile attributes correctly (no incorrect or "
-            "invented attributes).\n"
-            "  5. Ties at least one profile attribute directly into the "
-            "recommendation (not merely restated).\n\n"
+            "  1. Specific reference — names a concrete fact from the synthetic "
+            "profile, not a generic acknowledgment.\n"
+            "  2. Accuracy — every profile fact referenced is stated "
+            "correctly.\n"
+            "  3. Material use — a referenced fact materially shapes the "
+            "advice, not just mentioned.\n"
+            "  4. No clear omission — no directly relevant profile fact present "
+            "in context is left out.\n"
+            "  5. Goal-directed framing — ties a profile fact to the user's own "
+            "stated goals/preferences.\n\n"
             "Task Usage — criteria:\n"
-            "  1. References the current project.\n"
-            "  2. References at least one stated goal.\n"
-            "  3. References at least one stated blocker.\n"
-            "  4. References at least one stated next step or the active "
-            "experiment.\n"
-            "  5. Uses this task context correctly and specifically (not vague "
-            "or generic advice).\n\n"
-            "Integration — criteria:\n"
-            "  1. Draws on BOTH the profile and the task context (not just "
-            "one).\n"
-            "  2. Combines them within a single recommendation rather than "
-            "addressing them separately.\n"
-            "  3. The recommendation logically follows from the combined "
-            "profile and task context.\n"
-            "  4. The integration is seamless (the two sources reinforce one "
-            "coherent recommendation).\n"
-            "  5. The result is grounded and specific to THIS user and THIS "
-            "task (not generic).\n\n"
+            "  1. Specific reference — names a concrete task-context fact "
+            "(project, blocker, deadline, milestone, next step).\n"
+            "  2. Accuracy — every task fact referenced is correct.\n"
+            "  3. Actionable use — a referenced fact produces a concrete "
+            "recommendation, not a restatement.\n"
+            "  4. No clear omission — no directly relevant task fact present in "
+            "context is left out.\n"
+            "  5. Status-aware — distinguishes done vs. open based on task "
+            "memory.\n\n"
+            "Integration — criteria (this should be the hardest dimension to "
+            "max out, since it requires both Profile and Task criteria to be "
+            "partially met before Integration criteria can apply at all):\n"
+            "  1. Joint reference — a recommendation draws on a profile fact "
+            "and a task fact together in the same sentence/reasoning step.\n"
+            "  2. Causal coherence — the profile↔task connection is logically "
+            "stated, not just adjacent.\n"
+            "  3. Single coherent answer — reads as one prioritized answer, not "
+            "a bulleted recitation.\n"
+            "  4. Personalized prioritization — ordering/weighting is shaped by "
+            "profile info, not identical to a context-free answer.\n"
+            "  5. No redundancy — no memory fact restated verbatim as "
+            "padding.\n\n"
             "For each dimension, mark every criterion 1 or 0, set score = the "
             "sum, and provide a one-sentence justification for EACH criterion "
             "you scored 0 (justification is required only for 0-scored "
@@ -362,6 +370,11 @@ class LLMJudge:
                     '"justification" (a one-sentence reason for each criterion '
                     "you scored 0). Award 1 per criterion only when it is "
                     "clearly and fully satisfied; never award a 5 by default. "
+                    "For Profile Usage and Task Usage, do not let a strong "
+                    "performance on one criterion inflate another. Integration "
+                    "should be the hardest dimension to max out, since it "
+                    "requires both Profile and Task criteria to be partially "
+                    "met before Integration criteria can apply at all. "
                     "The assistant had access to shared memories injected by "
                     "the kernel containing the user's profile and task context; "
                     "a concise response that demonstrates awareness of these "
