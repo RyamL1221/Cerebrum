@@ -27,6 +27,8 @@ from benchmarks.shared_memory.threshold_search import (
     ConfigEditError,
     GatingVerificationError,
     THRESHOLD_NAMES,
+    TrialRunError,
+    aggregate_judge_scores,
     verify_gating_status,
     write_candidate_config,
 )
@@ -893,6 +895,54 @@ def test_incremental_logging_per_candidate():
     print("PASSED: incremental per-candidate logging")
 
 
+# ---------------------------------------------------------------------------
+# Rubric-version guard in aggregate_judge_scores (subtask 7)
+# ---------------------------------------------------------------------------
+
+def _results_json(trials):
+    return {"conditions": [{"trials": trials}]}
+
+
+def test_aggregate_single_version_v1_ok():
+    """Single-version v1 (incl. trials with no rubric_version, default v1)
+    aggregates without raising; [1,5] rewards computed as before."""
+    data = _results_json([
+        {"profile_usage_score": 1, "task_usage_score": 1, "integration_score": 1},
+        {"profile_usage_score": 5, "task_usage_score": 5, "integration_score": 5, "rubric_version": "v1"},
+    ])
+    bm, rewards, completed, failed = aggregate_judge_scores(data)
+    assert rewards == [1.0, 5.0] and bm == 3.0 and completed == 2 and failed == 0
+    print("PASSED: aggregate single-version v1 ok")
+
+
+def test_aggregate_single_version_v2_ok():
+    """Single-version v2 aggregates fine and [0,5] rewards are computed
+    without any [1,5] flooring."""
+    data = _results_json([
+        {"profile_usage_score": 0, "task_usage_score": 2, "integration_score": 1, "rubric_version": "v2"},
+        {"profile_usage_score": 5, "task_usage_score": 5, "integration_score": 5, "rubric_version": "v2"},
+    ])
+    bm, rewards, completed, failed = aggregate_judge_scores(data)
+    assert rewards == [1.0, 5.0] and bm == 3.0 and completed == 2 and failed == 0
+    print("PASSED: aggregate single-version v2 ok ([0,5] preserved)")
+
+
+def test_aggregate_mixed_versions_raises():
+    """A results file that mixes v1 and v2 trials must raise rather than
+    silently average across incomparable judge scales."""
+    data = _results_json([
+        {"profile_usage_score": 3, "task_usage_score": 3, "integration_score": 3, "rubric_version": "v1"},
+        {"profile_usage_score": 0, "task_usage_score": 0, "integration_score": 0, "rubric_version": "v2"},
+    ])
+    try:
+        aggregate_judge_scores(data)
+    except TrialRunError as e:
+        assert "mixes rubric versions" in str(e)
+    else:
+        raise AssertionError("expected TrialRunError on mixed rubric versions")
+    print("PASSED: aggregate mixed rubric versions raises")
+
+
 if __name__ == "__main__":
     test_write_candidate_flips_both_toggles()
     test_write_candidate_sets_only_varied_override()
@@ -928,4 +978,7 @@ if __name__ == "__main__":
     test_run_full_search_resume_skips_done_model_and_attempted_candidates()
     test_run_full_search_resume_no_prior_is_fresh()
     test_incremental_logging_per_candidate()
+    test_aggregate_single_version_v1_ok()
+    test_aggregate_single_version_v2_ok()
+    test_aggregate_mixed_versions_raises()
     print("\nAll threshold-search primitive tests passed.")

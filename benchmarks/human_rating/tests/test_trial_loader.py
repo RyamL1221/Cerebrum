@@ -142,6 +142,45 @@ def test_empty_response_excluded():
     print("  PASS: test_empty_response_excluded")
 
 
+def test_v2_zero_score_trial_rejected_not_corrupted():
+    """A v2-shaped trial with integration_score=0 (below the [1,5] bound the
+    human-rating pipeline intentionally keeps, per subtask 7's scope) is
+    CORRECTLY REJECTED by the score-validation gate — recorded in the
+    exclusion report as invalid_integration_score — rather than silently
+    admitted or corrupting anything downstream. Every trial that DOES load
+    still satisfies judge_score == integration_score and stays within [1,5].
+
+    This pins the answer to subtask 8 step 4: v2 [0,5] artifacts are filtered
+    out cleanly, so the v1-only scope note holds in practice, not just on paper.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        trials = [_make_trial(i, "naive_concat") for i in range(6)]
+        # Trial 2: v2-shaped, integration_score=0 (a legitimate v2 value, but
+        # out of the human-rating pipeline's [1,5] range).
+        trials[2].update({
+            "rubric_version": "v2",
+            "integration_score": 0,
+            "criteria_breakdown": {
+                "integration": {"criteria": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+                                "justification": {"1": "no joint reference"}},
+            },
+        })
+        _write(d, "naive_concat", trials)
+        report = ExclusionReport()
+        loaded = load_result_file(
+            os.path.join(d, "gpt4o_naive_concat", "results_naive_concat.json"),
+            "naive_concat", report)
+        # The v2 zero trial is excluded; the other 5 load.
+        assert len(loaded) == 5
+        assert any(e.trial_index == 2 and e.reason == "invalid_integration_score"
+                   for e in report.entries)
+        # Invariant + bounds hold for everything that loaded.
+        for t in loaded:
+            assert t.judge_score == t.integration_score
+            assert 1 <= t.judge_score <= 5
+    print("  PASS: test_v2_zero_score_trial_rejected_not_corrupted")
+
+
 def test_pool_summary():
     """Summary shows per-method counts."""
     with tempfile.TemporaryDirectory() as d:
@@ -177,6 +216,7 @@ def main():
     test_method_independent_ids()
     test_eligibility_min_per_method()
     test_empty_response_excluded()
+    test_v2_zero_score_trial_rejected_not_corrupted()
     test_pool_summary()
     test_real_results()
     print("\n=== ALL TESTS PASSED ===")
