@@ -7,7 +7,7 @@ profile usage, task-context usage, and integration using a structured
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from cerebrum.llm.apis import llm_chat_with_json_output
 from cerebrum.config.config_manager import config
@@ -83,16 +83,22 @@ def _normalize_judge_keys(data: dict) -> dict:
     return normalized
 
 
-def _clamp_score(value: Any, name: str) -> int:
-    """Clamp a score to [1, 5], logging a warning if out of range."""
+def _clamp_score(value: Any, name: str, min_value: int = 1) -> int:
+    """Clamp a score to [min_value, 5], logging a warning if out of range.
+
+    v1 holistic scores use the default [1, 5]. v2 decomposed scores are a sum of
+    five binary criteria and use [0, 5] (``min_value=0``), so a response that
+    satisfies no criteria correctly reads 0 rather than being floored to 1.
+    On a non-integer value the fallback is ``min_value`` (1 for v1, 0 for v2).
+    """
     try:
         v = int(value)
     except (TypeError, ValueError):
-        logger.warning("%s is not an integer (%s), defaulting to 1", name, value)
-        return 1
-    if v < 1 or v > 5:
-        logger.warning("%s %d out of range, clamping to [1, 5]", name, v)
-    return max(1, min(5, v))
+        logger.warning("%s is not an integer (%s), defaulting to %d", name, value, min_value)
+        return min_value
+    if v < min_value or v > 5:
+        logger.warning("%s %d out of range, clamping to [%d, 5]", name, v, min_value)
+    return max(min_value, min(5, v))
 
 
 def _extract_json_from_text(text: str) -> dict | None:
@@ -469,6 +475,103 @@ class LLMJudge:
             },
         }
 
+    def _parse_v2_scores(
+        self, data: dict, token_usage: Any = None
+    ) -> JudgeScores:
+        """Parse the v2 nested per-criterion shape into a JudgeScores.
+
+        Expects ``data`` shaped as
+        ``{"profile_usage": {"criteria": {"1":0|1,...,"5":0|1}, "score": int,
+        "justification": {...}}, "task_usage": {...}, "integration": {...}}``
+        (see docs/judge-rubric-v2.md).
+
+        For each dimension the score is the SUM of the five binary criteria,
+        clamped to [0, 5]. The LLM-reported ``score`` is NOT trusted blindly: the
+        criteria sum is the source of truth (matching the doc's "score = sum"
+        definition), so a reported score that disagrees with the criteria is
+        overridden by the recomputed sum. A missing dimension, or a missing /
+        malformed ``criteria`` dict, yields ``None`` for that dimension only —
+        mirroring v1's None-over-raising convention — without affecting the
+        other two.
+
+        The per-criterion ``criteria`` and ``justification`` dicts are captured
+        here for later persistence but are NOT yet a permanent JudgeScores
+        field. Subtask 6 will add the real field and wire these in; for now they
+        are stashed on ``self._last_v2_details`` (a transient, per-call
+        attribute) so the information is not lost. Do not treat that attribute
+        as a stable interface.
+        """
+        dim_keys = ("profile_usage", "task_usage", "integration")
+        scores: Dict[str, Optional[int]] = {}
+        # Transient capture for subtask 6; keyed by dimension. Shape per dim:
+        # {"criteria": {...}, "justification": {...}}. Not a stable interface.
+        details: Dict[str, Dict[str, Any]] = {}
+
+        for dim in dim_keys:
+            block = data.get(dim)
+            if not isinstance(block, dict):
+                logger.warning("v2 judge: dimension %r missing or not an object", dim)
+                scores[dim] = None
+                continue
+
+            criteria = block.get("criteria")
+            if not isinstance(criteria, dict) or not criteria:
+                logger.warning(
+                    "v2 judge: dimension %r has missing/malformed criteria: %r",
+                    dim, criteria,
+                )
+                scores[dim] = None
+                # Still capture whatever justification exists for observability.
+                details[dim] = {
+                    "criteria": criteria if isinstance(criteria, dict) else {},
+                    "justification": block.get("justification")
+                    if isinstance(block.get("justification"), dict) else {},
+                }
+                continue
+
+            # Recompute from criteria — the source of truth. Coerce each value to
+            # int (0/1); a non-int criterion value counts as 0.
+            criteria_sum = 0
+            for cv in criteria.values():
+                try:
+                    criteria_sum += int(cv)
+                except (TypeError, ValueError):
+                    # Non-numeric criterion → treat as unsatisfied (0).
+                    pass
+
+            reported = block.get("score")
+            if reported is not None:
+                try:
+                    if int(reported) != criteria_sum:
+                        logger.warning(
+                            "v2 judge: dimension %r reported score %s != criteria "
+                            "sum %d; using recomputed sum.",
+                            dim, reported, criteria_sum,
+                        )
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "v2 judge: dimension %r reported non-integer score %r; "
+                        "using criteria sum %d.", dim, reported, criteria_sum,
+                    )
+
+            scores[dim] = _clamp_score(criteria_sum, f"{dim}_score", min_value=0)
+            details[dim] = {
+                "criteria": criteria,
+                "justification": block.get("justification")
+                if isinstance(block.get("justification"), dict) else {},
+            }
+
+        # Stash transient per-criterion detail for subtask 6 to persist later.
+        self._last_v2_details = details
+
+        return JudgeScores(
+            profile_usage_score=scores.get("profile_usage"),
+            task_usage_score=scores.get("task_usage"),
+            integration_score=scores.get("integration"),
+            rubric_version="v2",
+            token_usage=token_usage,
+        )
+
     def evaluate(
         self,
         query: str,
@@ -528,7 +631,7 @@ class LLMJudge:
                         self.llms,
                         self.kernel_url,
                     )
-                    return JudgeScores(token_usage=judge_token_usage)
+                    return JudgeScores(rubric_version=self.rubric_version, token_usage=judge_token_usage)
             # Try to parse as JSON; if it fails, try to extract JSON from text
             if isinstance(raw, str):
                 try:
@@ -538,25 +641,23 @@ class LLMJudge:
                     data = _extract_json_from_text(raw)
                     if data is None:
                         logger.warning("Judge LLM returned non-JSON text: %s", raw[:200])
-                        return JudgeScores(token_usage=judge_token_usage)
+                        return JudgeScores(rubric_version=self.rubric_version, token_usage=judge_token_usage)
             else:
                 data = raw
             if not isinstance(data, dict):
                 logger.warning("Judge LLM returned non-dict data: %r", data)
-                return JudgeScores(token_usage=judge_token_usage)
+                return JudgeScores(rubric_version=self.rubric_version, token_usage=judge_token_usage)
             logger.debug("Judge parsed data before normalization: %s", data)
 
-            # TODO(subtask 4): This parse path only understands the v1 FLAT
-            # shape ({profile_usage_score, task_usage_score, integration_score,
-            # *_reasoning}). When self.rubric_version == "v2", `data` is the
-            # NESTED shape ({profile_usage: {criteria, score, justification},
-            # ...}) produced by _build_judge_prompt_v2 / _build_response_format,
-            # and the flat-key extraction below will find no *_score keys and
-            # return an empty JudgeScores. Parsing/summing the v2 criteria into
-            # scores (and flipping rubric_version to "v2") is subtask 4. Until
-            # then, evaluate() under rubric_version="v2" is expected to
-            # mis-parse — this is intentional and not silently left implicit.
+            # Branch on the active rubric AFTER decoding: both v1 and v2 share
+            # the identical send / fallback / JSON-decode / extraction path
+            # above (the nested v2 dict survives json.loads and
+            # _extract_json_from_text exactly as the flat v1 dict does), and
+            # only the shape interpretation differs from here down.
+            if self.rubric_version == "v2":
+                return self._parse_v2_scores(data, token_usage=judge_token_usage)
 
+            # v1 FLAT path — unchanged from before the v2 work.
             # If the dict already has the exact keys we need, use them directly
             if all(k in data for k in ("profile_usage_score", "task_usage_score", "integration_score")):
                 pass  # data already has correct keys
@@ -569,15 +670,15 @@ class LLMJudge:
 
             if pu is None or tu is None or ig is None:
                 logger.warning("Judge returned incomplete scores: %s", data)
-                return JudgeScores(token_usage=judge_token_usage)
+                return JudgeScores(rubric_version=self.rubric_version, token_usage=judge_token_usage)
 
             scores = JudgeScores(
                 profile_usage_score=_clamp_score(pu, "profile_usage_score"),
                 task_usage_score=_clamp_score(tu, "task_usage_score"),
                 integration_score=_clamp_score(ig, "integration_score"),
-                # Wired through as the constant "v1" for now. Subtask 3
-                # introduces the v2 prompt/parsing path and flips this.
-                rubric_version="v1",
+                # v1 flat path always produces v1 scores. (The v2 path returns
+                # earlier via _parse_v2_scores, which stamps "v2".)
+                rubric_version=self.rubric_version,
                 profile_usage_reasoning=data.get("profile_usage_reasoning"),
                 task_usage_reasoning=data.get("task_usage_reasoning"),
                 integration_reasoning=data.get("integration_reasoning"),
@@ -588,7 +689,10 @@ class LLMJudge:
 
         except Exception as e:
             logger.warning("Judge evaluation failed: %s", e)
-            return JudgeScores()
+            # A fully-failed parse has no shape, but still label it with the
+            # rubric that was requested so a failed v2 call is never silently
+            # recorded as v1.
+            return JudgeScores(rubric_version=self.rubric_version)
 
 
 def _extract_keywords(profile: SyntheticProfile, task_context: SyntheticTaskContext) -> Dict[str, list]:
