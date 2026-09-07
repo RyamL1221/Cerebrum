@@ -571,6 +571,7 @@ class EvaluationOrchestrator:
             task_usage_score=scores.task_usage_score,
             integration_score=scores.integration_score,
             rubric_version=scores.rubric_version,
+            criteria_breakdown=scores.criteria_breakdown,
             memory_counts=memory_counts,
             retrieved_context_count=pipeline_result.retrieved_context_count,
             latency_seconds=pipeline_result.latency_seconds,

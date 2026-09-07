@@ -99,6 +99,15 @@ class JudgeScores(BaseModel):
     # aggregation, CSV output, and reward calculation. Flipped to "v2" only via
     # the v2 prompt path (subtask 3), never guessed at read time.
     rubric_version: str = "v1"
+    # v2-only per-criterion detail. Shape:
+    # {"profile_usage": {"criteria": {"1": 0|1, ..., "5": 0|1},
+    #                    "justification": {"<idx>": "<one sentence>", ...}},
+    #  "task_usage": {...}, "integration": {...}}
+    # Populated by LLMJudge._parse_v2_scores for rubric_version == "v2"; stays
+    # None for v1 (holistic scoring has no criteria to report). Persisted so the
+    # 0/1 breakdown and zero-score justifications survive to results JSON for
+    # later analysis (human-rating pipeline, re-judge script).
+    criteria_breakdown: Optional[Dict] = None
     generic_penalty: Optional[bool] = None
     profile_usage_reasoning: Optional[str] = None
     task_usage_reasoning: Optional[str] = None
@@ -177,6 +186,10 @@ class TrialResult(BaseModel):
     # to "v1" so older persisted TrialResult records parse unchanged. Used to
     # partition aggregation/CSV/reward so v1 and v2 scores never silently pool.
     rubric_version: str = "v1"
+    # Copied from JudgeScores.criteria_breakdown. Per-criterion 0/1 breakdown +
+    # zero-score justifications for v2; None for v1. Same shape documented on
+    # JudgeScores. Persisted to results JSON for downstream analysis.
+    criteria_breakdown: Optional[Dict] = None
     memory_counts: MemoryCounts = MemoryCounts()
     retrieved_context_count: Optional[int] = None
     latency_seconds: Optional[float] = None

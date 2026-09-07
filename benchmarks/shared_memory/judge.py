@@ -494,12 +494,9 @@ class LLMJudge:
         mirroring v1's None-over-raising convention — without affecting the
         other two.
 
-        The per-criterion ``criteria`` and ``justification`` dicts are captured
-        here for later persistence but are NOT yet a permanent JudgeScores
-        field. Subtask 6 will add the real field and wire these in; for now they
-        are stashed on ``self._last_v2_details`` (a transient, per-call
-        attribute) so the information is not lost. Do not treat that attribute
-        as a stable interface.
+        The per-criterion ``criteria`` and ``justification`` dicts are returned
+        on the constructed ``JudgeScores.criteria_breakdown`` field (keyed by
+        dimension) so they persist to results output for later analysis.
         """
         dim_keys = ("profile_usage", "task_usage", "integration")
         scores: Dict[str, Optional[int]] = {}
@@ -561,14 +558,12 @@ class LLMJudge:
                 if isinstance(block.get("justification"), dict) else {},
             }
 
-        # Stash transient per-criterion detail for subtask 6 to persist later.
-        self._last_v2_details = details
-
         return JudgeScores(
             profile_usage_score=scores.get("profile_usage"),
             task_usage_score=scores.get("task_usage"),
             integration_score=scores.get("integration"),
             rubric_version="v2",
+            criteria_breakdown=details,
             token_usage=token_usage,
         )
 
@@ -836,6 +831,10 @@ class HybridJudge:
             # Carry the rubric version from the LLM judge's result rather than
             # hardcoding it a second time — single source of truth.
             rubric_version=llm_scores.rubric_version,
+            # Straight passthrough of the LLM judge's per-criterion detail — the
+            # keyword/LLM averaging only touches numeric scores, never the
+            # criteria breakdown. None for v1.
+            criteria_breakdown=llm_scores.criteria_breakdown,
             profile_usage_reasoning=(
                 f"keyword_hits={kw_profile}/5; "
                 + (llm_scores.profile_usage_reasoning or "")

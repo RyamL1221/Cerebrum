@@ -214,6 +214,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 task_usage_score=3,
                 integration_score=3,
                 rubric_version="v1",
+                criteria_breakdown=None,
                 token_usage=None,
             )
 
@@ -323,6 +324,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 task_usage_score=3,
                 integration_score=3,
                 rubric_version="v1",
+                criteria_breakdown=None,
                 token_usage=None,
             )
 
@@ -401,6 +403,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 task_usage_score=3,
                 integration_score=3,
                 rubric_version="v1",
+                criteria_breakdown=None,
                 token_usage=None,
             )
 
@@ -487,6 +490,7 @@ class TestUnifiedTrialDataAcrossMethods:
                 task_usage_score=3,
                 integration_score=3,
                 rubric_version="v1",
+                criteria_breakdown=None,
                 token_usage=None,
             )
 
