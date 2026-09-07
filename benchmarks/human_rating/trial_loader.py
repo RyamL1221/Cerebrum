@@ -25,6 +25,8 @@ from benchmarks.human_rating.schemas import (
     VALID_SOURCE_METHODS,
     EVALUATION_DIMENSION,
     UNIQUE_ITEMS_PER_METHOD,
+    DEFAULT_RUBRIC_VERSION,
+    score_bounds,
 )
 from benchmarks.human_rating.context_formatter import format_reference_context
 
@@ -186,17 +188,15 @@ def load_result_file(
         tu = trial.get("task_usage_score")
         ig = trial.get("integration_score")
 
-        # SCOPE (v2 judge): the human-rating pipeline is v1-only by design —
-        # its rating UX, 1–5 rubric (rubric.py), and confusion matrix
-        # (range(1,6)) are all built around the holistic [1,5] scale. The
-        # [1,5] bound below is therefore intentional and correct for the
-        # artifacts this pipeline consumes; it is NOT a v2 [0,5] bug. Aliasing
-        # integration_score as judge_score stays valid under v2 (same field),
-        # but consuming v2 [0,5] artifacts would require migrating the whole
-        # rating subsystem to [0,5] — deliberately out of scope here.
+        # Score-bound check gated on the trial's own rubric_version: v1 → [1,5],
+        # v2 → [0,5] (a v2 integration_score=0 is legitimate and must pass).
+        # A v1 trial with a 0 still fails — real corruption is still rejected.
+        # Trials without the field default to "v1" (all pre-v2 data).
+        trial_rubric = trial.get("rubric_version") or DEFAULT_RUBRIC_VERSION
+        lo, hi = score_bounds(trial_rubric)
         scores_valid = True
         for name, val in [("profile_usage_score", pu), ("task_usage_score", tu), ("integration_score", ig)]:
-            if val is None or not isinstance(val, int) or val < 1 or val > 5:
+            if val is None or not isinstance(val, int) or val < lo or val > hi:
                 exclusion_report.entries.append(ExclusionEntry(
                     method=expected_method, trial_index=trial_index,
                     reason=f"invalid_{name}", source_file=str(path),
@@ -239,6 +239,7 @@ def load_result_file(
             profile_usage_score=pu,
             task_usage_score=tu,
             integration_score=ig,
+            rubric_version=trial_rubric,
         ))
 
     return source_trials

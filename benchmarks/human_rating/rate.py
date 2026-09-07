@@ -29,7 +29,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from benchmarks.human_rating.rubric import RATING_RUBRIC
+from benchmarks.human_rating.rubric import RATING_RUBRIC, rating_rubric_for
+from benchmarks.human_rating.schemas import DEFAULT_RUBRIC_VERSION, score_bounds
 from benchmarks.human_rating.validation import validate_rating_queue
 
 # ---------------------------------------------------------------------------
@@ -257,7 +258,8 @@ def _load_existing_ratings(
 # Display
 # ---------------------------------------------------------------------------
 
-def _display_item(item: dict, position: int, total: int) -> None:
+def _display_item(item: dict, position: int, total: int,
+                  rubric_version: str = DEFAULT_RUBRIC_VERSION) -> None:
     """Display a single queue item for rating."""
     sep = "=" * 60
     print(f"\n{sep}")
@@ -275,16 +277,18 @@ def _display_item(item: dict, position: int, total: int) -> None:
     response = _sanitize_display(item.get("response", ""))
     print(f"\nRESPONSE\n{response}")
 
+    lo, hi = score_bounds(rubric_version)
     print(f"\n{'-' * 60}")
-    print("Rate this response using the 1–5 rubric.")
+    print(f"Rate this response using the {lo}–{hi} rubric.")
     print("Enter h for rubric help, n for note, f to flag, or q to quit.")
 
 
-def _display_rubric() -> None:
-    """Display the full rating rubric."""
+def _display_rubric(rubric_version: str = DEFAULT_RUBRIC_VERSION) -> None:
+    """Display the full rating rubric for the active rubric version."""
+    table = rating_rubric_for(rubric_version)
     print("\n--- RATING RUBRIC ---")
-    for score in sorted(RATING_RUBRIC.keys(), reverse=True):
-        print(f"  {score}: {RATING_RUBRIC[score]}")
+    for score in sorted(table.keys(), reverse=True):
+        print(f"  {score}: {table[score]}")
     print("---")
 
 
@@ -316,6 +320,10 @@ def _run_rating_session(
     items = queue_data["items"]
     total = len(items)
     queue_ids = {it["blinded_id"] for it in items}
+    # Session-level rubric version drives the rating scale, prompt, rubric text,
+    # and input bounds. Absent (all existing v1 queues) → "v1" → {1..5}.
+    rubric_version = queue_data.get("rubric_version") or DEFAULT_RUBRIC_VERSION
+    rating_lo, rating_hi = score_bounds(rubric_version)
 
     # Load existing ratings
     completed = _load_existing_ratings(ratings_path, queue_ids, run_id, rater_id)
@@ -339,7 +347,7 @@ def _run_rating_session(
         position = i + 1
         current_note = None
         current_flagged = False
-        _display_item(item, position, total)
+        _display_item(item, position, total, rubric_version)
 
         while True:
             try:
@@ -364,7 +372,7 @@ def _run_rating_session(
                 return
 
             if cmd in ("h", "help", "?"):
-                _display_rubric()
+                _display_rubric(rubric_version)
                 continue
 
             if cmd == "n":
@@ -397,11 +405,11 @@ def _run_rating_session(
             try:
                 rating = int(cmd)
             except ValueError:
-                output_fn("Invalid rating. Enter an integer from 1 through 5.")
+                output_fn(f"Invalid rating. Enter an integer from {rating_lo} through {rating_hi}.")
                 continue
 
-            if rating < 1 or rating > 5:
-                output_fn("Invalid rating. Enter an integer from 1 through 5.")
+            if rating < rating_lo or rating > rating_hi:
+                output_fn(f"Invalid rating. Enter an integer from {rating_lo} through {rating_hi}.")
                 continue
 
             # Valid rating — save immediately
@@ -415,6 +423,10 @@ def _run_rating_session(
                 "flagged": current_flagged,
                 "rated_at": _now_iso(),
             }
+            # Only stamp rubric_version for non-default (v2) sessions so
+            # existing v1 ratings.jsonl output stays byte-identical.
+            if rubric_version != DEFAULT_RUBRIC_VERSION:
+                record["rubric_version"] = rubric_version
 
             with open(ratings_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")

@@ -142,21 +142,19 @@ def test_empty_response_excluded():
     print("  PASS: test_empty_response_excluded")
 
 
-def test_v2_zero_score_trial_rejected_not_corrupted():
-    """A v2-shaped trial with integration_score=0 (below the [1,5] bound the
-    human-rating pipeline intentionally keeps, per subtask 7's scope) is
-    CORRECTLY REJECTED by the score-validation gate — recorded in the
-    exclusion report as invalid_integration_score — rather than silently
-    admitted or corrupting anything downstream. Every trial that DOES load
-    still satisfies judge_score == integration_score and stays within [1,5].
+def test_v2_zero_score_trial_accepted():
+    """After the v2 migration (subtask 10) a v2-shaped trial with
+    integration_score=0 is ACCEPTED — the score-bound check is gated on the
+    trial's rubric_version, so v2 uses [0,5] and a genuine 0 passes and reaches
+    a rater. The judge_score == integration_score invariant still holds, and
+    the loaded trial carries rubric_version="v2".
 
-    This pins the answer to subtask 8 step 4: v2 [0,5] artifacts are filtered
-    out cleanly, so the v1-only scope note holds in practice, not just on paper.
+    (This replaces subtask 8's earlier assertion that the v2 zero was excluded;
+    that reflected the pre-migration [1,5]-only behavior.)
     """
     with tempfile.TemporaryDirectory() as d:
         trials = [_make_trial(i, "naive_concat") for i in range(6)]
-        # Trial 2: v2-shaped, integration_score=0 (a legitimate v2 value, but
-        # out of the human-rating pipeline's [1,5] range).
+        # Trial 2: v2-shaped with a legitimate 0 integration score.
         trials[2].update({
             "rubric_version": "v2",
             "integration_score": 0,
@@ -170,15 +168,40 @@ def test_v2_zero_score_trial_rejected_not_corrupted():
         loaded = load_result_file(
             os.path.join(d, "gpt4o_naive_concat", "results_naive_concat.json"),
             "naive_concat", report)
-        # The v2 zero trial is excluded; the other 5 load.
-        assert len(loaded) == 5
-        assert any(e.trial_index == 2 and e.reason == "invalid_integration_score"
-                   for e in report.entries)
-        # Invariant + bounds hold for everything that loaded.
+        # All 6 load now — nothing excluded for the v2 zero.
+        assert len(loaded) == 6, len(loaded)
+        assert not any(e.reason == "invalid_integration_score" for e in report.entries)
+        by_id = {t.original_trial_id: t for t in loaded}
+        zero = by_id["2"]
+        assert zero.rubric_version == "v2"
+        assert zero.integration_score == 0 and zero.judge_score == 0
+        # Invariant holds for all loaded; each within its own rubric's bounds.
         for t in loaded:
             assert t.judge_score == t.integration_score
+    print("  PASS: test_v2_zero_score_trial_accepted")
+
+
+def test_v1_zero_score_trial_still_rejected():
+    """Version-gating itself: a v1 trial (default, no rubric_version) with a 0
+    score is STILL rejected — a v1 zero indicates real corruption and must not
+    pass. Confirms the widened bound is v2-only and did not loosen v1."""
+    with tempfile.TemporaryDirectory() as d:
+        trials = [_make_trial(i, "naive_concat") for i in range(6)]
+        # Trial 3: v1 (no rubric_version) with an out-of-range 0.
+        trials[3]["integration_score"] = 0  # judge_score is derived from ig at load
+        _write(d, "naive_concat", trials)
+        report = ExclusionReport()
+        loaded = load_result_file(
+            os.path.join(d, "gpt4o_naive_concat", "results_naive_concat.json"),
+            "naive_concat", report)
+        # The v1 zero is excluded; the other 5 load.
+        assert len(loaded) == 5, len(loaded)
+        assert any(e.trial_index == 3 and e.reason == "invalid_integration_score"
+                   for e in report.entries)
+        for t in loaded:
+            assert t.rubric_version == "v1"
             assert 1 <= t.judge_score <= 5
-    print("  PASS: test_v2_zero_score_trial_rejected_not_corrupted")
+    print("  PASS: test_v1_zero_score_trial_still_rejected")
 
 
 def test_pool_summary():
@@ -216,7 +239,8 @@ def main():
     test_method_independent_ids()
     test_eligibility_min_per_method()
     test_empty_response_excluded()
-    test_v2_zero_score_trial_rejected_not_corrupted()
+    test_v2_zero_score_trial_accepted()
+    test_v1_zero_score_trial_still_rejected()
     test_pool_summary()
     test_real_results()
     print("\n=== ALL TESTS PASSED ===")

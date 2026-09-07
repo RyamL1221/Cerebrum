@@ -31,13 +31,16 @@ from benchmarks.human_rating.rate import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-def _make_queue(run_id="test-run"):
+def _make_queue(run_id="test-run", rubric_version=None):
     items = [
         {"blinded_id": f"HR-{i:04d}", "reference_context": f"Ctx {i}",
          "question": f"Q{i}", "response": f"R{i}"}
         for i in range(30)
     ]
-    return {"schema_version": 1, "run_id": run_id, "item_count": 30, "items": items}
+    q = {"schema_version": 1, "run_id": run_id, "item_count": 30, "items": items}
+    if rubric_version is not None:
+        q["rubric_version"] = rubric_version
+    return q
 
 
 def _mock_input(responses):
@@ -514,6 +517,36 @@ def test_cli_no_private_access():
     print("  PASS: test_cli_no_private_access")
 
 
+# ===========================================================================
+# v2 session rating scale (subtask 10)
+# ===========================================================================
+
+def test_v2_session_accepts_zero_rating():
+    """A v2 session (queue rubric_version='v2') accepts a 0 rating, saves it,
+    and stamps rubric_version='v2' on the record."""
+    with tempfile.TemporaryDirectory() as d:
+        queue = _make_queue(rubric_version="v2")
+        records, lines, _ = _run_session(d, ["0", "q"], queue=queue)
+        assert len(records) == 1, records
+        assert records[0]["rating"] == 0
+        assert records[0]["rubric_version"] == "v2"
+    print("  PASS: test_v2_session_accepts_zero_rating")
+
+
+def test_v1_session_rejects_zero_rating():
+    """A v1 session still rejects a 0 (re-prompts); when the rater then enters a
+    valid rating it is saved WITHOUT a rubric_version key (byte-identical v1)."""
+    with tempfile.TemporaryDirectory() as d:
+        queue = _make_queue()  # no rubric_version → v1
+        records, lines, _ = _run_session(d, ["0", "3", "q"], queue=queue)
+        # The 0 was rejected; only the subsequent 3 saved.
+        assert len(records) == 1, records
+        assert records[0]["rating"] == 3
+        assert "rubric_version" not in records[0]  # v1 output unchanged
+        assert any("from 1 through 5" in l for l in lines)  # v1 prompt text
+    print("  PASS: test_v1_session_rejects_zero_rating")
+
+
 # ---------------------------------------------------------------------------
 # Run all
 # ---------------------------------------------------------------------------
@@ -559,6 +592,10 @@ def main():
     test_keyboard_interrupt_preserves()
     test_append_only_bytes()
     test_cli_no_private_access()
+
+    print("\nv2 session rating scale:")
+    test_v2_session_accepts_zero_rating()
+    test_v1_session_rejects_zero_rating()
 
     print("\n=== ALL TESTS PASSED ===")
 

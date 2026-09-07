@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.human_rating.rate import _queue_fingerprint
+from benchmarks.human_rating.schemas import DEFAULT_RUBRIC_VERSION, score_bounds
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +179,17 @@ def _compute_method_summary(method: str, items: list[CompiledItem]) -> MethodAgr
     )
 
 
-def _build_confusion_matrix(items: list[CompiledItem]) -> dict[int, dict[int, int]]:
-    matrix: dict[int, dict[int, int]] = {h: {j: 0 for j in range(1, 6)} for h in range(1, 6)}
+def _build_confusion_matrix(
+    items: list[CompiledItem], rubric_version: str = DEFAULT_RUBRIC_VERSION
+) -> dict[int, dict[int, int]]:
+    """Human×judge confusion matrix over the rubric's score range.
+
+    v1 → axis 1..5 (unchanged); v2 → axis 0..5 (so a 0 rating/score has a cell
+    instead of raising KeyError).
+    """
+    lo, hi = score_bounds(rubric_version)
+    axis = range(lo, hi + 1)
+    matrix: dict[int, dict[int, int]] = {h: {j: 0 for j in axis} for h in axis}
     for item in items:
         matrix[item.human_rating][item.judge_score] += 1
     return matrix
@@ -255,6 +265,10 @@ def compile_rating_run(
 
     run_id = queue.get("run_id", "")
     rater_id = session.get("rater_id", "")
+    # Session rubric version drives the rating/score range for this run. Sourced
+    # from the queue (session-level), defaulting to "v1" for existing runs.
+    rubric_version = queue.get("rubric_version") or DEFAULT_RUBRIC_VERSION
+    rating_lo, rating_hi = score_bounds(rubric_version)
 
     for i, r in enumerate(ratings):
         if r.get("run_id") != run_id:
@@ -268,7 +282,7 @@ def compile_rating_run(
                 f"'{r.get('rater_id')}' != '{rater_id}'"
             )
         rating_val = r.get("rating")
-        if not isinstance(rating_val, int) or rating_val < 1 or rating_val > 5:
+        if not isinstance(rating_val, int) or rating_val < rating_lo or rating_val > rating_hi:
             raise ValueError(f"Invalid rating value at position {i+1}: {rating_val}")
 
     # --- Validate session ---
@@ -461,7 +475,7 @@ def compile_rating_run(
     )
 
     # --- Confusion matrix (primary only) ---
-    matrix = _build_confusion_matrix(primary)
+    matrix = _build_confusion_matrix(primary, rubric_version)
 
     # --- Appearance-weighted method summaries (all 30) ---
     appearance_method_sums = []
@@ -641,11 +655,13 @@ def _write_dup_csv(path: Path, pairs: tuple[DuplicateConsistencyRecord, ...]) ->
 
 
 def _write_confusion_csv(path: Path, matrix: dict[int, dict[int, int]]) -> None:
+    # Axis is whatever the matrix was built over (v1: 1..5, v2: 0..5).
+    axis = sorted(matrix.keys())
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["human\\judge", "1", "2", "3", "4", "5"])
-        for h in range(1, 6):
-            w.writerow([str(h)] + [str(matrix[h][j]) for j in range(1, 6)])
+        w.writerow(["human\\judge"] + [str(j) for j in axis])
+        for h in axis:
+            w.writerow([str(h)] + [str(matrix[h][j]) for j in axis])
 
 
 # ---------------------------------------------------------------------------

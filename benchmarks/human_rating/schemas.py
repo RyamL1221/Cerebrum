@@ -33,6 +33,36 @@ VALID_SOURCE_METHODS = frozenset({
 
 VALID_RATINGS = frozenset({1, 2, 3, 4, 5})
 
+# Supported judge rubric versions and their inclusive score bounds.
+# v1 (holistic) scores 1–5; v2 (decomposed, docs/judge-rubric-v2.md) scores
+# 0–5 (a sum of five binary criteria, so a genuine 0 is valid). Every
+# version-gated bound/rating check below reads these rather than hardcoding
+# a range, so v1 behavior is unchanged and v2 widens only where gated.
+SUPPORTED_RUBRIC_VERSIONS = frozenset({"v1", "v2"})
+DEFAULT_RUBRIC_VERSION = "v1"
+_SCORE_BOUNDS = {"v1": (1, 5), "v2": (0, 5)}
+
+
+def score_bounds(rubric_version: str) -> tuple[int, int]:
+    """Inclusive (min, max) judge-score bounds for a rubric version.
+
+    Unknown versions fall back to the v1 [1,5] bound (the conservative choice:
+    never silently widens validation for an unrecognized version).
+    """
+    return _SCORE_BOUNDS.get(rubric_version, _SCORE_BOUNDS["v1"])
+
+
+def valid_ratings(rubric_version: str) -> frozenset:
+    """The set of acceptable HUMAN ratings for a session's rubric version.
+
+    v1 → {1..5}; v2 → {0..5}. This is the human axis (what a rater types),
+    kept parallel to the judge-score bounds so human and judge are on the same
+    scale within a session.
+    """
+    lo, hi = score_bounds(rubric_version)
+    return frozenset(range(lo, hi + 1))
+
+
 # The only supported evaluation dimension for this protocol
 EVALUATION_DIMENSION: Literal["integration"] = "integration"
 
@@ -79,6 +109,10 @@ class SourceTrial:
     profile_usage_score: int
     task_usage_score: int
     integration_score: int
+    # Which judge rubric produced the scores. Defaults to "v1" so existing
+    # callers that construct SourceTrial without it (and all v1 data) are
+    # unchanged. Gates the score-bound check below: v1 → [1,5], v2 → [0,5].
+    rubric_version: str = DEFAULT_RUBRIC_VERSION
 
     def __post_init__(self) -> None:
         if self.source_method not in VALID_SOURCE_METHODS:
@@ -112,15 +146,22 @@ class SourceTrial:
             raise ValueError("question must be nonempty")
         if not self.response or not self.response.strip():
             raise ValueError("response must be nonempty")
+        if self.rubric_version not in SUPPORTED_RUBRIC_VERSIONS:
+            raise ValueError(
+                f"rubric_version must be one of {sorted(SUPPORTED_RUBRIC_VERSIONS)}, "
+                f"got {self.rubric_version!r}"
+            )
+        lo, hi = score_bounds(self.rubric_version)
         for field_name, value in [
             ("judge_score", self.judge_score),
             ("profile_usage_score", self.profile_usage_score),
             ("task_usage_score", self.task_usage_score),
             ("integration_score", self.integration_score),
         ]:
-            if not isinstance(value, int) or value < 1 or value > 5:
+            if not isinstance(value, int) or value < lo or value > hi:
                 raise ValueError(
-                    f"{field_name} must be an integer 1–5, got {value!r}"
+                    f"{field_name} must be an integer {lo}–{hi} "
+                    f"(rubric {self.rubric_version}), got {value!r}"
                 )
         if self.judge_score != self.integration_score:
             raise ValueError(
@@ -205,13 +246,19 @@ class RatingRecord:
     note: str | None
     flagged: bool
     rated_at: str
+    # Session rubric version this rating was collected under. Defaults to "v1"
+    # so existing rating records/data validate unchanged against {1..5}.
+    rubric_version: str = DEFAULT_RUBRIC_VERSION
 
     def __post_init__(self) -> None:
         if not self.blinded_id or not self.blinded_id.strip():
             raise ValueError("blinded_id must be nonempty")
-        if not isinstance(self.rating, int) or self.rating not in VALID_RATINGS:
+        allowed = valid_ratings(self.rubric_version)
+        if not isinstance(self.rating, int) or self.rating not in allowed:
+            lo, hi = score_bounds(self.rubric_version)
             raise ValueError(
-                f"rating must be an integer 1–5, got {self.rating!r}"
+                f"rating must be an integer {lo}–{hi} "
+                f"(rubric {self.rubric_version}), got {self.rating!r}"
             )
         if not self.rated_at or not self.rated_at.strip():
             raise ValueError("rated_at must be nonempty")

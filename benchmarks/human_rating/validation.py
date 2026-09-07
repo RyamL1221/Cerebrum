@@ -17,6 +17,9 @@ from benchmarks.human_rating.schemas import (
     UNIQUE_ITEMS_PER_METHOD,
     DUPLICATE_COUNT,
     TOTAL_RATING_ITEMS,
+    DEFAULT_RUBRIC_VERSION,
+    score_bounds,
+    valid_ratings,
 )
 
 
@@ -147,9 +150,10 @@ def validate_answer_key(data: dict[str, Any], expected_count: int = 30) -> list[
         if item["judge_score_dimension"] != EVALUATION_DIMENSION:
             errors.append(f"Item {i} ('{bid}'): judge_score_dimension must be '{EVALUATION_DIMENSION}'")
 
+        item_lo, item_hi = score_bounds(item.get("rubric_version") or DEFAULT_RUBRIC_VERSION)
         for sf in ("judge_score", "profile_usage_score", "task_usage_score", "integration_score"):
             sv = item.get(sf)
-            if not isinstance(sv, int) or sv < 1 or sv > 5:
+            if not isinstance(sv, int) or sv < item_lo or sv > item_hi:
                 errors.append(f"Item {i} ('{bid}'): invalid {sf} {sv!r}")
 
         if item.get("judge_score") != item.get("integration_score"):
@@ -205,8 +209,10 @@ def validate_rating_record(record: dict[str, Any]) -> list[str]:
         errors.append(f"Contains forbidden keys: {sorted(leaked)}")
 
     rating = record["rating"]
-    if not isinstance(rating, int) or rating not in VALID_RATINGS:
-        errors.append(f"Invalid rating: {rating!r} (must be int 1–5)")
+    allowed = valid_ratings(record.get("rubric_version") or DEFAULT_RUBRIC_VERSION)
+    if not isinstance(rating, int) or rating not in allowed:
+        r_lo, r_hi = score_bounds(record.get("rubric_version") or DEFAULT_RUBRIC_VERSION)
+        errors.append(f"Invalid rating: {rating!r} (must be int {r_lo}–{r_hi})")
 
     if not record["blinded_id"] or not str(record["blinded_id"]).strip():
         errors.append("blinded_id must be nonempty")

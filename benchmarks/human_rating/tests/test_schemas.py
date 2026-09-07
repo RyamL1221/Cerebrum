@@ -125,6 +125,78 @@ def test_rating_record_invalid():
     print("  PASS: test_rating_record_invalid")
 
 
+# --- v2 migration: version-gated bounds (subtask 10) ---
+
+def test_source_trial_v2_accepts_zero():
+    """v2 SourceTrial accepts a genuine 0 (five-criteria sum) across all
+    score fields; v1 still rejects a 0."""
+    t = _valid_source_trial(
+        rubric_version="v2", judge_score=0, integration_score=0,
+        profile_usage_score=0, task_usage_score=0,
+    )
+    assert t.rubric_version == "v2" and t.integration_score == 0 and t.judge_score == 0
+    # v1 (default) rejects a 0
+    try:
+        _valid_source_trial(judge_score=0, integration_score=0)
+        assert False, "v1 must reject a 0 score"
+    except ValueError:
+        pass
+    print("  PASS: test_source_trial_v2_accepts_zero (v1 still rejects 0)")
+
+
+def test_source_trial_v2_still_caps_at_5():
+    """v2 upper bound is still 5 — a 6 is rejected under both versions."""
+    for ver in ("v1", "v2"):
+        try:
+            _valid_source_trial(rubric_version=ver, judge_score=6, integration_score=6)
+            assert False, f"{ver} must reject a 6"
+        except ValueError:
+            pass
+    print("  PASS: test_source_trial_v2_still_caps_at_5")
+
+
+def test_source_trial_rejects_unknown_rubric_version():
+    try:
+        _valid_source_trial(rubric_version="v3")
+        assert False
+    except ValueError:
+        pass
+    print("  PASS: test_source_trial_rejects_unknown_rubric_version")
+
+
+def test_rating_record_v2_accepts_zero():
+    """A v2 rating record accepts 0; a v1 record still rejects 0."""
+    r = RatingRecord(blinded_id="R01", rating=0, note=None, flagged=False,
+                     rated_at="2026-07-14T10:00:00Z", rubric_version="v2")
+    assert r.rating == 0 and r.rubric_version == "v2"
+    try:
+        RatingRecord(blinded_id="R01", rating=0, note=None, flagged=False, rated_at="t")
+        assert False, "v1 rating of 0 must be rejected"
+    except ValueError:
+        pass
+    print("  PASS: test_rating_record_v2_accepts_zero (v1 still rejects 0)")
+
+
+def test_rating_rubric_text_is_version_gated():
+    from benchmarks.human_rating.rubric import rating_rubric_for, RATING_RUBRIC, RATING_RUBRIC_V2
+    assert rating_rubric_for("v1") is RATING_RUBRIC          # v1 holistic intact
+    assert rating_rubric_for("v2") is RATING_RUBRIC_V2       # v2 decomposed
+    assert 0 in RATING_RUBRIC_V2 and 0 not in RATING_RUBRIC  # v2 has a 0 band, v1 does not
+    # v2 rubric mirrors the five decomposed integration criteria
+    from benchmarks.human_rating.rubric import INTEGRATION_CRITERIA_V2
+    assert set(INTEGRATION_CRITERIA_V2.keys()) == {1, 2, 3, 4, 5}
+    assert "Joint reference" in INTEGRATION_CRITERIA_V2[1]
+    print("  PASS: test_rating_rubric_text_is_version_gated")
+
+
+def test_v1_rating_record_still_byte_identical():
+    """A v1 RatingRecord constructed exactly as before still validates and
+    carries the v1 default rubric_version — no behavior change for v1."""
+    r = RatingRecord(blinded_id="R01", rating=3, note=None, flagged=False, rated_at="t")
+    assert r.rating == 3 and r.rubric_version == "v1"
+    print("  PASS: test_v1_rating_record_still_byte_identical")
+
+
 # --- Manifest validation ---
 
 def test_manifest_valid():
@@ -241,6 +313,13 @@ def main():
     print()
     test_rating_record_single_score()
     test_rating_record_invalid()
+    print()
+    test_source_trial_v2_accepts_zero()
+    test_source_trial_v2_still_caps_at_5()
+    test_source_trial_rejects_unknown_rubric_version()
+    test_rating_record_v2_accepts_zero()
+    test_rating_rubric_text_is_version_gated()
+    test_v1_rating_record_still_byte_identical()
     print()
     test_manifest_valid()
     test_manifest_rejects_profile_task_stratification()

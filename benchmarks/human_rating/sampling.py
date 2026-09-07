@@ -23,6 +23,7 @@ from benchmarks.human_rating.schemas import (
     VALID_SOURCE_METHODS,
     EVALUATION_DIMENSION,
     UNIQUE_ITEMS_PER_METHOD,
+    score_bounds,
 )
 
 
@@ -79,7 +80,8 @@ def _validate_trial(trial: SourceTrial) -> str | None:
         return "empty question"
     if not trial.response or not trial.response.strip():
         return "empty response"
-    if not isinstance(trial.judge_score, int) or trial.judge_score < 1 or trial.judge_score > 5:
+    lo, hi = score_bounds(trial.rubric_version)
+    if not isinstance(trial.judge_score, int) or trial.judge_score < lo or trial.judge_score > hi:
         return f"invalid judge_score: {trial.judge_score!r}"
     if trial.judge_score != trial.integration_score:
         return f"judge_score ({trial.judge_score}) != integration_score ({trial.integration_score})"

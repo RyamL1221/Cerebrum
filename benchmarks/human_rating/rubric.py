@@ -97,3 +97,55 @@ RATING_RUBRIC: dict[int, str] = {
         "response is entirely generic"
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# v2 DECOMPOSED rubric (rater-facing)
+# ---------------------------------------------------------------------------
+#
+# Mirrors the v2 judge's five-criteria-per-dimension scoring
+# (docs/judge-rubric-v2.md) so a human validating v2 data scores against the
+# SAME thing the judge did. The rater awards one point per satisfied criterion
+# in the Integration dimension (the primary rated dimension), giving a 0–5
+# integration score. The five Integration criteria, verbatim from the source:
+
+INTEGRATION_CRITERIA_V2: dict[int, str] = {
+    1: (
+        "Joint reference — a recommendation draws on a profile fact and a "
+        "task fact together in the same sentence/reasoning step"
+    ),
+    2: (
+        "Causal coherence — the profile↔task connection is logically stated, "
+        "not just adjacent"
+    ),
+    3: (
+        "Single coherent answer — reads as one prioritized answer, not a "
+        "bulleted recitation"
+    ),
+    4: (
+        "Personalized prioritization — ordering/weighting is shaped by "
+        "profile info, not identical to a context-free answer"
+    ),
+    5: (
+        "No redundancy — no memory fact restated verbatim as padding"
+    ),
+}
+
+# v2 rater guidance, keyed by the resulting 0–5 SUM (not a holistic band).
+RATING_RUBRIC_V2: dict[int, str] = {
+    5: "All five Integration criteria satisfied",
+    4: "Four of the five Integration criteria satisfied",
+    3: "Three of the five Integration criteria satisfied",
+    2: "Two of the five Integration criteria satisfied",
+    1: "One of the five Integration criteria satisfied",
+    0: "None of the five Integration criteria satisfied",
+}
+
+
+def rating_rubric_for(rubric_version: str) -> dict[int, str]:
+    """Return the rater-facing rubric band table for a session's rubric version.
+
+    v1 → the holistic 1–5 ``RATING_RUBRIC`` (unchanged). v2 → the decomposed
+    0–5 ``RATING_RUBRIC_V2``. Unknown versions fall back to v1.
+    """
+    return RATING_RUBRIC_V2 if rubric_version == "v2" else RATING_RUBRIC
