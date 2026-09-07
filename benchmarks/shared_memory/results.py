@@ -59,15 +59,27 @@ class ResultsWriter:
             ConditionSummary with statistics for each metric.
         """
         # Enforce the "never pool v1 and v2 scores" invariant: scores from
-        # different rubric versions must not be averaged into one summary. In a
-        # normal run every trial shares the run-level --rubric-version, so this
-        # is a single group and behavior is byte-identical to before. If a
-        # caller ever hands us a mix, refuse rather than silently pool.
-        versions = {t.rubric_version for t in trials}
-        if len(versions) > 1:
+        # different rubric versions must not be averaged into one summary. Only
+        # trials that actually CONTRIBUTE a score are considered — failed trials
+        # (and any with no score) carry no scores to pool and are excluded from
+        # the stats below anyway, so their rubric_version tag is irrelevant here.
+        # (A failed trial defaults rubric_version="v1" even in a v2 run, so
+        # including it would spuriously trip this guard — that was a real bug.)
+        # In a normal single-version run this is one group; a genuine mix of
+        # scored v1 and v2 trials still refuses rather than silently pooling.
+        scored_versions = {
+            t.rubric_version
+            for t in trials
+            if not t.failed and (
+                t.profile_usage_score is not None
+                or t.task_usage_score is not None
+                or t.integration_score is not None
+            )
+        }
+        if len(scored_versions) > 1:
             raise ValueError(
                 "Refusing to pool trials from multiple rubric versions into a "
-                f"single summary: found {sorted(versions)}. Aggregate each "
+                f"single summary: found {sorted(scored_versions)}. Aggregate each "
                 "rubric_version separately."
             )
 

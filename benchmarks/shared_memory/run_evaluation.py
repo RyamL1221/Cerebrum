@@ -402,6 +402,7 @@ class EvaluationOrchestrator:
                     trial_index=trial_index,
                     condition=condition,
                     method=effective_method,
+                    rubric_version=self.rubric_version,
                     failed=True,
                     error_message=str(e),
                 )
@@ -415,6 +416,7 @@ class EvaluationOrchestrator:
                 trial_index=trial_index,
                 condition=condition,
                 method=effective_method,
+                rubric_version=self.rubric_version,
                 failed=True,
                 error_message=str(e),
                 synthetic_profile=trial_data.profile,
@@ -803,6 +805,7 @@ class EvaluationOrchestrator:
                                 trial_index=i,
                                 condition=method_name,
                                 method=method_name,
+                                rubric_version=self.rubric_version,
                                 failed=True,
                                 error_message=str(e),
                             ))

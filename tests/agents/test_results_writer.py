@@ -354,6 +354,50 @@ def test_default_filename_fallback():
         shutil.rmtree(tmpdir)
 
 
+def test_v2_run_with_failed_trial_does_not_trip_version_guard():
+    """Regression: a v2 run whose FAILED trials default rubric_version='v1'
+    must still summarize. The rubric-version guard only considers SCORED
+    trials, so a failed (v1-defaulted) trial in a v2 batch no longer trips it.
+
+    This reproduces the real crash where 150 completed gpt-4o v2 trials were
+    lost at summary time because one failed trial was tagged 'v1'.
+    """
+    writer = ResultsWriter(output_dir="/tmp/hr_v2_guard", write_csv=False)
+    trials = [
+        TrialResult(trial_index=0, condition="kernel_shared", rubric_version="v2",
+                    profile_usage_score=4, task_usage_score=4, integration_score=2),
+        TrialResult(trial_index=1, condition="kernel_shared", rubric_version="v2",
+                    profile_usage_score=0, task_usage_score=4, integration_score=1),
+        # Failed trial exactly as the harness produced it before the fix:
+        # rubric_version defaults to "v1" because no score was assigned.
+        TrialResult(trial_index=2, condition="kernel_shared", failed=True,
+                    error_message="pipeline boom"),
+    ]
+    summary = writer.compute_summary_statistics(trials)
+    assert summary.total_trials == 3 and summary.failed_trials == 1
+    # v2 [0,5] range preserved in the surviving stats.
+    assert summary.profile_usage.min == 0.0 and summary.profile_usage.max == 4.0
+    print("PASSED: v2 run with a failed (v1-defaulted) trial summarizes without raising")
+
+
+def test_genuine_scored_v1_v2_mix_still_raises():
+    """The real invariant is preserved: a batch that genuinely mixes SCORED v1
+    and SCORED v2 trials still refuses to pool."""
+    writer = ResultsWriter(output_dir="/tmp/hr_mix", write_csv=False)
+    trials = [
+        TrialResult(trial_index=0, condition="c", rubric_version="v1",
+                    profile_usage_score=3, task_usage_score=3, integration_score=3),
+        TrialResult(trial_index=1, condition="c", rubric_version="v2",
+                    profile_usage_score=0, task_usage_score=0, integration_score=0),
+    ]
+    try:
+        writer.compute_summary_statistics(trials)
+        raise AssertionError("expected ValueError on genuine scored v1/v2 mix")
+    except ValueError as e:
+        assert "multiple rubric versions" in str(e)
+    print("PASSED: genuine scored v1+v2 mix still raises")
+
+
 if __name__ == "__main__":
     test_single_method_naive_concat_produces_correct_filename()
     test_single_method_vanilla_rag_produces_correct_filename()
@@ -367,4 +411,6 @@ if __name__ == "__main__":
     test_csv_retrieved_context_count_column_has_correct_values()
     test_csv_all_methods_has_method_and_count_columns()
     test_default_filename_fallback()
+    test_v2_run_with_failed_trial_does_not_trip_version_guard()
+    test_genuine_scored_v1_v2_mix_still_raises()
     print("\nAll ResultsWriter tests passed.")
