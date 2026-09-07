@@ -114,10 +114,18 @@ def _extract_json_from_text(text: str) -> dict | None:
 class LLMJudge:
     """Evaluates assistant responses using a 3-score rubric."""
 
-    def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
+    def __init__(
+        self,
+        agent_name: str = "eval_judge",
+        llms: list | None = None,
+        rubric_version: str = "v1",
+    ):
         self.agent_name = agent_name
         self.kernel_url = config.get_kernel_url()
         self.llms = llms  # Optional model override, e.g. [{"name": "gpt-4.5", "backend": "openai"}]
+        # Selects the prompt/parsing path. Inert in this subtask (only "v1"
+        # exists); subtask 3 branches on it and flips the stamped rubric_version.
+        self.rubric_version = rubric_version
 
     def _build_judge_prompt(
         self,
@@ -332,6 +340,9 @@ class LLMJudge:
                 profile_usage_score=_clamp_score(pu, "profile_usage_score"),
                 task_usage_score=_clamp_score(tu, "task_usage_score"),
                 integration_score=_clamp_score(ig, "integration_score"),
+                # Wired through as the constant "v1" for now. Subtask 3
+                # introduces the v2 prompt/parsing path and flips this.
+                rubric_version="v1",
                 profile_usage_reasoning=data.get("profile_usage_reasoning"),
                 task_usage_reasoning=data.get("task_usage_reasoning"),
                 integration_reasoning=data.get("integration_reasoning"),
@@ -422,8 +433,15 @@ class HybridJudge:
     integration. The final score is the average of both, rounded.
     """
 
-    def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
-        self.llm_judge = LLMJudge(agent_name=agent_name, llms=llms)
+    def __init__(
+        self,
+        agent_name: str = "eval_judge",
+        llms: list | None = None,
+        rubric_version: str = "v1",
+    ):
+        self.llm_judge = LLMJudge(
+            agent_name=agent_name, llms=llms, rubric_version=rubric_version
+        )
 
     def evaluate(
         self,
@@ -455,6 +473,9 @@ class HybridJudge:
             profile_usage_score=_avg(kw_profile, llm_scores.profile_usage_score),
             task_usage_score=_avg(kw_task, llm_scores.task_usage_score),
             integration_score=_avg(kw_integration, llm_scores.integration_score),
+            # Carry the rubric version from the LLM judge's result rather than
+            # hardcoding it a second time — single source of truth.
+            rubric_version=llm_scores.rubric_version,
             profile_usage_reasoning=(
                 f"keyword_hits={kw_profile}/5; "
                 + (llm_scores.profile_usage_reasoning or "")

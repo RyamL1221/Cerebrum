@@ -93,6 +93,12 @@ class JudgeScores(BaseModel):
     profile_usage_score: Optional[int] = None
     task_usage_score: Optional[int] = None
     integration_score: Optional[int] = None
+    # Which scoring rubric produced these scores. Defaults to "v1" so older
+    # persisted result files (written before this field existed) still parse
+    # unchanged. Enforces the "never pool v1 and v2 scores" invariant in
+    # aggregation, CSV output, and reward calculation. Flipped to "v2" only via
+    # the v2 prompt path (subtask 3), never guessed at read time.
+    rubric_version: str = "v1"
     generic_penalty: Optional[bool] = None
     profile_usage_reasoning: Optional[str] = None
     task_usage_reasoning: Optional[str] = None
@@ -167,6 +173,10 @@ class TrialResult(BaseModel):
     profile_usage_score: Optional[int] = None
     task_usage_score: Optional[int] = None
     integration_score: Optional[int] = None
+    # Copied from the JudgeScores that produced the three scores above. Defaults
+    # to "v1" so older persisted TrialResult records parse unchanged. Used to
+    # partition aggregation/CSV/reward so v1 and v2 scores never silently pool.
+    rubric_version: str = "v1"
     memory_counts: MemoryCounts = MemoryCounts()
     retrieved_context_count: Optional[int] = None
     latency_seconds: Optional[float] = None

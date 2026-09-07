@@ -213,6 +213,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--rubric-version",
+        type=str,
+        choices=["v1", "v2"],
+        default="v1",
+        help=(
+            "Which scoring rubric the judge uses. Selects the prompt/parsing "
+            "path and stamps every score's rubric_version so v1 and v2 runs "
+            "never pool in aggregation, CSV output, or reward calculation. "
+            "Inert until the v2 path lands (subtask 3); defaults to 'v1'."
+        ),
+    )
+    parser.add_argument(
         "--run-id",
         type=str,
         default=None,
@@ -263,6 +275,7 @@ class EvaluationOrchestrator:
         kernel_url: str | None = None,
         run_id: str | None = None,
         kernel_logs_path: str | None = None,
+        rubric_version: str = "v1",
     ):
         self.trials = trials
         self.output_dir = output_dir
@@ -271,6 +284,7 @@ class EvaluationOrchestrator:
         self.method = method
         self.assistant_llms = assistant_llms  # passed to AssistantAgent and SyntheticDataGenerator
         self.judge_llms = judge_llms or assistant_llms  # falls back to assistant model if not set
+        self.rubric_version = rubric_version  # selects judge prompt/parsing path (inert until subtask 3)
         self.run_id = run_id  # None → SyntheticDataGenerator auto-generates UUID
 
         # Resolve kernel URL: CLI arg > config default
@@ -280,7 +294,7 @@ class EvaluationOrchestrator:
         self.generator = SyntheticDataGenerator(llms=self.assistant_llms, run_id=self.run_id)
         self.generator.kernel_url = resolved_url
 
-        self.judge = HybridJudge(llms=self.judge_llms)
+        self.judge = HybridJudge(llms=self.judge_llms, rubric_version=self.rubric_version)
         self.judge.llm_judge.kernel_url = resolved_url
 
         self.writer = ResultsWriter(output_dir=output_dir, write_csv=write_csv)
@@ -556,6 +570,7 @@ class EvaluationOrchestrator:
             profile_usage_score=scores.profile_usage_score,
             task_usage_score=scores.task_usage_score,
             integration_score=scores.integration_score,
+            rubric_version=scores.rubric_version,
             memory_counts=memory_counts,
             retrieved_context_count=pipeline_result.retrieved_context_count,
             latency_seconds=pipeline_result.latency_seconds,
@@ -882,6 +897,7 @@ def main():
         judge_llms=_parse_model_arg(args.judge_model),
         run_id=args.run_id,
         kernel_logs_path=args.kernel_logs,
+        rubric_version=args.rubric_version,
     )
 
     experiment = orchestrator.run()

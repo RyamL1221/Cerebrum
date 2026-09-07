@@ -58,6 +58,19 @@ class ResultsWriter:
         Returns:
             ConditionSummary with statistics for each metric.
         """
+        # Enforce the "never pool v1 and v2 scores" invariant: scores from
+        # different rubric versions must not be averaged into one summary. In a
+        # normal run every trial shares the run-level --rubric-version, so this
+        # is a single group and behavior is byte-identical to before. If a
+        # caller ever hands us a mix, refuse rather than silently pool.
+        versions = {t.rubric_version for t in trials}
+        if len(versions) > 1:
+            raise ValueError(
+                "Refusing to pool trials from multiple rubric versions into a "
+                f"single summary: found {sorted(versions)}. Aggregate each "
+                "rubric_version separately."
+            )
+
         total_trials = len(trials)
         failed_trials = sum(1 for t in trials if t.failed)
         non_failed = [t for t in trials if not t.failed]
@@ -128,6 +141,7 @@ class ResultsWriter:
             "method",
             "retrieved_context_count",
             "trial_index",
+            "rubric_version",
             "profile_usage_score",
             "task_usage_score",
             "integration_score",
@@ -153,6 +167,7 @@ class ResultsWriter:
                         trial.method,
                         trial.retrieved_context_count,
                         trial.trial_index,
+                        trial.rubric_version,
                         trial.profile_usage_score,
                         trial.task_usage_score,
                         trial.integration_score,

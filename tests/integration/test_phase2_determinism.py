@@ -96,8 +96,8 @@ def parse_csv_results(csv_path: str) -> List[TrialRecord]:
 
     The CSV columns are:
         condition, method, retrieved_context_count, trial_index,
-        profile_usage_score, task_usage_score, integration_score,
-        memory_total, memory_shared, memory_private,
+        rubric_version, profile_usage_score, task_usage_score,
+        integration_score, memory_total, memory_shared, memory_private,
         shared_memory_count, cross_agent_found, latency_seconds,
         query, response
 
