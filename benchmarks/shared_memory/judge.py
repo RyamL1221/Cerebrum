@@ -735,20 +735,29 @@ def _extract_keywords(profile: SyntheticProfile, task_context: SyntheticTaskCont
     return {"profile": list(set(profile_keywords)), "task": list(set(task_keywords))}
 
 
-def keyword_score(response: str, keywords: list) -> int:
-    """Score 1-5 based on fraction of keywords found in the response.
+def keyword_score(response: str, keywords: list, min_value: int = 1) -> int:
+    """Score on a 5-point ladder based on the fraction of keywords found.
+
+    The top four buckets (ratio >= 0.5/0.35/0.2/0.1 → 5/4/3/2) are shared by
+    both rubrics. Only the FLOOR differs: v1 uses ``min_value=1`` (the historic
+    1-5 keyword scale), so "no keywords", "no response", and the lowest ratio
+    bucket all read 1. v2 passes ``min_value=0`` so those cases read 0,
+    matching the v2 LLM score's [0,5] range (its decomposed scores can be a
+    genuine 0). With ``min_value=1`` this function is byte-identical to the
+    original.
 
     Args:
         response: The assistant's response text.
         keywords: List of lowercase keywords to search for.
+        min_value: Score for the "nothing matched" cases (1 for v1, 0 for v2).
 
     Returns:
-        Integer score 1-5.
+        Integer score in [min_value, 5].
     """
     if not keywords:
-        return 1
+        return min_value
     if not response:
-        return 1
+        return min_value
     response_lower = response.lower()
     hits = sum(1 for kw in keywords if kw in response_lower)
     ratio = hits / len(keywords)
@@ -761,7 +770,7 @@ def keyword_score(response: str, keywords: list) -> int:
     elif ratio >= 0.1:
         return 2
     else:
-        return 1
+        return min_value
 
 
 class HybridJudge:
@@ -778,6 +787,10 @@ class HybridJudge:
         llms: list | None = None,
         rubric_version: str = "v1",
     ):
+        # Kept on the hybrid too (not only on the inner LLMJudge) so the
+        # keyword component and the averaging clamp can be range-aware: v1
+        # keeps the [1,5] scale, v2 uses [0,5].
+        self.rubric_version = rubric_version
         self.llm_judge = LLMJudge(
             agent_name=agent_name, llms=llms, rubric_version=rubric_version
         )
@@ -791,10 +804,15 @@ class HybridJudge:
         plausible_actions: list[str] | None = None,
     ) -> JudgeScores:
         """Score using both keyword matching and LLM judge."""
+        # Both the keyword floor and the averaging clamp are range-aware: v1
+        # stays on the historic [1,5] scale, v2 uses [0,5] to match the v2 LLM
+        # score's range. For v1 this is byte-identical to the original.
+        floor = 0 if self.rubric_version == "v2" else 1
+
         # Keyword-based scores
         keywords = _extract_keywords(profile, task_context)
-        kw_profile = keyword_score(response, keywords["profile"])
-        kw_task = keyword_score(response, keywords["task"])
+        kw_profile = keyword_score(response, keywords["profile"], min_value=floor)
+        kw_task = keyword_score(response, keywords["task"], min_value=floor)
         kw_integration = min(kw_profile, kw_task)  # both must be present
 
         # LLM-based scores
@@ -802,11 +820,14 @@ class HybridJudge:
             query, response, profile, task_context, plausible_actions
         )
 
-        # Combine: average keyword and LLM scores
+        # Combine: average keyword and LLM scores. A None LLM sub-score
+        # (e.g. a malformed v2 dimension from _parse_v2_scores, or an
+        # incomplete v1 parse) falls back to keyword-only — the established v1
+        # convention — rather than propagating None or averaging with 0.
         def _avg(kw: int, llm_val: int | None) -> int:
             if llm_val is None:
                 return kw
-            return max(1, min(5, round((kw + llm_val) / 2)))
+            return max(floor, min(5, round((kw + llm_val) / 2)))
 
         return JudgeScores(
             profile_usage_score=_avg(kw_profile, llm_scores.profile_usage_score),
