@@ -135,7 +135,29 @@ class LLMJudge:
         task_context: SyntheticTaskContext,
         plausible_actions: list[str] | None = None,
     ) -> List[Dict[str, str]]:
-        """Build the messages list for the LLM judge call."""
+        """Dispatch to the v1 or v2 prompt builder based on ``rubric_version``.
+
+        Thin dispatcher only — the v1 branch returns byte-for-byte the same
+        messages this method produced before the v2 path was added, so existing
+        v1 runs are unaffected.
+        """
+        if self.rubric_version == "v2":
+            return self._build_judge_prompt_v2(
+                query, response, profile, task_context, plausible_actions
+            )
+        return self._build_judge_prompt_v1(
+            query, response, profile, task_context, plausible_actions
+        )
+
+    def _build_judge_prompt_v1(
+        self,
+        query: str,
+        response: str,
+        profile: SyntheticProfile,
+        task_context: SyntheticTaskContext,
+        plausible_actions: list[str] | None = None,
+    ) -> List[Dict[str, str]]:
+        """Build the messages list for the LLM judge call (v1 holistic rubric)."""
         # Build plausible actions section (only when provided and non-empty)
         plausible_actions_section = ""
         if plausible_actions:
@@ -219,20 +241,194 @@ class LLMJudge:
             {"role": "user", "content": user_content},
         ]
 
-    def evaluate(
+    def _build_judge_prompt_v2(
         self,
         query: str,
         response: str,
         profile: SyntheticProfile,
         task_context: SyntheticTaskContext,
         plausible_actions: list[str] | None = None,
-    ) -> JudgeScores:
-        """Score an assistant response on profile usage, task usage, and integration."""
-        messages = self._build_judge_prompt(
-            query, response, profile, task_context, plausible_actions
-        )
+    ) -> List[Dict[str, str]]:
+        """Build the messages for the v2 DECOMPOSED rubric.
 
-        response_format: Dict[str, Any] = {
+        Instead of asking for a single holistic 1-5 per dimension (v1), the v2
+        rubric decomposes each dimension into five binary sub-criteria. The
+        model marks each 1 (clearly & fully satisfied) or 0, and the dimension
+        score is the SUM of its five criteria (0-5). This forces the model to
+        justify a high score rather than defaulting to a 5.
+
+        The five criteria per dimension are derived from the established v1
+        rubric wording (see ``benchmarks/human_rating/rubric.py``, which treats
+        the v1 judge prompt as canonical): each v1 "5" descriptor enumerates the
+        specific attributes a top score requires, which decompose cleanly into
+        binary checks. Still a SINGLE LLM call covering all three dimensions —
+        matching v1's architecture and the documented token-cost tradeoff — not
+        three separate calls.
+        """
+        # Build plausible actions section (only when provided and non-empty).
+        # Mirrors v1 so the two prompts differ only in the rubric/contract.
+        plausible_actions_section = ""
+        if plausible_actions:
+            actions_list = "\n".join(
+                f"  {i}. {action}" for i, action in enumerate(plausible_actions, 1)
+            )
+            plausible_actions_section = (
+                "--- PLAUSIBLE ACTIONS ---\n"
+                "The developer had these pending options to choose from:\n"
+                f"{actions_list}\n\n"
+            )
+
+        user_content = (
+            "Evaluate the following AI assistant response.\n\n"
+            "--- USER PROFILE ---\n"
+            f"Name: {profile.user_name}\n"
+            f"Preferred Tools: {', '.join(profile.preferred_tools)}\n"
+            f"Preferred Language: {profile.preferred_language}\n"
+            f"Response Style: {profile.response_style}\n\n"
+            "--- TASK CONTEXT ---\n"
+            f"Current Project: {task_context.current_project}\n"
+            f"Active Experiment: {task_context.active_experiment}\n"
+            f"Goals: {', '.join(task_context.goals)}\n"
+            f"Blockers: {', '.join(task_context.blockers)}\n"
+            f"Next Steps: {', '.join(task_context.next_steps)}\n\n"
+            f"{plausible_actions_section}"
+            "--- FOLLOW-UP QUERY ---\n"
+            f"{query}\n\n"
+            "--- ASSISTANT RESPONSE ---\n"
+            f"{response}\n\n"
+            "--- SCORING RUBRIC (DECOMPOSED) ---\n"
+            "Each of the three dimensions below has FIVE binary criteria. "
+            "Award 1 point per criterion only if it is clearly and fully "
+            "satisfied by the response content, regardless of response length; "
+            "otherwise award 0. Do not award a 5 by default; a 5 requires all "
+            "five criteria to hold. The dimension score is the SUM of its five "
+            "criteria (an integer 0-5).\n\n"
+            "Profile Usage — criteria:\n"
+            "  1. References the user's preferred tools by name.\n"
+            "  2. References the user's preferred language.\n"
+            "  3. Reflects the user's stated response style.\n"
+            "  4. Uses these profile attributes correctly (no incorrect or "
+            "invented attributes).\n"
+            "  5. Ties at least one profile attribute directly into the "
+            "recommendation (not merely restated).\n\n"
+            "Task Usage — criteria:\n"
+            "  1. References the current project.\n"
+            "  2. References at least one stated goal.\n"
+            "  3. References at least one stated blocker.\n"
+            "  4. References at least one stated next step or the active "
+            "experiment.\n"
+            "  5. Uses this task context correctly and specifically (not vague "
+            "or generic advice).\n\n"
+            "Integration — criteria:\n"
+            "  1. Draws on BOTH the profile and the task context (not just "
+            "one).\n"
+            "  2. Combines them within a single recommendation rather than "
+            "addressing them separately.\n"
+            "  3. The recommendation logically follows from the combined "
+            "profile and task context.\n"
+            "  4. The integration is seamless (the two sources reinforce one "
+            "coherent recommendation).\n"
+            "  5. The result is grounded and specific to THIS user and THIS "
+            "task (not generic).\n\n"
+            "For each dimension, mark every criterion 1 or 0, set score = the "
+            "sum, and provide a one-sentence justification for EACH criterion "
+            "you scored 0 (justification is required only for 0-scored "
+            "criteria; you may omit it for criteria scored 1).\n\n"
+            "Respond with ONLY a JSON object (no markdown fences, no "
+            "explanation, no text before or after). Use exactly these three "
+            "top-level keys — profile_usage, task_usage, integration — each an "
+            "object of this shape:\n"
+            '{"profile_usage": {"criteria": {"1": <0|1>, "2": <0|1>, '
+            '"3": <0|1>, "4": <0|1>, "5": <0|1>}, "score": <int 0-5>, '
+            '"justification": {"<criterion index>": "<one sentence>"}}, '
+            '"task_usage": {"criteria": {"1": <0|1>, "2": <0|1>, "3": <0|1>, '
+            '"4": <0|1>, "5": <0|1>}, "score": <int 0-5>, "justification": '
+            '{"<criterion index>": "<one sentence>"}}, '
+            '"integration": {"criteria": {"1": <0|1>, "2": <0|1>, "3": <0|1>, '
+            '"4": <0|1>, "5": <0|1>}, "score": <int 0-5>, "justification": '
+            '{"<criterion index>": "<one sentence>"}}}'
+        )
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert evaluator using a DECOMPOSED rubric. You "
+                    "MUST respond with ONLY a valid JSON object. No markdown "
+                    "code fences. No explanation text. No preamble. Just the "
+                    "raw JSON object. The object has exactly three top-level "
+                    "keys — profile_usage, task_usage, integration — each an "
+                    'object with "criteria" (five keys "1".."5", each 0 or 1), '
+                    '"score" (the integer sum of those five criteria, 0-5), and '
+                    '"justification" (a one-sentence reason for each criterion '
+                    "you scored 0). Award 1 per criterion only when it is "
+                    "clearly and fully satisfied; never award a 5 by default. "
+                    "The assistant had access to shared memories injected by "
+                    "the kernel containing the user's profile and task context; "
+                    "a concise response that demonstrates awareness of these "
+                    "attributes is well-personalized, not generic."
+                ),
+            },
+            {"role": "user", "content": user_content},
+        ]
+
+    def _build_response_format(self) -> Dict[str, Any]:
+        """Build the ``response_format`` json_schema for the active rubric.
+
+        v1 keeps the flat 6-key schema (three ``*_score`` integers + three
+        ``*_reasoning`` strings). v2 uses a nested schema: three dimension keys,
+        each an object with a ``criteria`` map ("1".."5" → 0|1), an integer
+        ``score`` (0-5), and a ``justification`` map. ``justification`` is not in
+        ``required`` because the rubric only asks for justifications on
+        0-scored criteria, so a perfect dimension may legitimately omit it.
+        """
+        if self.rubric_version == "v2":
+            dimension_schema = {
+                "type": "object",
+                "properties": {
+                    "criteria": {
+                        "type": "object",
+                        "properties": {
+                            "1": {"type": "integer"},
+                            "2": {"type": "integer"},
+                            "3": {"type": "integer"},
+                            "4": {"type": "integer"},
+                            "5": {"type": "integer"},
+                        },
+                        "required": ["1", "2", "3", "4", "5"],
+                        "additionalProperties": False,
+                    },
+                    "score": {"type": "integer"},
+                    "justification": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
+                },
+                "required": ["criteria", "score"],
+                "additionalProperties": False,
+            }
+            return {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "judge_scores_v2",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "profile_usage": dimension_schema,
+                            "task_usage": dimension_schema,
+                            "integration": dimension_schema,
+                        },
+                        "required": [
+                            "profile_usage",
+                            "task_usage",
+                            "integration",
+                        ],
+                        "additionalProperties": False,
+                    },
+                    "strict": True,
+                },
+            }
+
+        return {
             "type": "json_schema",
             "json_schema": {
                 "name": "judge_scores",
@@ -259,6 +455,21 @@ class LLMJudge:
                 "strict": True,
             },
         }
+
+    def evaluate(
+        self,
+        query: str,
+        response: str,
+        profile: SyntheticProfile,
+        task_context: SyntheticTaskContext,
+        plausible_actions: list[str] | None = None,
+    ) -> JudgeScores:
+        """Score an assistant response on profile usage, task usage, and integration."""
+        messages = self._build_judge_prompt(
+            query, response, profile, task_context, plausible_actions
+        )
+
+        response_format: Dict[str, Any] = self._build_response_format()
 
         # Per-call judge token usage: the kernel emits it as a top-level
         # sibling of "response" in the /query body (NOT nested under
@@ -321,6 +532,17 @@ class LLMJudge:
                 logger.warning("Judge LLM returned non-dict data: %r", data)
                 return JudgeScores(token_usage=judge_token_usage)
             logger.debug("Judge parsed data before normalization: %s", data)
+
+            # TODO(subtask 4): This parse path only understands the v1 FLAT
+            # shape ({profile_usage_score, task_usage_score, integration_score,
+            # *_reasoning}). When self.rubric_version == "v2", `data` is the
+            # NESTED shape ({profile_usage: {criteria, score, justification},
+            # ...}) produced by _build_judge_prompt_v2 / _build_response_format,
+            # and the flat-key extraction below will find no *_score keys and
+            # return an empty JudgeScores. Parsing/summing the v2 criteria into
+            # scores (and flipping rubric_version to "v2") is subtask 4. Until
+            # then, evaluate() under rubric_version="v2" is expected to
+            # mis-parse — this is intentional and not silently left implicit.
 
             # If the dict already has the exact keys we need, use them directly
             if all(k in data for k in ("profile_usage_score", "task_usage_score", "integration_score")):
