@@ -6,10 +6,12 @@ benchmark: instead of each trial being a wholly independent one-shot
 several coherent, evolving interactions that accumulate memory.
 
 > **Status:** Subtask 1 (pipeline mapping) and Subtask 2 (design proposal)
-> are both complete and committed together. Subtask 1 is read-only
-> investigation output; Subtask 2 is a design proposal with **no
-> implementation code**. Implementing the design and running the pilot are
-> separate follow-up tasks.
+> are complete, plus a post-review **Subtask 3 scoping-guidance addendum**
+> (mechanism-vs-ramp-up pilot split, scoring-vs-testing clarification, and
+> the `trial_index`/reward-attribution pre-implementation audit). All
+> sections are documentation with **no implementation code**. Implementing
+> the design and running the pilots are separate follow-up tasks; Subtask 3
+> is scoped from this file.
 
 ---
 
@@ -372,3 +374,113 @@ No code was written in this subtask. All `synth.py` / `pipeline.py` /
 `run_evaluation.py` / `models.py` references above are **design targets**
 for a later implementation task. The pilot config (2.4) is a concrete
 recommendation to act on, not an open question.
+
+---
+
+## Subtask 3 scoping guidance (review addendum — added after Subtask 2 review)
+
+Three refinements agreed in review, recorded here so Subtask 3 (which is
+scoped from this file) inherits them in writing rather than from
+conversation. None change the Subtask 2 design; they sharpen its handoff.
+
+### A. Two pilots, explicitly split — Subtask 3 owns only the first
+
+The single pilot in §2.4 actually serves **two different goals** that must
+not be conflated:
+
+1. **Mechanism pilot — `5 users × 4 interactions` (this is §2.4).** Goal:
+   *does `evolve_task_context` produce coherent output, and does the
+   session plumbing (stable `user_id`, per-interaction scoring,
+   collection stability under the truncation fix) work?* Pass/fail is
+   coherence-by-inspection + plumbing-correct, **not** any gate-behavior
+   or metric-curve claim. Cheap on purpose so the evolution prompt can be
+   iterated several times.
+2. **Ramp-up pilot — `few users × long sessions`, config DEFERRED.** Goal
+   (this is **Subtask 4's** job, per the master prompt): *at roughly which
+   interaction index does the accumulated shared-memory set get large
+   enough that the AIOS gates (novelty / similarity / redundancy) start
+   receiving a materially larger comparison set and behaving differently?*
+   Its `interactions_per_user` **cannot be sized now** — you do not know
+   the inflection point until you have measured it, and you cannot trust a
+   long run until coherence is known to hold that long. So its length is
+   chosen **after** the mechanism pilot reveals the coherence ceiling.
+
+**Why split, not one run.** 4 interactions almost certainly does **not**
+reach the regime where gates behave differently (each interaction adds only
+~2–3 shared memories; the comparison set is still tiny at interaction 4), so
+a 5×4 run cannot answer the ramp-up question. And running a long ramp-up
+pilot *before* coherence is trusted risks burning expensive compute on a
+generator that has already drifted into a different project by, say,
+interaction 6 — at which point the "accumulated memory" no longer matches
+the query and the ramp-up data is meaningless. Mechanism first, then
+ramp-up, is a cost-and-validity ordering, not just tidiness.
+
+**Consequence for Subtask 3 (binding acceptance criteria):**
+- Subtask 3 builds and validates against the **mechanism pilot (5×4)
+  only**. Its acceptance criteria are mechanism + plumbing coherence; it is
+  **NOT** responsible for observing gate-behavior change.
+- Subtask 3 MUST make `interactions_per_user` a **first-class, fully
+  parametric value** — no hard-coded `4`, no fixed-size arrays, no prompt
+  text assuming a specific count; `evolve_task_context` must stay coherent
+  for arbitrary N. This is what turns "two pilots" into "one build, two
+  configs": the ramp-up pilot then becomes a config change
+  (`--users 3 --interactions-per-user 20`, illustrative), not a re-scope.
+- Subtask 4 gets its **own** longer pilot config, deliberately chosen later
+  from the observed coherence ceiling — not guessed now and not inherited
+  from the 5×4 mechanism pilot.
+
+### B. Per-interaction SCORING is encouraged; per-interaction TESTING is forbidden
+
+§2.2 and §2.3 concern two **different operations** and must not be
+conflated by a future reader:
+- **Scoring (per-interaction) — ENCOURAGED (§2.2).** Run the existing judge
+  on every interaction and store the per-interaction score as the atomic
+  record. This is how the within-session 0→N trajectory becomes
+  observable; it changes no metric definition.
+- **Between-condition statistical testing (per-interaction) — FORBIDDEN
+  (§2.3).** Do **not** run a between-condition significance test over
+  pooled per-interaction rows (e.g. a per-interaction t-test / Mann–Whitney
+  across all interactions of all sessions). Interactions within a session
+  are not independent, so the inferential unit is the **session/user**
+  (effective N ≈ `users`), via a user-level statistic or a mixed-effects /
+  cluster-robust model.
+
+In short: **score per interaction, test per user.** Keeping per-interaction
+scores is not in tension with the no-pooled-per-interaction-test rule — the
+first is measurement, the second is inference, and only the inference unit
+is constrained.
+
+### C. Pre-implementation audit: does `trial_index` still map 1:1 to a reward-attribution identity?
+
+This is a **data-model assumption audit Subtask 3 must perform BEFORE
+building**, not a surface bug to find during implementation — and it is
+**separate** from anything already addressed by the truncation-collision
+fix (that fix was about collection *naming*; this is about *identity
+cardinality* in the logging/reward path).
+
+The concern: today the harness is one-shot, so `trial_index` ↔ `user_id` ↔
+one collection is effectively 1:1:1, and the reward/logging path relies on
+that. In a session structure, `user_id` becomes **per-session** while
+`trial_index`/`interaction_index` becomes **per-interaction**, so **many
+`trial_index` values now map to one `user_id`/collection**. Any downstream
+logic that implicitly assumed one `trial_index` = one identity must be
+audited explicitly:
+- **`policy_trials.jsonl` + `join_policy_actions.py`.** From the earlier
+  investigation: `trial_id` resets to 0 each run with **no run identifier**,
+  the join is single-run-scoped by caller assumption, and reward events key
+  on `reward.trial_id == TrialResult.trial_index`. Subtask 3 must decide and
+  document what the reward-attribution key becomes under sessions — does the
+  kernel-side policy log now need `(session_id, interaction_index)` (or the
+  per-interaction `trial_index`) to attribute a reward to the right turn,
+  and does the join still work when one `user_id` spans many `trial_index`
+  values? Confirm whether per-interaction reward attribution is even
+  well-defined when the gates operate over an accumulating set.
+- **Any per-trial logging / results grouping** that assumed one
+  `trial_index` per identity (result-file structure, CSV rows, the
+  `_trial_data_cache` keying for `--method all`).
+
+Deliverable for this point in Subtask 3: an explicit written finding —
+"trial_index remains/does-not-remain a valid reward-attribution key under
+sessions, and here is the key we will use instead" — produced **before**
+implementation begins, so the data model is chosen correctly the first
+time rather than retrofitted.
