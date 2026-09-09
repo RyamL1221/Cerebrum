@@ -5,13 +5,12 @@ benchmark: instead of each trial being a wholly independent one-shot
 (fresh user, fresh task), a *session* would be one simulated user across
 several coherent, evolving interactions that accumulate memory.
 
-> **Status:** Subtask 1 (pipeline mapping) and Subtask 2 (design proposal)
-> are complete, plus a post-review **Subtask 3 scoping-guidance addendum**
-> (mechanism-vs-ramp-up pilot split, scoring-vs-testing clarification, and
-> the `trial_index`/reward-attribution pre-implementation audit). All
-> sections are documentation with **no implementation code**. Implementing
-> the design and running the pilots are separate follow-up tasks; Subtask 3
-> is scoped from this file.
+> **Status:** Subtask 1 (pipeline mapping), Subtask 2 (design proposal), the
+> Subtask 3 scoping-guidance addendum, and **Subtask 3's detailed build
+> instructions** all live in this single file (one source of truth — no
+> separate scope doc). Everything here is documentation with **no
+> implementation code**. Subtask 3 (build the mechanism pilot) is scoped
+> from §3; implementing it and running the pilots are the follow-up tasks.
 
 ---
 
@@ -484,3 +483,180 @@ Deliverable for this point in Subtask 3: an explicit written finding —
 sessions, and here is the key we will use instead" — produced **before**
 implementation begins, so the data model is chosen correctly the first
 time rather than retrofitted.
+
+---
+
+## Subtask 3 — Detailed build instructions (mechanism pilot)
+
+The concrete implementation scope for the accumulating-trial redesign,
+folded into this file (single source of truth — do not split into a
+separate scope doc). Subtask 3 is bounded to the **mechanism pilot only**;
+the ramp-up pilot and gate-behavior measurement are Subtask 4.
+
+### 3.0 Goal (one line)
+
+Build the parameterized `users × interactions_per_user` accumulating-session
+mechanism and validate it at `5 × 4` on `kernel_shared_adaptive` /
+`qwen2.5:7b` — proving `evolve_task_context` stays coherent and the session
+plumbing works — **without** making any gate-behavior or metric-curve claim.
+
+### 3.1 In scope
+
+1. **Data model (`models.py`)** — but only after the §3.4 audit gate:
+   - `session_id: str = ""` and `interaction_index: int = 0` on
+     `SyntheticTrialData` (defaults preserve one-shot mode).
+   - A `SyntheticSession` model: `{ session_id, user_id, profile,
+     interactions: List[SyntheticTrialData] }`.
+   - `session_id: str = ""` and `interaction_index: int = 0` on
+     `TrialResult` (per-interaction row stays the atomic record).
+   - Plus whatever reward-attribution key §3.4 concludes is needed. No
+     existing field removed/redefined; all additions defaulted so existing
+     one-shot result files still parse.
+2. **Synthetic generation (`synth.py`)**:
+   - `evolve_task_context(prior_ctx, history_digest, profile)` per §2.1
+     Decision 2 (goals progress/complete, blockers resolve/appear,
+     next_steps advance, `current_project` fixed, `active_experiment`
+     advances on goal completion).
+   - `generate_session(session_idx, interactions_per_user)` per §2.1
+     Decision 5: profile once, interaction 0 cold-start via existing
+     `generate_task_context`, interactions 1..N-1 via `evolve_task_context`,
+     all sharing `user_id = {name}_{run_id}_s{session_idx}`.
+   - `generate_profile` once per session; drift OFF (§2.1 Decision 3).
+   - `interactions_per_user` fully parametric — see §3.3.
+3. **Pipeline / runner (`pipeline.py`, `run_evaluation.py`)**:
+   sessions→interactions double loop reusing the session `user_id`; new
+   `--users` / `--interactions-per-user` CLI; `--trials` retained as
+   one-shot legacy (`interactions_per_user=1`, `session_id=""`);
+   `--method all` per-session cache keyed by `session_idx`.
+4. **Scoring:** per-interaction with the **existing** judge — no rubric or
+   metric-definition change (§2.2 / addendum B: score per interaction).
+5. **§3.4 pre-implementation audit** (gate) and **§3.5 mechanism-pilot
+   validation** including the **§3.6 exploratory ceiling probe**.
+
+### 3.2 Out of scope (do NOT do in Subtask 3)
+
+- No ramp-up / gate-behavior measurement (Subtask 4; config deferred).
+- No between-condition statistical testing (pilot is N=5, underpowered by
+  design — §2.3 / addendum B: testing is per-user, and not in this subtask
+  at all).
+- No profile drift, no multi-model fan-out, no other conditions, no
+  scale-up run, no re-run of the existing per-trial benchmark, no change to
+  the landed truncation-collision fix, no new metric definitions.
+
+### 3.3 Binding requirement — `interactions_per_user` fully parametric
+
+The single most important structural constraint (addendum A): no literal
+`4` anywhere in generation, prompts, loops, arrays, or count-tied defaults;
+`evolve_task_context` stays coherent for **arbitrary N** (evolves one step
+from prior state regardless of horizon); the runner accepts any `--users` /
+`--interactions-per-user` with no code change. **Acceptance check:**
+`--users 3 --interactions-per-user 12` runs end-to-end with zero code edits
+(smoke-run a couple of sessions).
+
+### 3.4 Pre-implementation audit — GATE, not a checklist item (addendum C)
+
+Complete **before** writing model/runner code, because it can change how
+`SyntheticTrialData` / `TrialResult` must be shaped (build the data model
+first and you risk the audit invalidating it).
+
+**Question:** does `trial_index` still map 1:1 to a reward-attribution
+identity once `user_id` is per-session and `interaction_index` is
+per-interaction (many `trial_index` → one `user_id`/collection)?
+
+**Examine:** `join_policy_actions.py` (reward join keys on
+`reward.trial_id == TrialResult.trial_index`; `trial_id` resets per run,
+no run id, single-run-scoped by caller assumption); the kernel-side
+`report_reward` / `policy_trials.jsonl` path (does it need
+`(session_id, interaction_index)` to attribute a reward to the right turn —
+any kernel change is an AIOS follow-up, but the *requirement* is identified
+here); any per-trial logging / results grouping / `_trial_data_cache`
+keying assuming one `trial_index` per identity.
+
+**Deliverable (produced before implementation):** an explicit written
+statement — "`trial_index` remains / does not remain a valid
+reward-attribution key under sessions; the key we will use is X" —
+recorded in this doc. Separate from the truncation-collision fix (that was
+collection *naming*; this is identity *cardinality*).
+
+### 3.5 Mechanism-pilot validation (`5 × 4`)
+
+Run `--users 5 --interactions-per-user 4 --method kernel_shared_adaptive`
+on `qwen2.5:7b` (local Ollama), against a kernel with
+`adaptive_policy.enabled=true` (gating pre-flight asserts this).
+
+**Coherence judging method — MANUAL review, explicitly.** Coherence is
+assessed by a human **reading the generated sessions** (the ~20
+interactions), checking that within each session `current_project` stays
+fixed and goals/blockers/next_steps evolve plausibly. Subtask 3 does
+**not** build an automated coherence checker — this is a one-off manual
+review step, not tooling to implement. (If a lightweight sanity assertion
+is trivial — e.g. `current_project` string stable within a session — it may
+be added, but the coherence *judgment* is manual.)
+
+**Pass criteria (mechanism + plumbing only — NOT gate behavior):**
+1. **Coherence (manual):** each 4-interaction session holds one project
+   with plausible goal/blocker/next-step evolution.
+2. **Accumulation plumbing:** interaction `i` reads back memory written by
+   `0..i-1` in the same session (shared collection grows within a session;
+   retrieved/`total_stored` set non-decreasing within a session).
+3. **Collection stability:** the session `user_id` maps to one stable
+   collection across all 4 interactions (consistent with the landed
+   truncation fix — no per-interaction collection churn).
+4. **Scoring plumbing:** each interaction yields a per-interaction
+   `TrialResult` with `session_id`/`interaction_index` set and the three
+   judge scores present.
+5. **Parametric proof:** the §3.3 acceptance check passes.
+
+**Explicitly NOT a pass criterion:** any statement about the gates
+receiving a larger comparison set, or a metric-improvement curve (Subtask 4).
+
+### 3.6 Exploratory ceiling probe (one long session — resolves the §3.7 handoff)
+
+A strict `5 × 4` pilot can only **confirm coherence through interaction 4**;
+it cannot discover where `evolve_task_context` starts drifting, which would
+leave Subtask 4 with nothing concrete to size its ramp-up horizon from.
+Subtask 3 therefore includes **one small, deliberate "push past 4"
+exploratory run**: a **single** session (1 user) at a longer horizon
+(≈12 interactions is a reasonable probe length) whose only purpose is to
+observe, by the same **manual** coherence review, the approximate
+interaction index at which the evolving task context starts to drift
+(project changes, goals become incoherent, or evolution stalls/repeats).
+
+Scope discipline for the probe:
+- It is a **first, approximate** ceiling estimate from **one** session —
+  deliberately cheap. It is **NOT** a full characterization (sweeping
+  horizons, multiple seeds, per-model differences); that full
+  characterization is **Subtask 4's job**.
+- If coherence holds cleanly through the whole probe horizon, the reported
+  ceiling is "≥ probe length (no drift observed at N=12)"; Subtask 4 then
+  starts from there and pushes further.
+- The probe uses the same code path (proving §3.3 parametricity again) — it
+  is a config change, not new code.
+
+### 3.7 Handoff to Subtask 4 (concrete deliverables)
+
+On completion Subtask 3 hands Subtask 4 three **concrete** things:
+1. A working, fully-parametric session mechanism.
+2. An **approximate coherence ceiling** from the §3.6 exploratory long
+   session — a concrete number (the interaction index where drift was first
+   observed, or "≥N, no drift observed") — so Subtask 4 can pick a starting
+   ramp-up horizon rather than guess. This is an *approximate first
+   estimate from one session*, not a definitive ceiling; finding the true
+   ceiling (multi-seed, multi-horizon, per-model) is Subtask 4's work.
+3. The resolved reward-attribution key from §3.4, so Subtask 4's
+   gate-behavior measurement attributes rewards to the correct turn.
+
+### 3.8 Suggested task order (for the implementer)
+
+1. §3.4 audit → write the finding (GATE — before any model code).
+2. `models.py` additions (§3.1.1) + round-trip check that existing one-shot
+   result files still parse.
+3. `synth.py`: `evolve_task_context` + `generate_session` (§3.1.2), keeping
+   `interactions_per_user` free (§3.3).
+4. Runner: sessions→interactions loop + CLI + per-session cache (§3.1.3);
+   one-shot legacy path unchanged.
+5. Per-interaction scoring wired to `TrialResult` (§3.1.4).
+6. `5 × 4` mechanism-pilot run + manual coherence / plumbing validation
+   (§3.5); record results.
+7. §3.6 exploratory `1 × ~12` ceiling probe; record the approximate ceiling.
+8. §3.3 parametric smoke check (`3 × 12`).
