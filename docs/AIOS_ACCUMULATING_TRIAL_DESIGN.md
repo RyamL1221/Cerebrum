@@ -6,11 +6,13 @@ benchmark: instead of each trial being a wholly independent one-shot
 several coherent, evolving interactions that accumulate memory.
 
 > **Status:** Subtask 1 (pipeline mapping), Subtask 2 (design proposal), the
-> Subtask 3 scoping-guidance addendum, and **Subtask 3's detailed build
-> instructions** all live in this single file (one source of truth — no
-> separate scope doc). Everything here is documentation with **no
-> implementation code**. Subtask 3 (build the mechanism pilot) is scoped
-> from §3; implementing it and running the pilots are the follow-up tasks.
+> Subtask 3 scoping-guidance addendum, Subtask 3's detailed build
+> instructions, and the **§3.4 reward-attribution gate finding (RESOLVED)**
+> all live in this single file (one source of truth — no separate scope
+> doc). Everything here is documentation with **no implementation code**.
+> The §3.4 gate is cleared: `trial_index` (global per-interaction integer)
+> remains the reward key; `session_id`/`interaction_index` are additive
+> descriptive fields. Build (Subtask 2) may proceed against §3 + §3.4.
 
 ---
 
@@ -660,3 +662,113 @@ On completion Subtask 3 hands Subtask 4 three **concrete** things:
    (§3.5); record results.
 7. §3.6 exploratory `1 × ~12` ceiling probe; record the approximate ceiling.
 8. §3.3 parametric smoke check (`3 × 12`).
+
+---
+
+## §3.4 RESOLVED — reward-attribution key under accumulating sessions (gate finding)
+
+This is the committed decision from the §3.4 pre-implementation audit. It is a
+**decision, not just an investigation** — implementation (Subtask 2 of the
+build) must follow it. All claims traced to code:
+`benchmarks/shared_memory/{run_evaluation.py,results.py,models.py}`,
+`docs/policy-trials-jsonl-findings.md`, and (read-only) sibling AIOS
+`aios/memory/manager.py`.
+
+### How reward attribution works today (confirmed)
+
+- **Join key:** `policy_reward.trial_id == TrialResult.trial_index`, direct
+  integer equality, single-run only (`join_policy_actions.py`; the earlier
+  `policy-trials-jsonl-findings.md` GO decision).
+- **How `trial_id` reaches the kernel:** only via the `report_reward` POST in
+  `run_single_trial`, `reward_metadata = {**trial_metadata, "trial_id":
+  trial_index}` — sent **once per `run_single_trial`** (post-judging).
+- **Kernel mechanism** (`aios/memory/manager.py::report_reward`, ~L1099):
+  `_pending_reward_decisions` is `Dict[memory_id → list of (bandit, arm_index,
+  context, trial_id)]`, recorded **at retrieve time**. `report_reward(
+  memory_ids_involved, reward_value, trial_metadata)` **pops** the decisions for
+  each involved `memory_id`, applies `reward_value` to each, and logs
+  `reward.trial_id = decision_trial_id or trial_metadata["trial_id"]`. Consumed
+  entries are removed (map stays bounded).
+- **Neither artifact carries `run_id` / `user_id` / `session_id`;** `select`
+  records already log `trial_id: null` (a pre-existing gap, unchanged by this
+  work). Results/CSV are one row per `trial_index`; `_trial_data_cache` is keyed
+  by the loop index (== `trial_index`).
+
+### DECISION: `trial_index` REMAINS the reward-attribution key — as a global per-interaction integer
+
+**`trial_index` stays the reward key. It must be a single, globally-monotonic,
+per-interaction counter across the whole run (`0 .. users×interactions_per_user −1`),
+NOT reset per session.** Each interaction is its own `run_single_trial` and
+therefore emits exactly one `report_reward` with its own unique `trial_index`.
+The join stays `reward.trial_id == TrialResult.trial_index`, integer equality,
+**unchanged** — `join_policy_actions.py` needs no modification and the
+single-run scoping constraint from the prior GO decision still holds.
+
+Rationale: attribution today is `1 report_reward : 1 trial_index : 1 turn`.
+Sessions add more turns, not a different attribution shape — as long as every
+turn keeps a distinct `trial_index`, the existing integer join keeps working
+turn-for-turn. Introducing `(session_id, interaction_index)` as the *join key*
+would be a gratuitous, breaking change to a working mechanism; there is no
+reason to.
+
+**`session_id` and `interaction_index` are ADDITIVE descriptive/grouping fields,
+NOT the reward key.** They exist so downstream analysis can group per-interaction
+rows into sessions and locate a turn within a session (the 2-D coordinate
+`(session, interaction)`), and so the user-level statistics in §2.3 can reduce
+by `session_id`. They do **not** participate in reward attribution.
+
+### The design doc's `session_id`/`interaction_index` sketch HOLDS — with one clarification
+
+§2.1 Decision 4 and §3.1.1 stand as written. The one clarification this audit
+adds, which Subtask 2 (build) MUST honor:
+
+> `trial_index` is the **global per-interaction** integer (unique across the
+> whole run) and remains the reward-attribution key. `interaction_index` is the
+> **within-session** position (`0..interactions_per_user−1`) and is descriptive
+> only. **Do NOT** conflate them and **do NOT** reset `trial_index` per session.
+> A session's turns have, e.g., `trial_index = 8,9,10,11` while
+> `interaction_index = 0,1,2,3` and one shared `session_id`.
+
+No revision to the model *fields* is needed (the sketch already lists both
+`session_id` and `interaction_index`); the revision is purely this semantic
+constraint on how `trial_index` is generated by the runner.
+
+### Per-interaction attribution IS well-defined (with a flagged subtlety)
+
+Under accumulation, `memory_ids_involved` for interaction *i* can include
+memories first written in an earlier interaction (that is the whole point). The
+kernel mechanism makes attribution **well-defined at the bookkeeping level**:
+
+- A pending decision is recorded **at the retrieve that actually happened in
+  interaction *i***, tagged with *i*'s `trial_index`, and `report_reward` for
+  interaction *i* applies **interaction *i*'s own judge score** to it. So the
+  reward *value* never bleeds across interactions — each turn's reward is its
+  own score, attributed to its own `trial_index`.
+- A memory re-retrieved in a later interaction generates a **new** pending
+  decision tagged with the later `trial_index`, so it attributes to whichever
+  interaction actually retrieved it. Pop-on-reward keeps decisions from being
+  double-counted.
+
+**Flagged (NOT solved here — belongs to Subtask 4's interpretation):** the gate
+*decision* being rewarded at interaction *i* was made against the **accumulated
+memory set as it stood at interaction *i***. So while the reward is cleanly
+attributed to one interaction, the *causal reading* ("this threshold was good")
+is inherently conditioned on the accumulation state at that turn. That is
+expected — it is exactly the effect the accumulating-session design exists to
+study — and it is a measurement-interpretation caveat for Subtask 4, not a
+bookkeeping bug and not something this build fixes.
+
+### Consequences for the build (Subtask 2)
+
+1. Runner emits a **global monotonic `trial_index`** per interaction; do not
+   reset per session. `session_id` + `interaction_index` are recorded alongside.
+2. `join_policy_actions.py`: **no change** (integer-equality reward join intact;
+   single-run scoping intact).
+3. `_trial_data_cache` becomes **session-scoped** (keyed by `session_idx`, since
+   a session's data is generated once and its interactions replayed) — this is a
+   caching change only and does **not** affect the reward key.
+4. Results/CSV: add `session_id` + `interaction_index` columns; the per-row
+   atomic unit stays one interaction (== one `trial_index`).
+
+**Gate cleared.** The data model shape from the design doc is confirmed valid
+with the one semantic clarification above; Subtask 2 may build against it.
