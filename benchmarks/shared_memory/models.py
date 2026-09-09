@@ -34,13 +34,45 @@ class SyntheticTaskContext(BaseModel):
 
 
 class SyntheticTrialData(BaseModel):
-    """All generated data for one trial."""
+    """All generated data for one trial (== one interaction under sessions)."""
 
     profile: SyntheticProfile
     task_context: SyntheticTaskContext
     follow_up_query: str
     plausible_actions: List[str] = []
     user_id: str = ""
+    # Accumulating-session fields (design doc §3.4). Descriptive/grouping only —
+    # NOT the reward-attribution key (that stays the global monotonic
+    # ``trial_index`` on TrialResult). Defaults preserve one-shot mode:
+    # session_id="" and interaction_index=0.
+    #
+    # session_id: stable across all interactions of one simulated user; equals
+    #   the per-session user_id (no interaction index baked in) so all of a
+    #   session's writes accumulate in one kernel collection.
+    # interaction_index: 0-based position of this interaction WITHIN its session
+    #   (0..interactions_per_user-1). Distinct from trial_index, which is the
+    #   run-global per-interaction counter and must NOT be reset per session.
+    session_id: str = ""
+    interaction_index: int = 0
+
+
+class SyntheticSession(BaseModel):
+    """One simulated user across an ordered list of evolving interactions.
+
+    A session shares a single stable ``user_id`` (== ``session_id``) and a
+    single ``profile`` across all its interactions, so memory accumulates in
+    one kernel collection. Each entry in ``interactions`` is a
+    ``SyntheticTrialData`` with its own evolved ``task_context`` /
+    ``follow_up_query`` / ``plausible_actions``, its ``interaction_index`` set
+    to its position, and ``session_id``/``user_id`` set to the shared session
+    id. The run-global ``trial_index`` is assigned by the runner (not here), so
+    it stays monotonic across sessions.
+    """
+
+    session_id: str
+    user_id: str
+    profile: SyntheticProfile
+    interactions: List[SyntheticTrialData]
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +211,14 @@ class TrialResult(BaseModel):
     trial_index: int
     condition: str
     method: str = ""
+    # Accumulating-session grouping fields (design doc §3.4). ``trial_index``
+    # above remains the run-global, monotonic per-interaction reward-attribution
+    # key (join: policy_reward.trial_id == trial_index) and is NOT reset per
+    # session. These two are descriptive only, for grouping per-interaction rows
+    # into sessions and locating a turn within a session; defaults ("" / 0)
+    # preserve one-shot result files unchanged.
+    session_id: str = ""
+    interaction_index: int = 0
     profile_usage_score: Optional[int] = None
     task_usage_score: Optional[int] = None
     integration_score: Optional[int] = None

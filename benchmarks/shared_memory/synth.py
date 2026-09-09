@@ -14,6 +14,7 @@ from cerebrum.config.config_manager import config
 
 from benchmarks.shared_memory.models import (
     SyntheticProfile,
+    SyntheticSession,
     SyntheticTaskContext,
     SyntheticTrialData,
 )
@@ -317,6 +318,142 @@ class SyntheticDataGenerator:
         return SyntheticTaskContext(**data)
 
     # ------------------------------------------------------------------
+    # Task-context EVOLUTION (accumulating sessions)
+    # ------------------------------------------------------------------
+
+    def evolve_task_context(
+        self,
+        prior_ctx: SyntheticTaskContext,
+        history: List[Dict[str, str]],
+        profile: SyntheticProfile,
+    ) -> SyntheticTaskContext:
+        """Evolve a task context one step forward for the next interaction.
+
+        Given the PRIOR interaction's task context and a short digest of the
+        session so far, produce the NEXT state of the SAME project — not a new
+        project. Implements the design's evolution operators (§2.1 Decision 2):
+        goals progress/complete, blockers resolve and/or new ones appear,
+        next_steps advance, ``current_project`` stays fixed, and
+        ``active_experiment`` advances when a goal completes.
+
+        This is structurally correct for a session of ANY length: it evolves
+        exactly one step from whatever prior state it is handed, with no
+        awareness of (and no assumption about) the total number of interactions.
+        Call it once per interaction after the first; the first interaction uses
+        ``generate_task_context`` as a cold start.
+
+        Args:
+            prior_ctx: The task context from the immediately preceding
+                interaction in this session.
+            history: Ordered digest of prior interactions this session, each a
+                dict like ``{"query": <str>, "next_step_taken": <str>}``. May be
+                empty. Used to make the evolution plausibly continuous.
+            profile: The (fixed) session profile, for continuity of voice/tools.
+
+        Returns:
+            A validated ``SyntheticTaskContext`` representing the next step of
+            the same ongoing project.
+        """
+        history_lines = "\n".join(
+            f"  - interaction {i}: asked {h.get('query', '')!r}"
+            + (f"; likely took: {h.get('next_step_taken')!r}" if h.get("next_step_taken") else "")
+            for i, h in enumerate(history)
+        ) or "  (none yet)"
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a data generator that EVOLVES an ongoing software "
+                    "project's working context by exactly ONE step. You MUST "
+                    "return a flat JSON object with exactly these keys: "
+                    "current_project, active_experiment, goals, blockers, "
+                    "next_steps. Do NOT nest the object inside another key. "
+                    "Keep the SAME project — do not invent a new one."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Developer {profile.user_name} (uses "
+                    f"{profile.preferred_language}) is continuing the SAME "
+                    f"ongoing project across a session. Evolve the working "
+                    f"context forward by ONE realistic step.\n\n"
+                    f"PRIOR CONTEXT (JSON):\n{prior_ctx.model_dump_json()}\n\n"
+                    f"SESSION SO FAR:\n{history_lines}\n\n"
+                    "Apply these evolution rules for the NEXT state:\n"
+                    "- current_project: MUST stay the same project name as prior.\n"
+                    "- goals: mark 0-1 prior goal as progressed/completed (drop "
+                    "it or rephrase as done); occasionally add 1 new goal as the "
+                    "project matures. Keep it realistic, not a wholesale rewrite.\n"
+                    "- blockers: resolve 0-1 prior blocker (remove it); optionally "
+                    "introduce 0-1 NEW blocker, ideally caused by the prior "
+                    "next_steps.\n"
+                    "- next_steps: remove/advance the step the developer most "
+                    "plausibly just took; re-prioritize the rest; append 1 new "
+                    "next step.\n"
+                    "- active_experiment: advance to the next phase IF a goal "
+                    "just completed, otherwise keep it or refine it slightly.\n\n"
+                    "Return a JSON object with:\n"
+                    '- "current_project": SAME project name as prior\n'
+                    '- "active_experiment": current experiment (possibly advanced)\n'
+                    '- "goals": list of 2-4 goal strings (evolved)\n'
+                    '- "blockers": list of 0-2 blocker strings (evolved)\n'
+                    '- "next_steps": list of 2-4 next step strings (evolved)'
+                ),
+            },
+        ]
+
+        response_format: Dict[str, Any] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "evolved_task_context",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "current_project": {"type": "string"},
+                        "active_experiment": {"type": "string"},
+                        "goals": {"type": "array", "items": {"type": "string"}},
+                        "blockers": {"type": "array", "items": {"type": "string"}},
+                        "next_steps": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": [
+                        "current_project",
+                        "active_experiment",
+                        "goals",
+                        "blockers",
+                        "next_steps",
+                    ],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+        }
+
+        raw = _robust_llm_json_call(
+            self.agent_name, messages, self.kernel_url, response_format, self.llms
+        )
+        data = _loads_json_tolerant(raw)
+        data = _unwrap_nested(
+            data,
+            ["current_project", "active_experiment", "goals", "blockers", "next_steps"],
+        )
+        evolved = SyntheticTaskContext(**data)
+        # Enforce the invariant the prompt asks for but the LLM may violate:
+        # the project identity must stay fixed across a session so memory
+        # accumulation is about ONE coherent project (design §2.1 Decision 2).
+        if evolved.current_project != prior_ctx.current_project:
+            logger.warning(
+                "evolve_task_context: model changed current_project %r -> %r; "
+                "forcing it back to the session's project.",
+                prior_ctx.current_project, evolved.current_project,
+            )
+            evolved = evolved.model_copy(
+                update={"current_project": prior_ctx.current_project}
+            )
+        return evolved
+
+    # ------------------------------------------------------------------
     # Follow-up query generation
     # ------------------------------------------------------------------
 
@@ -538,4 +675,91 @@ class SyntheticDataGenerator:
             follow_up_query=follow_up_query,
             plausible_actions=plausible_actions,
             user_id=user_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Session orchestrator (accumulating sessions)
+    # ------------------------------------------------------------------
+
+    def generate_session(
+        self, session_idx: int, interactions_per_user: int
+    ) -> SyntheticSession:
+        """Generate one simulated user's evolving multi-interaction session.
+
+        Produces a ``SyntheticSession`` of ``interactions_per_user``
+        interactions that share ONE stable per-session ``user_id`` (so memory
+        accumulates in a single kernel collection) and ONE fixed ``profile``
+        (generated once per session). Interaction 0 cold-starts the task
+        context via ``generate_task_context``; interactions 1..N-1 evolve it one
+        step at a time via ``evolve_task_context``.
+
+        This is fully parametric in session length: there is NO hardcoded
+        interaction count anywhere — any ``interactions_per_user >= 1`` works,
+        which is what lets the mechanism pilot (small N) and the later ramp-up
+        pilot (large N) be the same code with a different flag.
+
+        The run-global ``trial_index`` is deliberately NOT assigned here — the
+        runner assigns it monotonically across sessions so it stays a valid
+        reward-attribution key (design doc §3.4). Each interaction carries its
+        within-session ``interaction_index`` and the shared ``session_id``.
+
+        Args:
+            session_idx: Zero-based session (simulated-user) number.
+            interactions_per_user: Number of interactions in this session (>=1).
+
+        Returns:
+            A ``SyntheticSession`` with a fixed profile, a shared session
+            ``user_id``, and ``interactions_per_user`` evolving interactions.
+
+        Raises:
+            ValueError: If ``interactions_per_user`` is less than 1.
+        """
+        if interactions_per_user < 1:
+            raise ValueError(
+                f"interactions_per_user must be >= 1, got {interactions_per_user}"
+            )
+
+        # Profile once per session (design §2.1 Decision 3); drift stays OFF.
+        profile = self.generate_profile(session_idx)
+        base_name = profile.user_name.lower().replace(" ", "_")
+        # Stable per-session user_id: NO interaction index baked in, so every
+        # interaction in this session routes to the same collection and memory
+        # accumulates. session_id == user_id by construction.
+        session_user_id = f"{base_name}_{self.run_id}_s{session_idx}"
+
+        interactions: List[SyntheticTrialData] = []
+        history: List[Dict[str, str]] = []
+        ctx: SyntheticTaskContext | None = None
+
+        for i in range(interactions_per_user):
+            if i == 0:
+                ctx = self.generate_task_context(session_idx, profile)
+            else:
+                ctx = self.evolve_task_context(ctx, history, profile)
+
+            plausible_actions = self.generate_plausible_actions(profile, ctx)
+            follow_up_query = self.generate_vague_query(profile, ctx)
+
+            interactions.append(SyntheticTrialData(
+                profile=profile,
+                task_context=ctx,
+                follow_up_query=follow_up_query,
+                plausible_actions=plausible_actions,
+                user_id=session_user_id,
+                session_id=session_user_id,
+                interaction_index=i,
+            ))
+
+            # Digest for the next evolution step: the query asked and the
+            # next step the developer most plausibly "took" (first next_step).
+            history.append({
+                "query": follow_up_query,
+                "next_step_taken": ctx.next_steps[0] if ctx.next_steps else "",
+            })
+
+        return SyntheticSession(
+            session_id=session_user_id,
+            user_id=session_user_id,
+            profile=profile,
+            interactions=interactions,
         )

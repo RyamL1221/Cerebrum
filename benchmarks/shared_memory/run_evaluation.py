@@ -143,7 +143,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--trials",
         type=int,
         default=10,
-        help="Number of trials per condition (default: 10).",
+        help=(
+            "Number of trials per condition (default: 10). One-shot legacy "
+            "mode: each trial is an independent single-interaction user. "
+            "Ignored when --users is set (accumulating-session mode)."
+        ),
+    )
+    parser.add_argument(
+        "--users",
+        type=int,
+        default=None,
+        help=(
+            "Accumulating-session mode: number of simulated users (sessions) "
+            "per condition. When set, the harness runs "
+            "users x interactions-per-user interactions, each session sharing "
+            "one stable user_id so memory accumulates. When unset, the "
+            "one-shot --trials mode is used."
+        ),
+    )
+    parser.add_argument(
+        "--interactions-per-user",
+        type=int,
+        default=1,
+        help=(
+            "Accumulating-session mode: number of evolving interactions per "
+            "session (default: 1). Fully parametric — any value >= 1 works; "
+            "the evolving task-context generator makes no assumption about "
+            "session length. Only used when --users is set."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -276,12 +303,20 @@ class EvaluationOrchestrator:
         run_id: str | None = None,
         kernel_logs_path: str | None = None,
         rubric_version: str = "v1",
+        users: int | None = None,
+        interactions_per_user: int = 1,
     ):
         self.trials = trials
         self.output_dir = output_dir
         self.write_csv = write_csv
         self.condition = condition
         self.method = method
+        # Accumulating-session mode: when users is not None, run
+        # users x interactions_per_user interactions grouped into sessions
+        # (each session shares one stable user_id). When None, one-shot
+        # --trials mode (interactions_per_user is ignored).
+        self.users = users
+        self.interactions_per_user = interactions_per_user
         self.assistant_llms = assistant_llms  # passed to AssistantAgent and SyntheticDataGenerator
         self.judge_llms = judge_llms or assistant_llms  # falls back to assistant model if not set
         self.rubric_version = rubric_version  # selects judge prompt/parsing path (inert until subtask 3)
@@ -416,6 +451,8 @@ class EvaluationOrchestrator:
                 trial_index=trial_index,
                 condition=condition,
                 method=effective_method,
+                session_id=getattr(trial_data, "session_id", ""),
+                interaction_index=getattr(trial_data, "interaction_index", 0),
                 rubric_version=self.rubric_version,
                 failed=True,
                 error_message=str(e),
@@ -569,6 +606,8 @@ class EvaluationOrchestrator:
             trial_index=trial_index,
             condition=condition,
             method=effective_method,
+            session_id=getattr(trial_data, "session_id", ""),
+            interaction_index=getattr(trial_data, "interaction_index", 0),
             profile_usage_score=scores.profile_usage_score,
             task_usage_score=scores.task_usage_score,
             integration_score=scores.integration_score,
@@ -600,6 +639,14 @@ class EvaluationOrchestrator:
         one ``SyntheticTrialData`` instance is generated per trial index and
         reused across all four method pipelines.
         """
+        # Accumulating-session mode (--users) is only supported on the
+        # --method path. Guard rather than silently ignore it under --condition.
+        if self.users is not None and self.condition is not None:
+            raise ValueError(
+                "--users (accumulating-session mode) is not supported with the "
+                "legacy --condition flag; use --method instead."
+            )
+
         # ----------------------------------------------------------------
         # Legacy --condition path (backward compatible)
         # ----------------------------------------------------------------
@@ -762,6 +809,138 @@ class EvaluationOrchestrator:
 
         return status
 
+    def _run_method_oneshot(self, method_name: str, pipeline) -> list:
+        """One-shot --trials mode: each trial is an independent single user.
+
+        Preserves the original per-trial behavior exactly. Under ``--method
+        all`` the ``_trial_data_cache`` (keyed by trial index) is reused across
+        methods so scores are directly comparable.
+        """
+        trials: list[TrialResult] = []
+
+        if self.method == "all":
+            # Generate one SyntheticTrialData per trial index and reuse it
+            # across all methods so scores are directly comparable.
+            if not hasattr(self, "_trial_data_cache"):
+                self._trial_data_cache: dict = {}
+
+            for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
+                if i not in self._trial_data_cache:
+                    try:
+                        self._trial_data_cache[i] = self.generator.generate_trial_data(i)
+                    except Exception as e:
+                        logger.error("Trial %d: synthetic data generation failed: %s", i, e)
+                        trials.append(TrialResult(
+                            trial_index=i,
+                            condition=method_name,
+                            method=method_name,
+                            rubric_version=self.rubric_version,
+                            failed=True,
+                            error_message=str(e),
+                        ))
+                        continue
+
+                cached_data = self._trial_data_cache[i]
+                result = self.run_single_trial(
+                    i, method_name, pipeline,
+                    method=method_name,
+                    trial_data=cached_data,
+                )
+                trials.append(result)
+        else:
+            # Single method — generate fresh data per trial.
+            for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
+                result = self.run_single_trial(
+                    i, method_name, pipeline,
+                    method=method_name,
+                )
+                trials.append(result)
+
+        return trials
+
+    def _run_method_sessions(self, method_name: str, pipeline) -> list:
+        """Accumulating-session mode: users x interactions_per_user interactions.
+
+        Runs ``self.users`` sessions, each of ``self.interactions_per_user``
+        evolving interactions that share one stable per-session ``user_id`` so
+        memory accumulates across the session. Key discipline (design §3.4):
+
+        - ``trial_index`` is a **run-global monotonic** counter across ALL
+          interactions of ALL sessions — it is the reward-attribution key and is
+          NOT reset per session.
+        - ``session_id`` / ``interaction_index`` come from the generated
+          ``SyntheticTrialData`` and are descriptive/grouping only.
+
+        Under ``--method all`` the session cache is keyed by ``session_idx`` so
+        every method replays the identical sessions (the audit's session-scoped
+        caching change — it does not touch the reward key).
+
+        Interactions are run in order within a session so interaction ``i`` reads
+        back the memory written by interactions ``0..i-1`` of the same session.
+        """
+        trials: list[TrialResult] = []
+        # Run-global monotonic interaction counter → trial_index (the reward key).
+        global_trial_index = 0
+
+        # Session-scoped cache (only meaningful for --method all, where each
+        # session must be replayed identically across methods).
+        if self.method == "all" and not hasattr(self, "_session_cache"):
+            self._session_cache: dict = {}
+
+        total = self.users * self.interactions_per_user
+        with tqdm(total=total, desc=f"Method: {method_name}") as pbar:
+            for session_idx in range(self.users):
+                # Build (or reuse) this session's evolving interactions.
+                session = None
+                gen_error: Exception | None = None
+                if self.method == "all":
+                    session = self._session_cache.get(session_idx)
+                if session is None:
+                    try:
+                        session = self.generator.generate_session(
+                            session_idx, self.interactions_per_user
+                        )
+                        if self.method == "all":
+                            self._session_cache[session_idx] = session
+                    except Exception as e:
+                        gen_error = e
+                        logger.error(
+                            "Session %d: synthetic session generation failed: %s",
+                            session_idx, e,
+                        )
+
+                if gen_error is not None:
+                    # Whole-session generation failed: emit one failed
+                    # TrialResult per intended interaction, advancing the
+                    # global trial_index so the reward key stays monotonic.
+                    for interaction_index in range(self.interactions_per_user):
+                        trials.append(TrialResult(
+                            trial_index=global_trial_index,
+                            condition=method_name,
+                            method=method_name,
+                            session_id=f"session_{session_idx}",
+                            interaction_index=interaction_index,
+                            rubric_version=self.rubric_version,
+                            failed=True,
+                            error_message=str(gen_error),
+                        ))
+                        global_trial_index += 1
+                        pbar.update(1)
+                    continue
+
+                # Run the session's interactions in order (accumulation).
+                for interaction in session.interactions:
+                    result = self.run_single_trial(
+                        global_trial_index, method_name, pipeline,
+                        method=method_name,
+                        trial_data=interaction,
+                    )
+                    trials.append(result)
+                    global_trial_index += 1
+                    pbar.update(1)
+
+        return trials
+
     def _run_method(self) -> ExperimentResults:
         """Run the new --method workflow using MethodPipeline."""
         # Determine which methods to run
@@ -785,47 +964,12 @@ class EvaluationOrchestrator:
             if method_name in _GATING_VERIFIED_METHODS:
                 self._verify_gating_status(method_name)
 
-            trials: list[TrialResult] = []
-
-            if self.method == "all":
-                # Generate one SyntheticTrialData per trial index and reuse
-                # it across all methods so scores are directly comparable.
-                # The trial data cache is built on the first method pass and
-                # reused for subsequent methods.
-                if not hasattr(self, "_trial_data_cache"):
-                    self._trial_data_cache: dict = {}
-
-                for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
-                    if i not in self._trial_data_cache:
-                        try:
-                            self._trial_data_cache[i] = self.generator.generate_trial_data(i)
-                        except Exception as e:
-                            logger.error("Trial %d: synthetic data generation failed: %s", i, e)
-                            trials.append(TrialResult(
-                                trial_index=i,
-                                condition=method_name,
-                                method=method_name,
-                                rubric_version=self.rubric_version,
-                                failed=True,
-                                error_message=str(e),
-                            ))
-                            continue
-
-                    cached_data = self._trial_data_cache[i]
-                    result = self.run_single_trial(
-                        i, method_name, pipeline,
-                        method=method_name,
-                        trial_data=cached_data,
-                    )
-                    trials.append(result)
+            if self.users is not None:
+                # Accumulating-session mode.
+                trials = self._run_method_sessions(method_name, pipeline)
             else:
-                # Single method — generate fresh data per trial
-                for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
-                    result = self.run_single_trial(
-                        i, method_name, pipeline,
-                        method=method_name,
-                    )
-                    trials.append(result)
+                # One-shot --trials mode (unchanged).
+                trials = self._run_method_oneshot(method_name, pipeline)
 
             summary = self.writer.compute_summary_statistics(trials)
             condition_results.append(
@@ -902,6 +1046,8 @@ def main():
         run_id=args.run_id,
         kernel_logs_path=args.kernel_logs,
         rubric_version=args.rubric_version,
+        users=args.users,
+        interactions_per_user=args.interactions_per_user,
     )
 
     experiment = orchestrator.run()
