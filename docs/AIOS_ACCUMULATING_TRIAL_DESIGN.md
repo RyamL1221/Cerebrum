@@ -772,3 +772,122 @@ bookkeeping bug and not something this build fixes.
 
 **Gate cleared.** The data model shape from the design doc is confirmed valid
 with the one semantic clarification above; Subtask 2 may build against it.
+
+---
+
+## §3.5–3.7 RESULTS — mechanism pilot (executed)
+
+Live execution of the mechanism pilot. Models: **GPT-4o assistant / GPT-5.4
+judge (Azure)** (switched from the originally-planned local qwen2.5:7b for
+speed/reliability during iteration). Method `kernel_shared_adaptive`, kernel
+`adaptive_policy_enabled=true` (gating pre-flight passed). Results dirs:
+`results/session_pilot_5x4_gpt/`, `results/session_pilot_3x12_gpt/`.
+
+### Runs completed
+
+| Run | Config | Interactions | Failed | Notes |
+|-----|--------|-------------|--------|-------|
+| Mechanism pilot | `--users 5 --interactions-per-user 4` | 20 | **0** | clean |
+| Parametric verify | `--users 3 --interactions-per-user 12` | 36 | **0** | clean, zero code edits |
+
+(An earlier 5×4 attempt on local qwen aborted mid-run when the AIOS kernel
+process died — sessions 2–4 failed. The harness handled the crash gracefully:
+it recorded failed `TrialResult`s with correct `session_id`/`interaction_index`
+and kept `trial_index` monotonic, then finished cleanly. Kernel was restarted
+and the run redone on GPT.)
+
+### Parametric verification (§3.3 acceptance check) — PASS
+
+`--users 3 --interactions-per-user 12` ran end-to-end with **zero code edits**,
+producing 36 interactions across 3 sessions of 12 (`interaction_index` 0..11
+each), `trial_index` monotonic 0..35. Confirms `interactions_per_user` is a
+genuinely free parameter and `evolve_task_context` makes no session-length
+assumption.
+
+### Plumbing confirmations (concrete evidence)
+
+- **Global-monotonic `trial_index`:** 5×4 → `trial_index` exactly `0..19`, NOT
+  reset per session (session 1 starts at 4, session 2 at 8, …). 3×12 → `0..35`.
+  Verified programmatically (`tidxs == list(range(N))`).
+- **`session_id` / `interaction_index`:** correct in both runs — each session
+  shares one stable `user_id` (e.g. `alexandra_carter_sess5x4gpt_s0`); interaction
+  indices `0..3` (5×4) / `0..11` (3×12). Present in JSON and CSV.
+- **Per-interaction scoring:** all interactions carry profile/task/integration
+  scores (5×4 means ≈4.25/4.30/4.10). One atomic `TrialResult` row per
+  interaction.
+- **Per-session collection isolation:** each session's
+  `injected_memory_ids` is a distinct pair, stable within the session and
+  different across sessions — confirming the stable per-session `user_id` routes
+  each session to its own collection.
+
+### KEY FINDING (rough edge) — within-session memory does NOT accumulate
+
+**`shared_memory_count` stays pinned at 2 for every interaction, at BOTH
+horizons (interaction_index 0..3 and 0..11), and the physical
+`total_stored_for_user` never exceeds 2** (confirmed from kernel logs for a
+12-interaction session). The injected memory set is the *same two ids* across
+all of a session's interactions.
+
+Mechanism (traced in kernel logs): each interaction re-runs ProfileAgent +
+TaskAgent, which write a `profile` and a `task_context` memory under the session
+`user_id`, and the kernel's `auto_extract` writes a `conversation` memory — e.g.
+session s0 issued **6 add attempts across 4 interactions** (1 profile + 1 task +
+4 conversation). But Mem0's fact-extraction/dedup **collapses** these to ~2
+persisted rows for the user: the fixed profile and the near-identical evolving
+task context dedupe, and the conversation memories are either merged or (per the
+recurring `Mem0 diagnostic: 0 results ... fact extraction may have failed
+silently` warning) not landing as distinct retrievable rows. Net: the store does
+not grow within a session.
+
+**Interpretation.** This is exactly what a mechanism pilot is for. The harness
+plumbing is correct and complete — sessions, stable ids, monotonic reward key,
+per-interaction scoring, per-session isolation, graceful crash handling all work.
+But the **accumulation premise itself does not hold under the current Mem0 write
+path**: sharing a `user_id` across interactions is *necessary but not sufficient*
+for accumulation, because Mem0 dedupes same-user/same-type writes rather than
+appending. So the "does accumulation reach the regime where gates see a larger
+comparison set" question (Subtask 4) **cannot be studied as-is** — the comparison
+set stays at 2 no matter the horizon. This is an AIOS-side write/dedup behavior,
+not a Cerebrum harness bug, and it is flagged (not fixed) here.
+
+### Coherence review (§3.5 manual) — evolve_task_context is coherent, no drift
+
+Read across sessions at both horizons. `evolve_task_context` produces genuinely
+continuous, plausibly-evolving projects with **fixed project identity** and no
+drift/repetition:
+
+- **5×4 session s0 ("Data Pipeline Optimization"):** experiment arc *testing async
+  queries → evaluating performance metrics → analyzing bottlenecks → testing
+  optimization strategies*; `next_steps` advance causally (each step taken becomes
+  the next premise); a bottleneck goal appears mid-session then resolves; a new
+  blocker ("uncertainty on which optimization strategy") appears at i3, caused by
+  the prior bottleneck analysis. Textbook of the intended operators.
+- **5×4 session s3 ("Real-Time Collaboration Tool"):** WebSocket implementation →
+  stress testing → versioning/conflict resolution → validating versioning.
+- **3×12 session s0 ("Interactive Dashboard for Sales Analytics"):** coherent
+  across ALL 12 interactions — dynamic chart rendering → perf refinement →
+  batched DOM updates → evaluating/selecting a chart library → integrating → live
+  testing. **Project identity stable across all 12; no drift.**
+
+Minor observation: one long-horizon interaction scored task_usage=2 (3×12 tidx
+21), a single dip rather than a trend — not drift.
+
+### §3.6 ceiling probe → §3.7 handoff to Subtask 4
+
+The 3×12 run doubles as the exploratory ceiling probe. **Approximate coherence
+ceiling: ≥ 12 interactions — no drift observed at N=12** (project identity fixed,
+experiment/next_step arc continuous through interaction 11). Subtask 4 can start
+its ramp-up horizon at ≥12 and push further to find the true ceiling
+(multi-seed / multi-model characterization is Subtask 4's job).
+
+**Concrete handoff to Subtask 4:**
+1. Working, fully-parametric session mechanism (verified 5×4 and 3×12, 0 failures).
+2. Coherence ceiling estimate: **≥12, no drift at N=12** (from one long GPT-4o session).
+3. Reward-attribution key (from §3.4): `trial_index` global-monotonic — confirmed
+   live (0..19, 0..35), reward reports carry real `memory_ids` (`has_ids`).
+4. **BLOCKER for Subtask 4's gate-behavior question:** within-session memory does
+   not accumulate under the current Mem0 write/dedup path (`shared_memory_count`
+   and `total_stored_for_user` pinned at 2 regardless of horizon). Subtask 4
+   cannot observe "gates receiving a materially larger comparison set" until this
+   AIOS-side accumulation behavior is addressed. This should be resolved (or the
+   ramp-up question re-scoped) before Subtask 4's measurement pilot.
