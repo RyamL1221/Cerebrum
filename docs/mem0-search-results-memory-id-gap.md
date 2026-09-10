@@ -1,10 +1,19 @@
 # Cross-track dependency: Mem0 `retrieve_memory` omits per-entry memory ID
 
-**Status:** BLOCKED — needs an AIOS-side (kernel/provider-layer) fix.
+**Status:** RESOLVED — the AIOS Mem0 provider's `retrieve_memory` now
+emits a per-entry `memory_id` (`"memory_id": item.get("id")` in
+`aios/memory/providers/mem0.py::retrieve_memory`). The gap described
+below is fixed; this document is retained for historical context only.
+The `similarity`-always-`None` problem noted in passing was a *separate*
+issue and has also since been fixed (real similarity is now computed
+from the raw ChromaDB distance via `distance_to_similarity` — see
+`docs/AIOS_SEARCH_SCORE_SATURATION_REPORT.md` and
+`docs/GATE_BLINDNESS_FIX_SANITY_CHECK.md` in the AIOS repo). Do not
+conflate the two.
 **Track ownership:** AIOS kernel. Do NOT patch from the Cerebrum SDK track.
-**Blocks:** Cerebrum Subtask 2 (trial-ID → memory-IDs tracking) full population,
-and therefore Subtask 4 (reward attribution), whenever the harness runs against
-the Mem0 provider.
+**Was blocking (now unblocked):** Cerebrum Subtask 2 (trial-ID →
+memory-IDs tracking) full population, and therefore Subtask 4 (reward
+attribution), whenever the harness runs against the Mem0 provider.
 
 ## Summary
 
