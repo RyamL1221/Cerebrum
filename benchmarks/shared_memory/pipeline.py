@@ -121,6 +121,8 @@ class AgentPipeline:
                 diag_response = search_memories(
                     agent_name="profile_agent",
                     query=f"profile {trial_data.user_id}",
+                    user_id=trial_data.user_id,
+                    sharing_policy="shared",
                 )
                 diag_results = []
                 if diag_response and isinstance(diag_response, dict):
