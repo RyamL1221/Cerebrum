@@ -236,6 +236,70 @@ def test_experiment_results_with_methods_run():
     print("PASSED: ExperimentResults with methods_run populated")
 
 
+def test_experiment_metadata_has_model_label_fields():
+    """ExperimentMetadata must have assistant_model and judge_model fields."""
+    meta = ExperimentMetadata(
+        trials_per_condition=10,
+        timestamp="2024-01-01T00:00:00",
+        kernel_url="http://localhost:8000",
+        conditions_run=["kernel_shared"],
+    )
+    assert hasattr(meta, "assistant_model"), "missing 'assistant_model' field"
+    assert hasattr(meta, "judge_model"), "missing 'judge_model' field"
+    print("PASSED: ExperimentMetadata has assistant_model/judge_model fields")
+
+
+def test_experiment_metadata_model_labels_default_to_none():
+    """assistant_model and judge_model default to None when not specified."""
+    meta = ExperimentMetadata(
+        trials_per_condition=10,
+        timestamp="2024-01-01T00:00:00",
+        kernel_url="http://localhost:8000",
+        conditions_run=["kernel_shared"],
+    )
+    assert meta.assistant_model is None, (
+        f"Expected assistant_model=None, got {meta.assistant_model!r}"
+    )
+    assert meta.judge_model is None, (
+        f"Expected judge_model=None, got {meta.judge_model!r}"
+    )
+    print("PASSED: assistant_model/judge_model default to None")
+
+
+def test_experiment_metadata_model_labels_can_be_set():
+    """assistant_model and judge_model can be set to 'name:backend' strings."""
+    meta = ExperimentMetadata(
+        trials_per_condition=10,
+        timestamp="2024-01-01T00:00:00",
+        kernel_url="http://localhost:8000",
+        conditions_run=["kernel_shared"],
+        assistant_model="gpt-4o:azure",
+        judge_model="gpt-5.4:azure",
+    )
+    assert meta.assistant_model == "gpt-4o:azure"
+    assert meta.judge_model == "gpt-5.4:azure"
+    # Surfaces in the serialized JSON (model_dump is what write_json uses).
+    dumped = meta.model_dump()
+    assert dumped["assistant_model"] == "gpt-4o:azure"
+    assert dumped["judge_model"] == "gpt-5.4:azure"
+    print("PASSED: assistant_model/judge_model can be set and surface in model_dump")
+
+
+def test_format_model_label_roundtrip():
+    """_format_model_label inverts _parse_model_arg for provenance labels."""
+    from benchmarks.shared_memory.run_evaluation import (
+        _parse_model_arg,
+        _format_model_label,
+    )
+    assert _format_model_label(_parse_model_arg("gpt-4o:azure")) == "gpt-4o:azure"
+    assert _format_model_label(_parse_model_arg("qwen2.5:7b:ollama")) == "qwen2.5:7b:ollama"
+    assert _format_model_label(_parse_model_arg("gpt-4o")) == "gpt-4o"
+    assert _format_model_label(_parse_model_arg(None)) is None
+    assert _format_model_label(None) is None
+    assert _format_model_label([]) is None
+    print("PASSED: _format_model_label roundtrips _parse_model_arg")
+
+
 if __name__ == "__main__":
     test_trial_result_has_method_field()
     test_trial_result_method_default_is_empty_string()
@@ -251,4 +315,8 @@ if __name__ == "__main__":
     test_existing_experiment_metadata_construction_still_works()
     test_trial_result_with_all_new_fields()
     test_experiment_results_with_methods_run()
+    test_experiment_metadata_has_model_label_fields()
+    test_experiment_metadata_model_labels_default_to_none()
+    test_experiment_metadata_model_labels_can_be_set()
+    test_format_model_label_roundtrip()
     print("\nAll extended model tests passed.")

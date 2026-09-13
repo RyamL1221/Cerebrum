@@ -126,6 +126,28 @@ def _parse_model_arg(model_str: str | None) -> list | None:
     return [{"name": model_str}]
 
 
+def _format_model_label(llms: list | None) -> str | None:
+    """Render a parsed llms list back to a "name:backend" label for provenance.
+
+    Inverse of ``_parse_model_arg`` for recording which model a run used:
+    - ``[{"name": "gpt-4o", "backend": "azure"}]`` → ``"gpt-4o:azure"``
+    - ``[{"name": "gpt-4o"}]``                     → ``"gpt-4o"`` (no backend)
+    - ``None`` / empty                             → ``None`` (kernel default)
+
+    Only the first entry is labeled (the harness passes a single-model list).
+    """
+    if not llms:
+        return None
+    first = llms[0]
+    if not isinstance(first, dict):
+        return None
+    name = first.get("name")
+    if not name:
+        return None
+    backend = first.get("backend")
+    return f"{name}:{backend}" if backend else str(name)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build and return the CLI argument parser.
 
@@ -697,6 +719,8 @@ class EvaluationOrchestrator:
             timestamp=datetime.now().isoformat(),
             kernel_url=config.get_kernel_url(),
             conditions_run=conditions,
+            assistant_model=_format_model_label(self.assistant_llms),
+            judge_model=_format_model_label(self.judge_llms),
         )
 
         experiment = ExperimentResults(
@@ -1004,6 +1028,8 @@ class EvaluationOrchestrator:
             kernel_url=config.get_kernel_url(),
             conditions_run=methods_to_run,
             methods_run=methods_to_run,
+            assistant_model=_format_model_label(self.assistant_llms),
+            judge_model=_format_model_label(self.judge_llms),
             gating_status_by_method=gating_status_by_method,
         )
 

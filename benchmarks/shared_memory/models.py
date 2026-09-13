@@ -302,6 +302,17 @@ class ExperimentMetadata(BaseModel):
     kernel_url: str
     conditions_run: List[str]
     methods_run: List[str] = []
+    # Model provenance: which LLMs actually served the assistant path and the
+    # judge for this run, as "name:backend" strings (e.g. "gpt-4o:azure"),
+    # derived from the orchestrator's parsed --assistant-model / --judge-model.
+    # None means no model override was passed and the kernel's currently
+    # selected default was used (assistant_model), or the judge fell back to
+    # the assistant model (judge_model mirrors judge_llms, which itself falls
+    # back to assistant_llms). Recorded so a result file is self-describing
+    # about which models produced its scores — different assistant/judge models
+    # are not comparable and must not be pooled.
+    assistant_model: Optional[str] = None
+    judge_model: Optional[str] = None
     # Pre-flight provenance: the live kernel memory-gating state captured by
     # EvaluationOrchestrator._verify_gating_status() BEFORE any trial ran, keyed
     # by method name. Records what was actually configured server-side when the
