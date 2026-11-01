@@ -7,7 +7,7 @@ also records `git_commit`, `kernel_git_commit` and `config_snapshot`.
 
 | | AIOS | Cerebrum |
 |---|---|---|
-| Tag `neurips-subtask-02` | `65428510e4f891c6c818a36210ce283530a40da1` | `3a8231f11abd1adf365259b243dc9b211ae7dd36` |
+| Tag `neurips-subtask-02` | `3ca3b271743f69835a45cb849a744e79bf625710` | `f9e91630bc8ab5179ba1432aebfdbaf45cc3c5f7` |
 | Commit run | `19c3ea95d69a050e4ef080f19fecc17db4286964` | `956d54f4ad26acb4d8dea19942414cb264bb375f` plus this file's commit |
 
 Kernel code is unchanged from the tag: `git diff neurips-subtask-02 HEAD
