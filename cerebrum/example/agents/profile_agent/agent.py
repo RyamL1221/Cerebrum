@@ -200,6 +200,7 @@ class ProfileAgent:
                         agent_name=self.agent_name,
                         memory_id=memory_id,
                         content=content,
+                        metadata={"user_id": user_id},
                         base_url=aios_kernel_url,
                     )
                     memory_ids.append(memory_id)

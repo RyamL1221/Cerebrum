@@ -62,11 +62,15 @@ class AssistantAgent:
             self.messages.append({"role": "assistant", "content": result_text})
             self.rounds += 1
 
-            return {
+            result = {
                 "agent_name": self.agent_name,
                 "result": result_text,
                 "rounds": self.rounds,
             }
+            diagnostics = response.get("injection_diagnostics") if response else None
+            if diagnostics is not None:
+                result["injection_diagnostics"] = diagnostics
+            return result
 
         except Exception as e:
             return {

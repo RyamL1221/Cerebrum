@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from unittest.mock import patch
 
+import requests
+
 logger = logging.getLogger(__name__)
 
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
@@ -160,9 +162,9 @@ class AgentPipeline:
         injection_diagnostics = self._extract_injection_diagnostics(assistant_result)
 
         # Build retrieval log: use kernel diagnostics or fall back to audit query
-        if injection_diagnostics and injection_diagnostics.injected_count > 0:
+        if injection_diagnostics is not None:
             retrieval_log = self._retrieval_log_from_diagnostics(injection_diagnostics)
-            # injection_status defaults to "confirmed"
+            retrieval_log.injection_status = "confirmed"
         else:
             retrieval_log = self._audit_shared_memories(
                 trial_data.user_id, trial_data.follow_up_query
@@ -214,9 +216,16 @@ class AgentPipeline:
                 match_score=mem.get("match_score"),
             ))
 
+        selection = {
+            field: diag_data[field]
+            for field in InjectionDiagnostics.model_fields
+            if field in diag_data
+            and field not in ("injected_count", "injected_memories")
+        }
         return InjectionDiagnostics(
             injected_count=diag_data.get("injected_count", len(entries)),
             injected_memories=entries,
+            **selection,
         )
 
     def _retrieval_log_from_diagnostics(
@@ -246,12 +255,20 @@ class AgentPipeline:
             cross_agent_found=cross_agent,
         )
 
-    # Kernel context injector defaults (must match AIOS config.yaml)
-    RELEVANCE_THRESHOLD = 0.3
-    MAX_INJECTED_MEMORIES = 5  # memory.max_injected_memories default
     # Kernel over-fetches 4× to compensate for post-retrieval filtering
-    AUDIT_TOP_K = MAX_INJECTED_MEMORIES * 4  # = 20
+    AUDIT_FETCH_FACTOR = 4
     WRITER_AGENTS = ["profile_agent", "task_agent"]
+
+    @staticmethod
+    def _kernel_memory_config() -> dict:
+        """Read the live kernel's memory selection settings."""
+        from cerebrum.config.config_manager import config
+
+        response = requests.get(
+            f"{config.get_kernel_url()}/memory/config", timeout=10
+        )
+        response.raise_for_status()
+        return response.json()
 
     def _audit_shared_memories(self, user_id: str, query_text: str) -> RetrievalLog:
         """Query the kernel from the harness side to audit shared memories.
@@ -284,13 +301,17 @@ class AgentPipeline:
         # agent's name so the kernel returns its owned memories.
         # Each writer gets its own try/except for per-writer isolation.
         all_results = []
+        memory_config = self._kernel_memory_config()
+        audit_top_k = (
+            memory_config["max_injected_memories"] * self.AUDIT_FETCH_FACTOR
+        )
         for writer_agent in self.WRITER_AGENTS:
             try:
                 query_obj = MemoryQuery(
                     operation_type="retrieve_memory",
                     params={
                         "content": query_text,
-                        "k": self.AUDIT_TOP_K,
+                        "k": audit_top_k,
                         "user_id": user_id,
                         "sharing_policy": "shared",
                         "agent_name": writer_agent,
@@ -372,7 +393,7 @@ class AgentPipeline:
         """Build a RetrievalLog from a raw search_memories response.
 
         Applies the same post-retrieval relevance filter as the kernel
-        context injector: memories with score < RELEVANCE_THRESHOLD (0.5)
+        context injector: memories with score below the kernel's relevance_threshold
         are dropped, while memories with score=None are kept (matching
         the kernel's behavior for unscored results).
 
@@ -394,12 +415,13 @@ class AgentPipeline:
         if not isinstance(resp, dict):
             return RetrievalLog()
 
+        threshold = self._kernel_memory_config()["relevance_threshold"]
         search_results = resp.get("search_results", []) or []
         for mem in search_results:
             # Apply kernel relevance threshold: drop below threshold,
             # keep None-scored memories (matches kernel behavior)
             score = mem.get("score")
-            if score is not None and score < self.RELEVANCE_THRESHOLD:
+            if score is not None and score < threshold:
                 continue
 
             meta = mem.get("metadata", {})

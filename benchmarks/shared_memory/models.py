@@ -5,7 +5,7 @@ generation inputs, judge scores, per-trial results, and experiment-level
 aggregation output. No business logic — just data and validation.
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -107,6 +107,18 @@ class InjectionDiagnostics(BaseModel):
 
     injected_count: int = 0
     injected_memories: List[InjectedMemoryEntry] = []
+    resolved_user_id: Optional[str] = None
+    own_fetched: int = 0
+    shared_fetched: int = 0
+    after_partition: int = 0
+    after_visibility: int = 0
+    after_dedupe: int = 0
+    scores_present: bool = False
+    after_threshold: int = 0
+    after_cap: int = 0
+    top_k_used: Dict[str, int] = {}
+    after_budget: int = 0
+    tokens_estimated: int = 0
 
 
 class WrittenMemoryRecord(BaseModel):

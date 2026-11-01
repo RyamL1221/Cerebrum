@@ -292,3 +292,24 @@ class TestIntegrationWithRunEvaluation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_parses_the_current_resolved_user_id_lines():
+    """The injector logs ``resolved_user_id=``, not ``user_id=``."""
+    from benchmarks.shared_memory.kernel_log_parser import (
+        _DETAILED_PATTERN,
+        _SIMPLE_PATTERN,
+    )
+
+    detailed = _DETAILED_PATTERN.search(
+        "Injected 3 memories (1 own + 2 shared) for "
+        "agent=assistant_agent, resolved_user_id=alice_1"
+    )
+    assert detailed is not None
+    assert detailed.group(4) == "alice_1"
+    simple = _SIMPLE_PATTERN.search(
+        "Injected 3 memories for agent=assistant_agent, "
+        "resolved_user_id=alice_1"
+    )
+    assert simple is not None
+    assert simple.group(2) == "alice_1"

@@ -247,7 +247,7 @@ def test_st3_dedup_key_null_safe_stable(result_set, user_id, query_text):
     expected_passing_null_entries = 0
     for entry in null_memory_id_entries:
         score = entry.get("score")
-        if score is not None and score < pipeline.RELEVANCE_THRESHOLD:
+        if score is not None and score < pipeline._kernel_memory_config()["relevance_threshold"]:
             continue
         meta = entry.get("metadata", {})
         if not meta or not meta.get("owner_agent"):

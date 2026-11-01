@@ -244,7 +244,7 @@ def test_build_retrieval_log_threshold_filter(search_results):
     for mem in search_results:
         score = mem.get("score")
         # Threshold filter: drop below threshold, keep None
-        if score is not None and score < pipeline.RELEVANCE_THRESHOLD:
+        if score is not None and score < pipeline._kernel_memory_config()["relevance_threshold"]:
             continue
         meta = mem.get("metadata", {})
         if not meta:
@@ -433,7 +433,7 @@ def test_audit_all_writers_succeed_output_structure(
     expected_cross_agent = False
     for mem in unique:
         score = mem.get("score")
-        if score is not None and score < pipeline.RELEVANCE_THRESHOLD:
+        if score is not None and score < pipeline._kernel_memory_config()["relevance_threshold"]:
             continue
         meta = mem.get("metadata", {})
         if not meta:
