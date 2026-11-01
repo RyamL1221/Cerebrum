@@ -5,9 +5,14 @@ generation inputs, judge scores, per-trial results, and experiment-level
 aggregation output. No business logic — just data and validation.
 """
 
+import subprocess
+from pathlib import Path
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
+import requests
+from pydantic import BaseModel, Field
+
+from cerebrum.config.config_manager import config
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +186,45 @@ class ConditionSummary(BaseModel):
     failed_trials: int
 
 
+def _git_commit(repo: Path) -> Optional[str]:
+    """Return a repo's HEAD, marked ``-dirty`` when a tracked file
+    differs from it, or None when it cannot be read."""
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        changes = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain", "-uno"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return f"{commit}-dirty" if changes else commit
+
+
+def _harness_commit() -> Optional[str]:
+    """Return the Cerebrum commit this harness runs from."""
+    return _git_commit(Path(__file__).resolve().parents[2])
+
+
+def _kernel_commit() -> Optional[str]:
+    """Return the sibling AIOS checkout's commit."""
+    return _git_commit(Path(__file__).resolve().parents[3] / "AIOS")
+
+
+def _config_snapshot() -> dict:
+    """Return the live kernel's memory settings, or {} without one."""
+    try:
+        response = requests.get(
+            f"{config.get_kernel_url()}/memory/config", timeout=5
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return {}
+
+
 class ExperimentMetadata(BaseModel):
     """Top-level experiment configuration."""
 
@@ -189,6 +233,9 @@ class ExperimentMetadata(BaseModel):
     kernel_url: str
     conditions_run: List[str]
     methods_run: List[str] = []
+    git_commit: Optional[str] = Field(default_factory=_harness_commit)
+    kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
+    config_snapshot: dict = Field(default_factory=_config_snapshot)
 
 
 class ConditionResults(BaseModel):
