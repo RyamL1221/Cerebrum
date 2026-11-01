@@ -160,13 +160,16 @@ def create_agentic_memory(agent_name: str,
 
 def get_memory(agent_name: str, 
                 memory_id: str,
-                base_url: str = aios_kernel_url) -> MemoryResponse:
+                base_url: str = aios_kernel_url,
+                user_id: Optional[str] = None) -> MemoryResponse:
     """Read a memory note by ID.
     
     Args:
         agent_name: Name of the agent to handle the request
         memory_id: ID of the memory to read
         base_url: Base URL for the API server
+        user_id: The user the memory belongs to. Needed to find a
+            memory stored per user (Mem0) outside the agent's own scope.
         
     Returns:
         MemoryResponse containing the memory content and metadata
@@ -179,7 +182,7 @@ def get_memory(agent_name: str,
     """
     query = MemoryQuery(
         operation_type="get_memory",
-        params={"memory_id": memory_id}
+        params={"memory_id": memory_id, "user_id": user_id}
     )
     return send_request(agent_name, query, base_url)
 
@@ -239,13 +242,16 @@ def update_memory(agent_name: str,
 
 def delete_memory(agent_name: str,
                  memory_id: str,
-                 base_url: str = aios_kernel_url) -> MemoryResponse:
+                 base_url: str = aios_kernel_url,
+                 user_id: Optional[str] = None) -> MemoryResponse:
     """Delete a memory note.
     
     Args:
         agent_name: Name of the agent to handle the request
         memory_id: ID of the memory to delete
         base_url: Base URL for the API server
+        user_id: The user the memory belongs to. Needed to find a
+            memory stored per user (Mem0) outside the agent's own scope.
         
     Returns:
         MemoryResponse indicating success/failure
@@ -257,7 +263,7 @@ def delete_memory(agent_name: str,
     """
     query = MemoryQuery(
         operation_type="remove_memory",
-        params={"memory_id": memory_id}
+        params={"memory_id": memory_id, "user_id": user_id}
     )
     return send_request(agent_name, query, base_url)
 

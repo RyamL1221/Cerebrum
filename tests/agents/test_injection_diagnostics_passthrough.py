@@ -94,3 +94,13 @@ def test_task_upsert_updates_the_users_collection():
         )
     create.assert_not_called()
     assert update.call_args.kwargs["metadata"]["user_id"] == "alice"
+
+
+def test_by_id_calls_carry_the_user():
+    from cerebrum.memory.apis import delete_memory, get_memory
+
+    with patch("cerebrum.memory.apis.send_request") as send:
+        get_memory("agent", "m1", user_id="alice")
+        delete_memory("agent", "m1", user_id="alice")
+    for call in send.call_args_list:
+        assert call.args[1].params["user_id"] == "alice"
