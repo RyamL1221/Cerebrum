@@ -1,0 +1,1482 @@
+{
+ "qwen2.5:7b/json": [
+  {
+   "type": "profile",
+   "user": "profile_0",
+   "stored": 2,
+   "coverage": 0.8571428571428571,
+   "seconds": 4.4,
+   "error": null,
+   "memories": [
+    "Ethan Ramirez prefers tools like Visual Studio Code, Git, Postman, and Docker",
+    "Ethan Ramirez's preferred programming language is JavaScript"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_1",
+   "stored": 2,
+   "coverage": 0.8571428571428571,
+   "seconds": 3.4,
+   "error": null,
+   "memories": [
+    "Alexandra Nguyen prefers tools like Visual Studio Code, Docker, Postman, and Git",
+    "Alexandra Nguyen's preferred programming language is Python"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_2",
+   "stored": 1,
+   "coverage": 0.875,
+   "seconds": 2.3,
+   "error": null,
+   "memories": [
+    "Ava Moreno prefers tools like Visual Studio Code, Git, Postman, Eclipse, and PyCharm and uses Python as her preferred language"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_3",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 13.4,
+   "error": null,
+   "memories": [
+    "Alex Thompson prefers Git, Visual Studio Code, Jira, and Docker for his tools",
+    "Alex Thompson's preferred programming language is Python",
+    "Alex Thompson responds in a concise manner"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_4",
+   "stored": 3,
+   "coverage": 0.8333333333333334,
+   "seconds": 13.9,
+   "error": null,
+   "memories": [
+    "User prefers tools like Visual Studio Code, Git, and Postman",
+    "User prefers programming language Python",
+    "User's response style is casual"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_5",
+   "stored": 2,
+   "coverage": 0.8571428571428571,
+   "seconds": 13.1,
+   "error": null,
+   "memories": [
+    "Samantha Carter prefers tools like Visual Studio Code, Git, Postman, and Docker",
+    "Samantha Carter's preferred programming language is Python"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_6",
+   "stored": 2,
+   "coverage": 0.8571428571428571,
+   "seconds": 4.0,
+   "error": null,
+   "memories": [
+    "Sophia Martinez prefers using Visual Studio Code, Docker, Postman, and GitHub",
+    "Sophia Martinez's preferred programming language is Python"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_7",
+   "stored": 2,
+   "coverage": 0.8571428571428571,
+   "seconds": 4.6,
+   "error": null,
+   "memories": [
+    "Sophia Ramirez prefers using Visual Studio Code, Git, Postman, and Docker for her development workflow",
+    "Sophia Ramirez's preferred programming language is Python"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_8",
+   "stored": 2,
+   "coverage": 0.6666666666666666,
+   "seconds": 13.8,
+   "error": null,
+   "memories": [
+    "User uses Visual Studio Code, Git, and JIRA for development",
+    "User's primary programming language is Java"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_9",
+   "stored": 1,
+   "coverage": 0.8571428571428571,
+   "seconds": 2.7,
+   "error": null,
+   "memories": [
+    "Evelyn Thompson prefers Git, VS Code, Docker, and Jest as tools and uses JavaScript as her preferred programming language"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_0",
+   "stored": 10,
+   "coverage": 1.0,
+   "seconds": 26.6,
+   "error": null,
+   "memories": [
+    "User is working on a Dynamic Dashboard for Data Analytics project",
+    "Current active experiment is testing optimized client-side rendering for large datasets",
+    "Goals include improving load times for dashboards with over 1 million data points",
+    "Ensuring seamless user interactions without lag when filtering or sorting data is a goal",
+    "Validating the performance of virtual scrolling implementation on various browsers is a goal",
+    "Blocker is unpredictable behavior in legacy browsers impacting rendering efficiency",
+    "Next steps include implementing fallbacks for legacy browser compatibility",
+    "Running performance benchmarks using real-world datasets is a next step",
+    "Collaborating with the backend team to streamline API response times is a next step",
+    "Documenting findings and preparing for team review of results is a next step"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_1",
+   "stored": 5,
+   "coverage": 0.6363636363636364,
+   "seconds": 22.0,
+   "error": null,
+   "memories": [
+    "User is working on the Dynamic Pricing Model Optimization project, focusing on improving accuracy, reducing computation time, and integrating with the inventory management system",
+    "Current active experiment is testing a new reinforcement learning algorithm for predictive price adjustments",
+    "Goals include improving model accuracy, reducing computation time, and enabling seamless integration with the inventory management system",
+    "Blockers are limited access to real-world pricing datasets and intermittent issues with the cloud computing environment",
+    "Next steps involve refactoring feature extraction code, setting up synthetic data generation, conducting A/B testing, and collaborating with the DevOps team"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_2",
+   "stored": 1,
+   "coverage": 0.3,
+   "seconds": 13.2,
+   "error": null,
+   "memories": [
+    "User's current project is a Social Media Platform with goals to improve user engagement by 20%, increase average session duration by 15 minutes, and enhance mobile app performance by 30%"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_3",
+   "stored": 9,
+   "coverage": 1.0,
+   "seconds": 15.2,
+   "error": null,
+   "memories": [
+    "User is working on a Weather Forecasting App with an active experiment to integrate machine learning models for precise temperature prediction",
+    "User aims to improve prediction accuracy by 10%",
+    "User aims to optimize model response time to under 500ms",
+    "User aims to reduce false positive error rates in temperature predictions",
+    "User faces blockers of limited access to high-resolution satellite data and inadequate computational resources for extensive model training",
+    "User plans to negotiate data access agreements with satellite providers",
+    "User plans to request additional server resources from the IT department",
+    "User plans to implement early stopping and model validation techniques",
+    "User plans to conduct A/B testing to validate model performance improvements"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_4",
+   "stored": 3,
+   "coverage": 0.9,
+   "seconds": 17.2,
+   "error": null,
+   "memories": [
+    "User's current project is the e-commerce platform redesign with goals to increase user engagement by 15%, boost average cart value by 10%, and reduce cart abandonment rate by 5%",
+    "User's active experiment is personalized product recommendations with blockers due to limited historical user data for accurate personalization",
+    "User's next steps include gathering additional user data, implementing A/B testing, monitoring experiment performance, and launching the full-scale recommendation system"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_5",
+   "stored": 10,
+   "coverage": 1.0,
+   "seconds": 23.8,
+   "error": null,
+   "memories": [
+    "User is working on a Sentiment Analyzer for Customer Reviews project",
+    "Current experiment is optimizing BERT model performance on unbalanced datasets",
+    "Goals include improving sentiment classification accuracy to over 92%",
+    "Goals also include identifying and mitigating bias in training data",
+    "Goals involve streamlining the preprocessing pipeline for faster execution",
+    "Blocker is limited GPU capacity causing slower model training",
+    "Next steps are implementing data augmentation techniques for unbalanced dataset",
+    "Next steps include running benchmarks comparing BERT against DistilBERT for efficiency",
+    "Next steps are profiling the preprocessing code to identify bottlenecks",
+    "Next steps involve requesting additional GPU resources from IT team"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_6",
+   "stored": 6,
+   "coverage": 0.8,
+   "seconds": 11.0,
+   "error": null,
+   "memories": [
+    "User is working on a Customer Sentiment Analysis Tool with the goal of improving sentiment classification accuracy to above 85%",
+    "User is testing the sentiment classification accuracy using a fine-tuned BERT model",
+    "User aims to integrate the model inference with the web API",
+    "User plans to optimize the preprocessing pipeline for large-scale text data",
+    "User is facing blockers with unexpected memory spikes during model training on large datasets",
+    "User's next steps include investigating memory usage, running benchmark tests, deploying the current BERT model to a staging environment, and documenting findings"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_7",
+   "stored": 4,
+   "coverage": 0.9,
+   "seconds": 19.5,
+   "error": null,
+   "memories": [
+    "User is working on a project named SmartHomeAutomation with goals to improve energy consumption by 30%, reduce average latency by 20%, and enhance system reliability and stability",
+    "User's project goals include improving energy consumption by 30%, reducing average latency by 20%, and enhancing system reliability and stability",
+    "User is facing blockers in the project setup, including inadequate testing environment and unclear product requirements",
+    "User plans to configure the Java IDE for large-scale testing, develop and implement a data logging framework, and conduct thorough regression testing and debugging"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_8",
+   "stored": 3,
+   "coverage": 0.8888888888888888,
+   "seconds": 16.5,
+   "error": null,
+   "memories": [
+    "User's current project is the e-commerce website redesign with goals to reduce cart abandonment by 20%, increase average order value by 10%, and improve checkout user satisfaction",
+    "User is currently optimizing the checkout process for the e-commerce website redesign",
+    "User plans to analyze current checkout data, test various layout options, implement A/B testing, and monitor experiment results"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_9",
+   "stored": 5,
+   "coverage": 0.6,
+   "seconds": 18.5,
+   "error": null,
+   "memories": [
+    "User is working on a Machine Learning Model for Customer Segmentation",
+    "Current active experiment is Trial #82: Hyperparameter Tuning for Improved Model Accuracy",
+    "Goals include improving model accuracy by at least 10%, reducing overfitting and underfitting, and ensuring scalability",
+    "Blockers are insufficient computational resources and difficulty in selecting relevant features",
+    "Next steps are to run hyperparameter tuning on a subset of the data, collaborate with the data science team, and schedule a meeting with stakeholders"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  }
+ ],
+ "qwen2.5:7b/nl": [
+  {
+   "type": "profile",
+   "user": "profile_0",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 14.8,
+   "error": null,
+   "memories": [
+    "User's name is Ethan Ramirez",
+    "User prefers Visual Studio Code, Git, Postman, and Docker",
+    "User's preferred programming language is JavaScript",
+    "User prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_1",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 5.6,
+   "error": null,
+   "memories": [
+    "User's name is Alexandra Nguyen",
+    "User prefers Visual Studio Code, Docker, Postman, and Git",
+    "User's preferred programming language is Python",
+    "User likes concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_2",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 15.1,
+   "error": null,
+   "memories": [
+    "User's name is Ava Moreno",
+    "User prefers Visual Studio Code, Git, Postman, Eclipse, and PyCharm",
+    "User's preferred programming language is Python",
+    "User likes concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_3",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 5.7,
+   "error": null,
+   "memories": [
+    "User's name is Alex Thompson",
+    "User prefers Git, Visual Studio Code, Jira, and Docker",
+    "User's preferred programming language is Python",
+    "User likes concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_4",
+   "stored": 3,
+   "coverage": 0.8333333333333334,
+   "seconds": 13.5,
+   "error": null,
+   "memories": [
+    "User prefers to use Visual Studio Code, Git, and Postman",
+    "User's preferred programming language is Python",
+    "User prefers casual responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_5",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 6.6,
+   "error": null,
+   "memories": [
+    "User's name is Samantha Carter",
+    "User prefers Visual Studio Code, Git, Postman, and Docker",
+    "User's preferred programming language is Python",
+    "User likes concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_6",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 6.3,
+   "error": null,
+   "memories": [
+    "User's name is Sophia Martinez",
+    "User prefers Visual Studio Code, Docker, Postman, and GitHub",
+    "User's preferred programming language is Python",
+    "User likes detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_7",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 6.5,
+   "error": null,
+   "memories": [
+    "User's name is Sophia Ramirez",
+    "User prefers to use Visual Studio Code, Git, Postman, and Docker",
+    "User's preferred programming language is Python",
+    "User likes detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_8",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 6.6,
+   "error": null,
+   "memories": [
+    "User's name is Alexander J. Miller",
+    "User prefers to use Visual Studio Code, Git, and JIRA",
+    "User's preferred programming language is Java",
+    "User likes concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_9",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 6.4,
+   "error": null,
+   "memories": [
+    "User's name is Evelyn Thompson",
+    "User prefers Git, VS Code, Docker, and Jest",
+    "User's preferred programming language is JavaScript",
+    "User likes detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_0",
+   "stored": 10,
+   "coverage": 1.0,
+   "seconds": 30.8,
+   "error": null,
+   "memories": [
+    "User is working on a Dynamic Dashboard for Data Analytics",
+    "User's current experiment is Testing optimized client-side rendering for large datasets",
+    "User's goals are to improve load times for dashboards displaying over 1 million data points",
+    "User's goals are to ensure seamless user interactions without lag when filtering or sorting data",
+    "User's goals are to validate the performance of the virtual scrolling implementation on various browsers",
+    "User's blockers are unpredictable behavior in legacy browsers impacting rendering efficiency",
+    "User's next steps are to implement fallbacks for legacy browser compatibility",
+    "User's next steps are to run performance benchmarks using real-world datasets",
+    "User's next steps are to collaborate with the backend team to streamline API response times",
+    "User's next steps are to document findings and prepare for team review of results"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_1",
+   "stored": 4,
+   "coverage": 0.6363636363636364,
+   "seconds": 9.8,
+   "error": null,
+   "memories": [
+    "User is working on Dynamic Pricing Model Optimization using a new reinforcement learning algorithm for predictive price adjustments.",
+    "User's goals are to improve model accuracy, reduce computation time, and enable seamless integration with the inventory management system.",
+    "User's blockers are limited access to real-world pricing datasets and intermittent cloud computing issues.",
+    "User's next steps include refactoring feature extraction code, setting up synthetic data generation, conducting A/B testing, and collaborating with DevOps."
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_2",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 20.4,
+   "error": null,
+   "memories": [
+    "User is working on Social Media Platform and conducting trial #30",
+    "User's goals are to improve user engagement by 20% within 6 weeks, increase average session duration by 15 minutes, and enhance mobile app performance by 30%",
+    "User's blockers are pending response from the design team regarding new layout changes and integration issues with third-party API causing unexpected errors",
+    "User's next steps are to conduct A/B testing for the new layout, investigate and resolve integration issues, and analyze user feedback to optimize performance"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_3",
+   "stored": 10,
+   "coverage": 1.0,
+   "seconds": 28.6,
+   "error": null,
+   "memories": [
+    "User is working on a Weather Forecasting App focusing on integrating machine learning models for precise temperature prediction",
+    "User aims to improve prediction accuracy by 10%",
+    "User aims to optimize model response time to under 500ms",
+    "User aims to reduce false positive error rates in temperature predictions",
+    "User's blockers include limited access to high-resolution satellite data",
+    "User's blockers include inadequate computational resources for extensive model training",
+    "User's next steps are to negotiate data access agreements with satellite providers",
+    "User's next steps are to request additional server resources from IT department",
+    "User's next steps include implementing early stopping and model validation techniques",
+    "User's next steps involve conducting A/B testing to validate model performance improvements"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_4",
+   "stored": 5,
+   "coverage": 0.9,
+   "seconds": 22.2,
+   "error": null,
+   "memories": [
+    "User is working on an E-commerce Platform Redesign with a focus on Personalized Product Recommendations",
+    "User's goals are to increase user engagement by 15% within 2 months, boost average cart value by 10%, and reduce cart abandonment rate by 5%",
+    "User's blockers are limited historical user data for accurate personalization",
+    "User's next steps are to gather additional user data for model training, implement A/B testing, monitor experiment performance, and adjust parameters",
+    "User plans to launch a full-scale recommendation system"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_5",
+   "stored": 9,
+   "coverage": 1.0,
+   "seconds": 27.2,
+   "error": null,
+   "memories": [
+    "User is working on a Sentiment Analyzer for Customer Reviews, optimizing BERT model performance on unbalanced datasets",
+    "User aims to improve sentiment classification accuracy to over 92%",
+    "User needs to identify and mitigate bias in training data",
+    "User plans to streamline the preprocessing pipeline for faster execution",
+    "User's blockers include limited GPU capacity causing slower model training",
+    "User intends to implement data augmentation techniques to handle unbalanced datasets",
+    "User will run benchmarks comparing BERT against DistilBERT for efficiency",
+    "User will profile the preprocessing code to identify bottlenecks",
+    "User will request additional GPU resources from the IT team"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_6",
+   "stored": 9,
+   "coverage": 1.0,
+   "seconds": 33.2,
+   "error": null,
+   "memories": [
+    "User is working on a Customer Sentiment Analysis Tool using a fine-tuned BERT model",
+    "User aims to improve sentiment classification accuracy to above 85%",
+    "User plans to integrate model inference with a web API",
+    "User needs to optimize the preprocessing pipeline for large-scale text data",
+    "User faces memory spikes during model training on large datasets",
+    "User will investigate memory usage to identify training bottlenecks",
+    "User will run benchmark tests on alternative preprocessing libraries",
+    "User will deploy the current BERT model to a staging environment for end-to-end testing",
+    "User will document findings and adjust experiment parameters for the next trial"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_7",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 22.7,
+   "error": null,
+   "memories": [
+    "User is working on SmartHomeAutomation, specifically Trial #16: Optimizing Energy Efficiency with Java",
+    "User's goals are to improve energy consumption by 30%, reduce average latency by 20%, and enhance system reliability and stability",
+    "User's blockers are inadequate testing environment setup and unclear product requirements",
+    "User's next steps are to configure Java IDE for large-scale testing, develop and implement a data logging framework, and conduct thorough regression testing and debugging"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_8",
+   "stored": 4,
+   "coverage": 0.8888888888888888,
+   "seconds": 21.8,
+   "error": null,
+   "memories": [
+    "User is working on an E-commerce Website Redesign, focusing on optimizing the checkout process.",
+    "User's goals are to reduce the cart abandonment rate by 20%, increase the average order value by 10%, and improve user satisfaction with the checkout flow.",
+    "User's next steps include analyzing current checkout data, testing various layout options, implementing A/B testing, and monitoring experiment results.",
+    "User has blockers that are currently unknown."
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_9",
+   "stored": 4,
+   "coverage": 0.7,
+   "seconds": 22.2,
+   "error": null,
+   "memories": [
+    "User is working on a Machine Learning Model for Customer Segmentation, currently on Trial #82: Hyperparameter Tuning for Improved Model Accuracy",
+    "User's goals are to improve model accuracy by at least 10%, reduce overfitting and underfitting, and ensure model scalability",
+    "User's blockers are insufficient computational resources and difficulty in selecting relevant features",
+    "User's next steps are to run hyperparameter tuning on a subset of the data, collaborate with the data science team, and schedule a meeting with stakeholders"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  }
+ ],
+ "llama3.1:8b/json": [
+  {
+   "type": "profile",
+   "user": "profile_0",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 19.7,
+   "error": null,
+   "memories": [
+    "Ethan Ramirez prefers to use Visual Studio Code, Git, Postman, and Docker",
+    "Ethan Ramirez's preferred programming language is JavaScript",
+    "Ethan Ramirez prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_1",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 6.5,
+   "error": null,
+   "memories": [
+    "Alexandra Nguyen prefers using Visual Studio Code, Docker, Postman, and Git",
+    "Alexandra Nguyen's preferred programming language is Python",
+    "Alexandra Nguyen prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_2",
+   "stored": 3,
+   "coverage": 0.875,
+   "seconds": 17.6,
+   "error": null,
+   "memories": [
+    "User's preferred tools are Visual Studio Code, Git, Postman, Eclipse, and PyCharm",
+    "User's preferred programming language is Python",
+    "User prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_3",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 17.6,
+   "error": null,
+   "memories": [
+    "Alex Thompson prefers using Git, Visual Studio Code, Jira, and Docker",
+    "Alex Thompson's preferred programming language is Python",
+    "Alex Thompson prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_4",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 17.8,
+   "error": null,
+   "memories": [
+    "Sophie Chen prefers using Visual Studio Code, Git, and Postman",
+    "Sophie Chen's preferred programming language is Python",
+    "Sophie Chen prefers a casual response style"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_5",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 18.1,
+   "error": null,
+   "memories": [
+    "Samantha Carter prefers to use Visual Studio Code, Git, Postman, and Docker",
+    "Samantha Carter's preferred programming language is Python",
+    "Samantha Carter prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_6",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 6.7,
+   "error": null,
+   "memories": [
+    "Sophia Martinez prefers using Visual Studio Code, Docker, Postman, and GitHub",
+    "Sophia Martinez's preferred programming language is Python",
+    "Sophia Martinez prefers detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_7",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 6.6,
+   "error": null,
+   "memories": [
+    "Sophia Ramirez prefers to use Visual Studio Code, Git, Postman, and Docker",
+    "Sophia Ramirez's preferred programming language is Python",
+    "Sophia Ramirez prefers detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_8",
+   "stored": 1,
+   "coverage": 0.6666666666666666,
+   "seconds": 14.6,
+   "error": null,
+   "memories": [
+    "Alexander J. Miller uses Visual Studio Code, Git, and JIRA for development"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_9",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 6.7,
+   "error": null,
+   "memories": [
+    "Evelyn Thompson prefers using Git, VS Code, Docker, and Jest",
+    "Evelyn Thompson's preferred programming language is JavaScript",
+    "Evelyn Thompson prefers detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_0",
+   "stored": 10,
+   "coverage": 1.0,
+   "seconds": 33.0,
+   "error": null,
+   "memories": [
+    "User is working on a Dynamic Dashboard for Data Analytics project",
+    "User is currently testing optimized client-side rendering for large datasets",
+    "User's goals for the project include improving load times for dashboards with over 1 million data points",
+    "User's goals for the project include ensuring seamless user interactions without lag when filtering or sorting data",
+    "User's goals for the project include validating the performance of virtual scrolling implementation on various browsers",
+    "User is experiencing unpredictable behavior in legacy browsers impacting rendering efficiency",
+    "User's next steps include implementing fallbacks for legacy browser compatibility",
+    "User's next steps include running performance benchmarks using real-world datasets",
+    "User's next steps include collaborating with backend team to streamline API response times",
+    "User's next steps include documenting findings and preparing for team review of results"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_1",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 27.7,
+   "error": null,
+   "memories": [
+    "User is working on the Dynamic Pricing Model Optimization project",
+    "The active experiment is Testing a new reinforcement learning algorithm for predictive price adjustments",
+    "The goals of the project are Improve the model's accuracy in predicting optimal prices, Reduce computation time for large-scale data inputs, Enable seamless integration with the company's existing inventory management system",
+    "The blockers of the project are Limited access to real-world pricing datasets for training, Intermittent issues with the cloud computing environment",
+    "The next steps are Refactor the existing feature extraction code to improve performance, Set up synthetic data generation to supplement training data, Conduct A/B testing to compare algorithm performance against the current baseline, Collaborate with the DevOps team to resolve cloud-related issues"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_2",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 26.7,
+   "error": null,
+   "memories": [
+    "The current project is a Social Media Platform.",
+    "The active experiment is trial #30.",
+    "The goals for the project are to improve user engagement by 20% within the next 6 weeks, increase average session duration by 15 minutes, and enhance mobile app performance by 30%.",
+    "The blockers for the project are pending response from design team regarding new layout changes and integration issues with third-party API causing unexpected errors.",
+    "The next steps for the project are to conduct A/B testing to validate the effectiveness of the new layout, investigate and resolve integration issues with the third-party API, and analyze and refine user feedback to optimize platform performance."
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_3",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 26.2,
+   "error": null,
+   "memories": [
+    "User is currently working on the Weather Forecasting App project",
+    "The active experiment in the project is the Integration of Machine Learning Models for Precise Temperature Prediction",
+    "The project goals are to improve prediction accuracy by 10%, optimize model response time to under 500ms, and reduce false positive error rates in temperature predictions",
+    "The project blockers are limited access to high-resolution satellite data and inadequate computational resources for extensive model training",
+    "The next steps in the project are to negotiate data access agreements with satellite providers, request additional server resources from IT department, implement early stopping and model validation techniques, and conduct A/B testing to validate model performance improvements"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_4",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 25.1,
+   "error": null,
+   "memories": [
+    "User is currently working on the E-commerce Platform Redesign project",
+    "Active experiment is Personalized Product Recommendations",
+    "Goals for the project are: Increase user engagement by 15% within 2 months, Boost average cart value by 10%, Reduce cart abandonment rate by 5%",
+    "Blockers for the project are: Limited historical user data for accurate personalization",
+    "Next steps for the project are: Gather additional user data for model training, Implement A/B testing to validate results, Monitor experiment performance and adjust parameters, Launch full-scale recommendation system"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_5",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 25.1,
+   "error": null,
+   "memories": [
+    "User is working on a Sentiment Analyzer for Customer Reviews project",
+    "Active experiment is Optimizing BERT model performance on unbalanced datasets",
+    "Goals include improving sentiment classification accuracy to over 92%, identifying and mitigating bias in training data, and streamlining preprocessing pipeline for faster execution",
+    "Current blockers are limited GPU capacity causing slower model training",
+    "Next steps include implementing data augmentation techniques to handle unbalanced dataset, running benchmarks comparing BERT against DistilBERT for efficiency, profiling the preprocessing code to identify bottlenecks, and requesting additional GPU resources from IT team"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_6",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 27.0,
+   "error": null,
+   "memories": [
+    "User is currently working on the Customer Sentiment Analysis Tool project",
+    "The active experiment for the project is testing sentiment classification accuracy using a fine-tuned BERT model",
+    "The project goals are to improve sentiment classification accuracy to above 85%, integrate model inference with the web API, and optimize the preprocessing pipeline for large-scale text data",
+    "The project has blockers including unexpected memory spikes during model training on large datasets",
+    "The next steps for the project are to investigate memory usage to identify bottlenecks in the training stack, run benchmark tests on alternative preprocessing libraries, deploy the current BERT model to a staging environment for end-to-end testing, and document findings and adjust experiment parameters for the next trial"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_7",
+   "stored": 7,
+   "coverage": 1.0,
+   "seconds": 28.8,
+   "error": null,
+   "memories": [
+    "User is working on SmartHomeAutomation project with Trial #16: Optimizing Energy Efficiency with Java",
+    "User aims to improve energy consumption by 30% and reduce average latency by 20% in SmartHomeAutomation project",
+    "User wants to enhance system reliability and stability in SmartHomeAutomation project",
+    "User is facing blockers in SmartHomeAutomation project: Inadequate testing environment setup and Unclear product requirements",
+    "User needs to configure Java IDE for large-scale testing in SmartHomeAutomation project",
+    "User needs to develop and implement a data logging framework in SmartHomeAutomation project",
+    "User needs to conduct thorough regression testing and debugging in SmartHomeAutomation project"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_8",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 26.1,
+   "error": null,
+   "memories": [
+    "User is currently working on the E-commerce Website Redesign project",
+    "The active experiment is Optimizing Checkout Process",
+    "The goals of the project are to reduce cart abandonment rate by 20%, increase average order value by 10%, and improve user satisfaction with checkout flow",
+    "There are no blockers for the project",
+    "The next steps for the project are to analyze current checkout data, test various layout options for checkout page, implement A/B testing for selected layouts, and monitor experiment results and adjust as needed"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_9",
+   "stored": 5,
+   "coverage": 0.8,
+   "seconds": 26.6,
+   "error": null,
+   "memories": [
+    "User is working on a Machine Learning Model for Customer Segmentation project",
+    "Current active experiment is Trial #82: Hyperparameter Tuning for Improved Model Accuracy",
+    "Goals for the project are to improve model accuracy by at least 10% compared to the baseline, reduce overfitting and underfitting, and ensure model scalability",
+    "Blockers for the project are insufficient computational resources and difficulty in selecting relevant features",
+    "Next steps for the project are to run hyperparameter tuning on a subset of the data, collaborate with the data science team, and schedule a meeting with stakeholders"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  }
+ ],
+ "llama3.1:8b/nl": [
+  {
+   "type": "profile",
+   "user": "profile_0",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 18.5,
+   "error": null,
+   "memories": [
+    "Ethan Ramirez's preferred coding tools are Visual Studio Code, Git, Postman, and Docker",
+    "Ethan Ramirez's preferred programming language is JavaScript",
+    "Ethan prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_1",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 7.0,
+   "error": null,
+   "memories": [
+    "Alexandra Nguyen's preferred development tools are Visual Studio Code, Docker, Postman, and Git",
+    "Alexandra Nguyen's preferred programming language is Python",
+    "Alexandra Nguyen prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_2",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 19.9,
+   "error": null,
+   "memories": [
+    "User's name is Ava Moreno",
+    "User prefers to use Visual Studio Code, Git, Postman, Eclipse, and PyCharm",
+    "User's preferred programming language is Python",
+    "User prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_3",
+   "stored": 7,
+   "coverage": 1.0,
+   "seconds": 13.1,
+   "error": null,
+   "memories": [
+    "Alex Thompson is the user's name",
+    "Alex Thompson prefers to use Git",
+    "Alex Thompson prefers to use Visual Studio Code",
+    "Alex Thompson prefers to use Jira",
+    "Alex Thompson prefers to use Docker",
+    "Alex Thompson's preferred programming language is Python",
+    "Alex Thompson prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_4",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 19.9,
+   "error": null,
+   "memories": [
+    "Sophie Chen's name",
+    "Sophie Chen prefers to use Visual Studio Code, Git, and Postman",
+    "Sophie Chen's preferred programming language is Python",
+    "Sophie Chen prefers casual responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_5",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 8.0,
+   "error": null,
+   "memories": [
+    "User's name is Samantha Carter",
+    "User prefers to use Visual Studio Code, Git, Postman, and Docker",
+    "User's preferred programming language is Python",
+    "User prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_6",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 8.0,
+   "error": null,
+   "memories": [
+    "User's name is Sophia Martinez",
+    "User prefers to use Visual Studio Code, Docker, Postman, and GitHub",
+    "User's preferred programming language is Python",
+    "User likes detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_7",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 8.4,
+   "error": null,
+   "memories": [
+    "Sophia Ramirez is the user's name",
+    "Sophia prefers to use Visual Studio Code, Git, Postman, and Docker",
+    "Sophia's preferred programming language is Python",
+    "Sophia likes detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_8",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 8.0,
+   "error": null,
+   "memories": [
+    "User's name is Alexander J. Miller",
+    "User prefers to use Visual Studio Code, Git, and JIRA",
+    "User's preferred programming language is Java",
+    "User prefers concise responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "profile",
+   "user": "profile_9",
+   "stored": 3,
+   "coverage": 1.0,
+   "seconds": 6.9,
+   "error": null,
+   "memories": [
+    "Evelyn Thompson's preferred tools are Git, VS Code, Docker, and Jest",
+    "Evelyn Thompson's preferred programming language is JavaScript",
+    "Evelyn Thompson prefers detailed responses"
+   ],
+   "agent_ids": [
+    "profile_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_0",
+   "stored": 6,
+   "coverage": 0.7,
+   "seconds": 26.8,
+   "error": null,
+   "memories": [
+    "User is working on a Dynamic Dashboard for Data Analytics",
+    "User is currently testing optimized client-side rendering for large datasets",
+    "User's goals for the Dynamic Dashboard are to improve load times for dashboards with over 1 million data points and ensure seamless user interactions",
+    "User wants to validate the performance of virtual scrolling implementation on various browsers",
+    "User's blockers for the project are unpredictable behavior in legacy browsers impacting rendering efficiency",
+    "User's next steps are to implement fallbacks for legacy browser compatibility, run performance benchmarks, collaborate with backend team, and document findings"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_1",
+   "stored": 5,
+   "coverage": 0.7272727272727273,
+   "seconds": 24.7,
+   "error": null,
+   "memories": [
+    "User is working on Dynamic Pricing Model Optimization",
+    "User is testing a new reinforcement learning algorithm for predictive price adjustments",
+    "User's goals for the project are to improve model accuracy, reduce computation time, and enable seamless integration with inventory management system",
+    "User's blockers for the project are limited access to real-world pricing datasets and intermittent cloud computing issues",
+    "User's next steps are to refactor feature extraction code, set up synthetic data generation, conduct A/B testing, and collaborate with DevOps team"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_2",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 25.2,
+   "error": null,
+   "memories": [
+    "User is working on a Social Media Platform with current experiment trial #30",
+    "User's goals for the Social Media Platform are to improve user engagement by 20% in 6 weeks, increase average session duration by 15 minutes, and enhance mobile app performance by 30%",
+    "User's blockers for the Social Media Platform are pending response from design team regarding new layout changes and integration issues with third-party API causing unexpected errors",
+    "User's next steps for the Social Media Platform are conducting A/B testing to validate new layout, investigating and resolving integration issues with third-party API, and analyzing and refining user feedback to optimize platform performance"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_3",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 15.0,
+   "error": null,
+   "memories": [
+    "User is working on a Weather Forecasting App",
+    "User's current experiment is integrating machine learning models for precise temperature prediction",
+    "User's goals for the project are to improve prediction accuracy by 10%, optimize model response time to under 500ms, and reduce false positive error rates in temperature predictions",
+    "User's blockers for the project are limited access to high-resolution satellite data and inadequate computational resources for extensive model training",
+    "User's next steps for the project are to negotiate data access agreements with satellite providers, request additional server resources from IT department, implement early stopping and model validation techniques, and conduct A/B testing to validate model performance improvements"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_4",
+   "stored": 4,
+   "coverage": 1.0,
+   "seconds": 24.3,
+   "error": null,
+   "memories": [
+    "User is working on an E-commerce Platform Redesign with a focus on Personalized Product Recommendations",
+    "User's goals for the redesign are to increase user engagement by 15% within 2 months, boost average cart value by 10%, and reduce cart abandonment rate by 5%",
+    "User's blockers for the redesign are limited historical user data for accurate personalization",
+    "User's next steps for the redesign are to gather additional user data for model training, implement A/B testing to validate results, monitor experiment performance and adjust parameters, and launch a full-scale recommendation system"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_5",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 26.9,
+   "error": null,
+   "memories": [
+    "User is working on a Sentiment Analyzer for Customer Reviews",
+    "User's current experiment is Optimizing BERT model performance on unbalanced datasets",
+    "User's goals for the Sentiment Analyzer are: Improve sentiment classification accuracy to over 92%; Identify and mitigate bias in training data; Streamline preprocessing pipeline for faster execution",
+    "User's blockers for the Sentiment Analyzer are: Limited GPU capacity causing slower model training",
+    "User's next steps for the Sentiment Analyzer are: Implement data augmentation techniques to handle unbalanced dataset; Run benchmarks comparing BERT against DistilBERT for efficiency; Profile the preprocessing code to identify bottlenecks; Request additional GPU resources from IT team"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_6",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 27.2,
+   "error": null,
+   "memories": [
+    "User is working on a Customer Sentiment Analysis Tool",
+    "User is testing sentiment classification accuracy using a fine-tuned BERT model",
+    "User's goals for the project are to improve sentiment classification accuracy to above 85%, integrate model inference with the web API, and optimize preprocessing pipeline for large-scale text data",
+    "User's blockers for the project are unexpected memory spikes during model training on large datasets",
+    "User's next steps for the project are to investigate memory usage to identify bottlenecks in training stack, run benchmark tests on alternative preprocessing libraries, deploy the current BERT model to a staging environment for end-to-end testing, and document findings and adjust experiment parameters for the next trial"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_7",
+   "stored": 5,
+   "coverage": 1.0,
+   "seconds": 25.3,
+   "error": null,
+   "memories": [
+    "User is working on SmartHomeAutomation project",
+    "User is currently on Trial #16: Optimizing Energy Efficiency with Java",
+    "User's goals for the project are: Improve energy consumption by 30%, Reduce average latency by 20%, Enhance system reliability and stability",
+    "User's blockers for the project are: Inadequate testing environment setup, Unclear product requirements",
+    "User's next steps for the project are: Configure Java IDE for large-scale testing, Develop and implement a data logging framework, Conduct thorough regression testing and debugging"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_8",
+   "stored": 4,
+   "coverage": 0.8888888888888888,
+   "seconds": 28.2,
+   "error": null,
+   "memories": [
+    "User is redesigning an e-commerce website, focusing on optimizing the checkout process",
+    "User's goals for the checkout process redesign are to reduce cart abandonment rate by 20%, increase average order value by 10%, and improve user satisfaction",
+    "User's next steps for the checkout process redesign are to analyze current checkout data, test various layout options, implement A/B testing, and monitor experiment results",
+    "User's blockers for the checkout process redesign are unknown"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  },
+  {
+   "type": "task_context",
+   "user": "task_context_9",
+   "stored": 6,
+   "coverage": 0.9,
+   "seconds": 32.0,
+   "error": null,
+   "memories": [
+    "User is working on a Machine Learning Model for Customer Segmentation",
+    "User is currently running Trial #82: Hyperparameter Tuning for Improved Model Accuracy",
+    "User's goals for the project are to improve model accuracy by at least 10% and reduce overfitting and underfitting",
+    "User's blockers for the project are insufficient computational resources and difficulty in selecting relevant features",
+    "User's next steps are to run hyperparameter tuning on a subset of the data and collaborate with the data science team",
+    "User needs to schedule a meeting with stakeholders to discuss project timeline and expectations"
+   ],
+   "agent_ids": [
+    "task_agent"
+   ],
+   "metadata_kept": true
+  }
+ ]
+}
