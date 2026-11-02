@@ -2,7 +2,7 @@ import os
 import json
 import logging
 
-from cerebrum.llm.apis import llm_chat_with_json_output
+from cerebrum.llm.apis import llm_chat_with_json_output, parse_json_reply
 from cerebrum.memory.apis import create_memory, update_memory, search_memories
 from cerebrum.config.config_manager import config
 
@@ -162,13 +162,7 @@ class TaskAgent:
             response_format=response_format,
         )
 
-        response_message = response["response"]["response_message"]
-        if isinstance(response_message, str):
-            context_data = json.loads(response_message)
-        else:
-            context_data = response_message
-
-        return context_data
+        return parse_json_reply(response["response"]["response_message"])
 
     def _upsert_task_memory(self, user_id: str, context_data: dict) -> list:
         """Search for existing task context memories, update or create.

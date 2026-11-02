@@ -1,6 +1,9 @@
 """Tests for the re-validation rule and the experiment metadata."""
 
+import json
 from unittest.mock import patch
+
+import pytest
 
 from benchmarks.shared_memory import models, revalidate
 from benchmarks.shared_memory.models import ExperimentMetadata
@@ -99,3 +102,33 @@ def test_metadata_records_commits_and_config():
         )
     assert len(metadata.git_commit.split("-")[0]) == 40
     assert metadata.config_snapshot == {"max_memory_tokens": 2000}
+
+
+def test_mean_latency_skips_failed_trials():
+    trials = [
+        {"latency_seconds": 2.0},
+        {"latency_seconds": None, "failed": True},
+    ]
+    assert revalidate.mean_latency(trials) == 2.0
+
+
+def test_main_exits_nonzero_on_failed_trials(tmp_path):
+    good = {"failed": False, "latency_seconds": 1.0,
+            "injection_diagnostics": None}
+    good.update({field: 3 for field in revalidate.DIMENSIONS.values()})
+    for directory, trials in (
+        (tmp_path / "new", [good, good, {"failed": True}]),
+        (tmp_path / "old", [good, good]),
+    ):
+        for model in revalidate.MODELS:
+            for method in revalidate.METHODS:
+                cell_dir = directory / f"{model}_{method}"
+                cell_dir.mkdir(parents=True)
+                (cell_dir / f"results_{method}.json").write_text(
+                    json.dumps({"conditions": [{"trials": trials}]})
+                )
+    argv = ["revalidate", "--new", str(tmp_path / "new"),
+            "--workshop", str(tmp_path / "old")]
+    with patch("sys.argv", argv), pytest.raises(SystemExit) as caught:
+        revalidate.main()
+    assert "failed trials" in str(caught.value)

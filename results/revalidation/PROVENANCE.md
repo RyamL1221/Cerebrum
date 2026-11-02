@@ -378,3 +378,14 @@ memory:
     session_id: "default"
 
 ```
+
+## Amendment: GPT-4o re-run
+
+Both GPT-4o cells of the first run were invalid (102 and 100 of 150
+trials failed in synthetic data generation on fenced JSON replies). They
+are re-run whole with run prefix `reval2` on later commits, which change
+harness parsers, the analysis and the driver, not the kernel or judge.
+The exact commits are in each results file's `git_commit` and
+`kernel_git_commit`. Llama and Qwen stay on the commits above. See the
+amendment in AIOS `docs/REVALIDATION.md`. Invalid files:
+`repo-artifacts/Cerebrum/revalidation/invalid_first_run/`.

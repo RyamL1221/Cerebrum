@@ -9,7 +9,11 @@ import logging
 import uuid
 from typing import Dict, Any, List
 
-from cerebrum.llm.apis import llm_chat, llm_chat_with_json_output
+from cerebrum.llm.apis import (
+    llm_chat,
+    llm_chat_with_json_output,
+    parse_json_reply,
+)
 from cerebrum.config.config_manager import config
 
 from benchmarks.shared_memory.models import (
@@ -177,7 +181,7 @@ class SyntheticDataGenerator:
         raw = _robust_llm_json_call(
             self.agent_name, messages, self.kernel_url, response_format, self.llms
         )
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = parse_json_reply(raw)
         data = _unwrap_nested(data, ["user_name", "preferred_tools", "preferred_language", "response_style"])
         return SyntheticProfile(**data)
 
@@ -267,7 +271,7 @@ class SyntheticDataGenerator:
         )
 
         raw = llm_response["response"]["response_message"]
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = parse_json_reply(raw)
         data = _unwrap_nested(data, ["current_project", "active_experiment", "goals", "blockers", "next_steps"])
         return SyntheticTaskContext(**data)
 
@@ -363,7 +367,7 @@ class SyntheticDataGenerator:
             )
 
             raw = llm_response["response"]["response_message"]
-            data = json.loads(raw) if isinstance(raw, str) else raw
+            data = parse_json_reply(raw)
             data = _unwrap_nested(data, ["query"])
             last_query = data["query"]
 
@@ -453,7 +457,7 @@ class SyntheticDataGenerator:
         )
 
         raw = llm_response["response"]["response_message"]
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = parse_json_reply(raw)
         data = _unwrap_nested(data, ["actions"])
         return data["actions"]
 

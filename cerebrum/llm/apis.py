@@ -1,3 +1,5 @@
+import re
+import json
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, Union
 from typing_extensions import Literal
@@ -9,6 +11,21 @@ from cerebrum.config.config_manager import config
 aios_kernel_url = config.get_kernel_url()
 
 import requests
+
+FENCE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
+
+
+def parse_json_reply(raw: Any) -> Any:
+    """Parse a model's JSON reply, tolerating a Markdown code fence.
+
+    Azure gpt-4o fences about a third of its replies even when a JSON
+    response format is requested. A reply that is not a string has
+    already been parsed and is returned as it is.
+    """
+    if not isinstance(raw, str):
+        return raw
+    return json.loads(FENCE.sub("", raw.strip()))
+
 
 def list_available_llms():
     """

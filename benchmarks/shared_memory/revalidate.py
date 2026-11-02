@@ -157,8 +157,10 @@ def diagnostics_report(trials: list) -> dict:
 
 
 def mean_latency(trials: list) -> float:
-    """Return a cell's mean assistant latency."""
-    return statistics.mean(t["latency_seconds"] for t in trials)
+    """Return a cell's mean assistant latency over completed trials."""
+    return statistics.mean(
+        t["latency_seconds"] for t in trials if not t.get("failed")
+    )
 
 
 def scores(trials: list, field: str) -> list:
@@ -209,10 +211,12 @@ def main() -> None:
         print("verdict:", condition_verdict(rows))
 
     print("\n## diagnostics and latency")
+    failed = 0
     for method in METHODS:
         for model in MODELS:
             trials = load_trials(args.new, model, method)
             workshop = load_trials(args.workshop, model, method)
+            failed += sum(1 for t in trials if t.get("failed"))
             print(
                 f"{model} {method}: latency "
                 f"{mean_latency(trials):.2f}s "
@@ -225,6 +229,9 @@ def main() -> None:
             writer = csv.DictWriter(handle, fieldnames=list(all_rows[0]))
             writer.writeheader()
             writer.writerows(all_rows)
+
+    if failed:
+        raise SystemExit(f"{failed} failed trials: those cells are invalid")
 
 
 if __name__ == "__main__":

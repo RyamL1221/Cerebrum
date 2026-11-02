@@ -2,7 +2,7 @@ import os
 import json
 import logging
 
-from cerebrum.llm.apis import llm_chat_with_json_output
+from cerebrum.llm.apis import llm_chat_with_json_output, parse_json_reply
 from cerebrum.memory.apis import create_memory, update_memory, search_memories
 from cerebrum.config.config_manager import config
 
@@ -150,13 +150,7 @@ class ProfileAgent:
             response_format=response_format,
         )
 
-        response_message = response["response"]["response_message"]
-        if isinstance(response_message, str):
-            profile_data = json.loads(response_message)
-        else:
-            profile_data = response_message
-
-        return profile_data
+        return parse_json_reply(response["response"]["response_message"])
 
     def _upsert_profile_memory(self, user_id: str, profile_data: dict) -> list:
         """Search for existing profile memories, update or create.
