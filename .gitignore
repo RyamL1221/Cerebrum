@@ -216,3 +216,5 @@ cache
 # mem0
 
 /.mem0
+# Agent-managed memory stores (native conditions)
+/.native_memory

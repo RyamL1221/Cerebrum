@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 
 CONDITIONS = ("kernel_shared", "naive_concat", "vanilla_rag", "kernel_private")
 
+# Agents manage memory themselves (docs/NATIVE_USAGE.md in AIOS): the
+# kernel must run with injection and extraction off.
+NATIVE_CONDITIONS = ("native_mem0", "native_inhouse")
+
+# Conditions that need the kernel to inject memories.
+KERNEL_INJECTION_CONDITIONS = ("kernel_shared", "kernel_private")
+
 # Deprecated name -> current name. ``mem0_default`` was the kernel pipeline
 # with sharing off, not Mem0's own behavior.
 CONDITION_ALIASES = {"mem0_default": "kernel_private"}

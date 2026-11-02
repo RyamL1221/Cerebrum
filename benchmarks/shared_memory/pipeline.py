@@ -29,6 +29,13 @@ from cerebrum.example.agents.assistant_agent.agent import AssistantAgent
 from cerebrum.memory.apis import search_memories, create_memory
 
 from benchmarks.shared_memory.conditions import canonical_condition
+from cerebrum.example.agents.native import backends as native_backends
+from cerebrum.example.agents.native.agents import (
+    NativeAssistantAgent,
+    NativeMemory,
+    NativeProfileAgent,
+    NativeTaskAgent,
+)
 from benchmarks.shared_memory.models import (
     InjectedMemoryEntry,
     InjectionDiagnostics,
@@ -473,6 +480,8 @@ class MethodPipeline:
         self.method = canonical_condition(method)
         self.top_k = top_k
         self.assistant_llms = assistant_llms
+        # Long-lived native agents, built on the first native trial.
+        self._native_agents: tuple | None = None
 
     def run_trial(self, trial_data: SyntheticTrialData) -> PipelineResult:
         """Route to the correct execution path based on self.method.
@@ -499,10 +508,15 @@ class MethodPipeline:
             return self._run_vanilla_rag(trial_data, method_user_id)
         elif self.method == "kernel_private":
             return self._run_kernel_private(trial_data, method_user_id)
+        elif self.method == "native_mem0":
+            return self._run_native(trial_data, method_user_id, "mem0")
+        elif self.method == "native_inhouse":
+            return self._run_native(trial_data, method_user_id, "inhouse")
         else:
             raise ValueError(
                 f"Unknown method: {self.method!r}. "
-                "Valid methods are: kernel_shared, naive_concat, vanilla_rag, kernel_private."
+                "Valid methods are: kernel_shared, naive_concat, vanilla_rag, "
+                "kernel_private, native_mem0, native_inhouse."
             )
 
     def _run_kernel_shared(
@@ -728,3 +742,71 @@ class MethodPipeline:
         result = pipeline.run_trial(scoped_trial)
         result.method = "kernel_private"
         return result
+
+    def _native(self, backend: str) -> tuple:
+        """The condition's three agents, each with its own backend client,
+        built once and kept across trials like deployed agents."""
+        if self._native_agents is None:
+            settings = native_backends.NativeSettings.from_kernel_config(
+                AgentPipeline._kernel_memory_config()
+            )
+            self._native_agents = (
+                NativeProfileAgent(
+                    "profile_agent", NativeMemory(backend, settings)
+                ),
+                NativeTaskAgent("task_agent", NativeMemory(backend, settings)),
+                NativeAssistantAgent(
+                    "assistant_agent", NativeMemory(backend, settings)
+                ),
+            )
+        return self._native_agents
+
+    def _run_native(
+        self, trial_data: SyntheticTrialData, method_user_id: str,
+        backend: str,
+    ) -> PipelineResult:
+        """Agent-managed memory (docs/NATIVE_USAGE.md in AIOS): the agents
+        write and read the backend themselves; the kernel serves only the
+        LLM calls.
+
+        Latency is the assistant's retrieval and LLM call. Its conversation
+        write after the response is excluded, as the kernel conditions
+        write theirs on a background thread.
+        """
+        profile_agent, task_agent, assistant_agent = self._native(backend)
+        for agent in (profile_agent, task_agent, assistant_agent):
+            agent.user_id = method_user_id
+            agent.llms = self.assistant_llms
+        profile_result = profile_agent.run(
+            json.dumps(trial_data.profile.model_dump())
+        )
+        task_result = task_agent.run(
+            json.dumps(trial_data.task_context.model_dump())
+        )
+        assistant_result = assistant_agent.run(trial_data.follow_up_query)
+        timing = assistant_result["timing"]
+
+        reader = AgentPipeline(share_memory=True)
+        diagnostics = reader._extract_injection_diagnostics(assistant_result)
+        retrieval_log = reader._retrieval_log_from_diagnostics(diagnostics)
+        retrieval_log.injection_status = "agent_reported"
+        written = [
+            WrittenMemoryRecord(
+                agent_name=meta["owner_agent"],
+                memory_type=meta["memory_type"],
+                sharing_policy=meta["sharing_policy"],
+                user_id=meta["user_id"],
+            )
+            for meta in (profile_result["written"], task_result["written"])
+        ]
+        return PipelineResult(
+            profile_result=profile_result,
+            task_result=task_result,
+            assistant_result=assistant_result,
+            assistant_response=assistant_result["result"],
+            latency_seconds=timing["retrieve_seconds"] + timing["llm_seconds"],
+            retrieval_log=retrieval_log,
+            injection_diagnostics=diagnostics,
+            written_memories=written,
+            method=self.method,
+        )

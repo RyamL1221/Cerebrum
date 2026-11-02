@@ -1,0 +1,246 @@
+"""The agent-managed conditions native_mem0 and native_inhouse
+(AIOS docs/NATIVE_USAGE.md): no kernel memory calls, the agents' own
+sharing filter, kernel-comparable diagnostics, and the pre-flight."""
+
+import hashlib
+import json
+from contextlib import ExitStack
+from unittest.mock import MagicMock, patch
+
+import chromadb
+import pytest
+from hypothesis import given, strategies as st
+
+from benchmarks.shared_memory import run_evaluation
+from benchmarks.shared_memory.models import (
+    InjectionDiagnostics,
+    SyntheticProfile,
+    SyntheticTaskContext,
+    SyntheticTrialData,
+)
+from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
+from cerebrum.example.agents.native import agents as native_agents
+from cerebrum.example.agents.native import backends
+from cerebrum.example.agents.native.render import render
+from cerebrum.example.agents.native.sharing import (
+    in_partition,
+    memory_metadata,
+    visible,
+)
+from cerebrum.example.agents.profile_agent import agent as profile_module
+from cerebrum.example.agents.task_agent import agent as task_module
+
+KERNEL_CONFIG = {
+    "max_injected_memories": 10,
+    "embedding": {"provider": "ollama", "model": "nomic-embed-text",
+                  "dimension": 8, "ollama_base_url": "http://localhost:11434"},
+    "backend_llm": {"provider": "ollama", "model": "qwen2.5:7b"},
+    "auto_inject": False, "auto_extract": False,
+}
+PROFILE = {"user_name": "Ana Li", "preferred_tools": ["vim", "git"],
+           "preferred_language": "Go", "response_style": "terse"}
+TASK = {"current_project": "web server", "active_experiment": "load test",
+        "goals": ["handle 10k connections"], "blockers": ["tail latency"],
+        "next_steps": ["add pooling"]}
+TRIAL = SyntheticTrialData(
+    profile=SyntheticProfile(**PROFILE),
+    task_context=SyntheticTaskContext(**TASK),
+    follow_up_query="What should I do next on the web server?",
+    user_id="ana_t0",
+)
+
+
+class FakeMem0:
+    """Shaped like mem0.Memory: one store shared by every client, as one
+    Chroma collection is; search filters by user_id only."""
+
+    store: list = []
+
+    def __init__(self):
+        self.add_calls = []
+
+    def add(self, messages, user_id, agent_id, metadata, infer):
+        self.add_calls.append({"infer": infer, "agent_id": agent_id})
+        text = " ".join(m["content"] for m in messages)
+        FakeMem0.store.append({
+            "id": str(len(FakeMem0.store)), "memory": text,
+            "user_id": user_id, "agent_id": agent_id,
+            "metadata": {k: v for k, v in metadata.items() if k != "user_id"},
+            "score": 1.0,
+        })
+
+    def search(self, query, filters, top_k):
+        assert set(filters) == {"user_id"}, "native search is user_id only"
+        return {"results": [
+            dict(r) for r in FakeMem0.store
+            if r["user_id"] == filters["user_id"]
+        ][:top_k]}
+
+
+def fake_embed(text):
+    digest = hashlib.sha256(text.encode()).digest()
+    return [b / 255 for b in digest[:8]]
+
+
+@pytest.fixture
+def harness():
+    """Native pipeline with the kernel's LLM calls mocked and every kernel
+    memory call recorded."""
+    FakeMem0.store = []
+    memory_calls = MagicMock()
+    chat = MagicMock(return_value={"response": {"response_message": "ok"}})
+    with ExitStack() as stack:
+        enter = stack.enter_context
+        enter(patch.object(AgentPipeline, "_kernel_memory_config",
+                           staticmethod(lambda: KERNEL_CONFIG)))
+        enter(patch.object(backends, "mem0_client", lambda s: FakeMem0()))
+        ephemeral = chromadb.EphemeralClient()
+        for name in [c.name for c in ephemeral.list_collections()]:
+            ephemeral.delete_collection(name)
+        enter(patch.object(backends, "chroma_client", lambda: ephemeral))
+        enter(patch.object(backends, "Embedder", lambda e: fake_embed))
+        enter(patch.object(native_agents, "llm_chat", chat))
+        enter(patch.object(profile_module, "llm_chat_with_json_output",
+              return_value={"response": {"response_message": json.dumps(PROFILE)}}))
+        enter(patch.object(task_module, "llm_chat_with_json_output",
+              return_value={"response": {"response_message": json.dumps(TASK)}}))
+        enter(patch("cerebrum.memory.apis.send_request", memory_calls))
+        for module in (profile_module, task_module):
+            for name in ("create_memory", "update_memory", "search_memories"):
+                enter(patch.object(module, name, memory_calls))
+        yield memory_calls, chat
+
+
+@pytest.mark.parametrize("method", ["native_mem0", "native_inhouse"])
+def test_native_trial_makes_no_kernel_memory_calls(harness, method):
+    memory_calls, chat = harness
+    pipeline = MethodPipeline(method=method)
+    result = pipeline.run_trial(TRIAL)
+    assert memory_calls.call_count == 0
+    block = chat.call_args.kwargs["messages"][0]["content"]
+    assert block.startswith("Relevant memories about this user:")
+    assert "Ana Li" in block and "web server" in block
+    assert result.injection_diagnostics.injected_count == 2
+    assert {m.memory_type for m in result.injection_diagnostics.injected_memories} \
+        == {"profile", "task_context"}
+    assert [w.sharing_policy for w in result.written_memories] == ["shared", "shared"]
+    assert result.retrieval_log.injection_status == "agent_reported"
+
+
+def test_mem0_writers_ask_mem0_to_extract(harness):
+    pipeline = MethodPipeline(method="native_mem0")
+    pipeline.run_trial(TRIAL)
+    profile, task, assistant = pipeline._native_agents
+    for agent in (profile, task, assistant):
+        assert all(c["infer"] for c in agent.memory.mem0.add_calls)
+        assert {c["agent_id"] for c in agent.memory.mem0.add_calls} == {
+            agent.agent_name
+        }
+    # Three agents, three clients.
+    assert len({id(a.memory.mem0) for a in (profile, task, assistant)}) == 3
+
+
+@pytest.mark.parametrize("method", ["native_mem0", "native_inhouse"])
+def test_another_agents_private_memory_never_reaches_the_block(harness, method):
+    _, chat = harness
+    pipeline = MethodPipeline(method=method)
+    profile, task, assistant = pipeline._native("mem0" if method == "native_mem0" else "inhouse")
+    task.memory.write(
+        [{"role": "user", "content": "secret plan"}], "secret plan",
+        "task_agent", memory_metadata("task_agent", TRIAL.user_id + "__" + method,
+                                      "task_context", "private"),
+    )
+    result = pipeline.run_trial(TRIAL)
+    block = chat.call_args.kwargs["messages"][0]["content"]
+    assert "secret plan" not in block
+    diagnostics = result.injection_diagnostics
+    assert diagnostics.after_partition == 3
+    assert diagnostics.after_visibility == 2
+
+
+def test_native_diagnostics_have_the_kernel_keys(harness):
+    result = MethodPipeline(method="native_inhouse").run_trial(TRIAL)
+    raw = result.assistant_result["injection_diagnostics"]
+    assert set(InjectionDiagnostics.model_fields) <= set(raw)
+    assert raw["scores_present"] is True
+    assert raw["threshold_used"] is None
+    assert result.latency_seconds < sum(result.assistant_result["timing"].values()) + 1e-9
+
+
+META = st.fixed_dictionaries({}, optional={
+    "owner_agent": st.sampled_from(["assistant_agent", "task_agent", ""]),
+    "sharing_policy": st.sampled_from(["shared", "private", "Shared", ""]),
+    "user_id": st.sampled_from(["u", "v", ""]),
+})
+
+
+@given(META)
+def test_filter_never_shows_another_agents_private_memory(metadata):
+    if visible("assistant_agent", metadata) and in_partition("u", metadata):
+        assert metadata.get("user_id") == "u"
+        assert (metadata.get("owner_agent") == "assistant_agent"
+                or metadata.get("sharing_policy") == "shared")
+
+
+def test_render_handles_real_writer_variants():
+    assert render("profile", {"user_attributes": {"name": "Ava", "tools": ["Git"]}}) \
+        == "My name is Ava. I prefer to use Git."
+    assert render("task_context", {"project_name": "P", "next_actions": ["a", "b"]}) \
+        == "I'm working on P. My next steps are: a; b."
+    assert "Mood: calm." in render("profile", {"user_name": "A", "mood": "calm"})
+
+
+def test_collection_names_are_valid_and_distinct():
+    long_a, long_b = "x" * 80 + "a", "x" * 80 + "b"
+    for user in ("ana@example.com", long_a):
+        assert len(backends.collection_name(user)) <= 63
+    assert backends.collection_name(long_a) != backends.collection_name(long_b)
+
+
+def kernel_mode(**body):
+    get = patch.object(run_evaluation.requests, "get").start()
+    get.return_value.json.return_value = body
+    return get
+
+
+@pytest.fixture
+def stop_patches():
+    yield
+    patch.stopall()
+
+
+def test_preflight_refuses_native_with_injection_on(stop_patches):
+    kernel_mode(auto_inject=True, auto_extract=False)
+    with pytest.raises(SystemExit, match="native_mem0"):
+        run_evaluation.check_kernel_mode("http://k", "native_mem0")
+
+
+def test_preflight_refuses_native_with_extraction_on(stop_patches):
+    kernel_mode(auto_inject=False, auto_extract=True)
+    with pytest.raises(SystemExit, match="auto_extract=True"):
+        run_evaluation.check_kernel_mode("http://k", "native_inhouse")
+
+
+def test_preflight_refuses_kernel_condition_with_injection_off(stop_patches):
+    kernel_mode(auto_inject=False, auto_extract=False)
+    with pytest.raises(SystemExit, match="kernel_shared"):
+        run_evaluation.check_kernel_mode("http://k", "kernel_shared")
+
+
+def test_preflight_accepts_matching_modes(stop_patches):
+    kernel_mode(auto_inject=False, auto_extract=False)
+    run_evaluation.check_kernel_mode("http://k", "native_mem0")
+    kernel_mode(auto_inject=True, auto_extract=True)
+    run_evaluation.check_kernel_mode("http://k", "kernel_private")
+
+
+def test_preflight_skips_conditions_without_memory(stop_patches):
+    get = kernel_mode(auto_inject=True, auto_extract=True)
+    run_evaluation.check_kernel_mode("http://k", "naive_concat")
+    get.assert_not_called()
+
+
+def test_preflight_refuses_an_old_kernel(stop_patches):
+    kernel_mode(max_injected_memories=10)
+    with pytest.raises(SystemExit, match="predates"):
+        run_evaluation.check_kernel_mode("http://k", "native_mem0")

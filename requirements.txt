@@ -12,6 +12,7 @@ hypothesis
 # External agent frameworks (used by benchmarks)
 chromadb
 mem0ai
+azure-identity  # mem0 azure_openai LLM (native_mem0 extraction)
 ollama
 openai
 scikit-learn

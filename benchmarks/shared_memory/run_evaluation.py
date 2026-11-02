@@ -50,7 +50,12 @@ from benchmarks.shared_memory.models import (
     MemoryCounts,
     TrialResult,
 )
-from benchmarks.shared_memory.conditions import CONDITIONS, canonical_condition
+from benchmarks.shared_memory.conditions import (
+    CONDITIONS,
+    KERNEL_INJECTION_CONDITIONS,
+    NATIVE_CONDITIONS,
+    canonical_condition,
+)
 from benchmarks.shared_memory.judge import (
     JUDGE_PROMPT_VERSION,
     HybridJudge,
@@ -104,6 +109,36 @@ def check_kernel_provider(kernel_url: str, expected: str) -> None:
         )
 
 
+def check_kernel_mode(kernel_url: str, method: str) -> None:
+    """Fail unless the kernel's memory mode fits the condition: a native
+    condition needs injection and extraction off, a kernel condition
+    needs injection on. Other conditions are not checked."""
+    methods = list(CONDITIONS) if method == "all" else [method]
+    native = [m for m in methods if m in NATIVE_CONDITIONS]
+    kernel = [m for m in methods if m in KERNEL_INJECTION_CONDITIONS]
+    if not native and not kernel:
+        return
+    response = requests.get(f"{kernel_url}/memory/config", timeout=10)
+    response.raise_for_status()
+    body = response.json()
+    if "auto_inject" not in body or "auto_extract" not in body:
+        raise SystemExit(
+            f"the kernel at {kernel_url} does not report auto_inject / "
+            "auto_extract; it predates the native conditions"
+        )
+    if native and (body["auto_inject"] or body["auto_extract"]):
+        raise SystemExit(
+            f"{native[0]} manages memory in the agents, but the kernel has "
+            f"auto_inject={body['auto_inject']}, "
+            f"auto_extract={body['auto_extract']}; set both false"
+        )
+    if kernel and not body["auto_inject"]:
+        raise SystemExit(
+            f"{kernel[0]} needs kernel injection, but the kernel has "
+            "auto_inject=false"
+        )
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build and return the CLI argument parser.
 
@@ -147,7 +182,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--method",
         type=canonical_condition,
-        choices=[*CONDITIONS, "all"],
+        choices=[*CONDITIONS, *NATIVE_CONDITIONS, "all"],
         default="kernel_shared",
         help=(
             "Personalization method to evaluate (default: kernel_shared). "
@@ -635,10 +670,11 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    kernel_url = args.kernel_url or config.get_kernel_url()
     if args.provider:
-        check_kernel_provider(
-            args.kernel_url or config.get_kernel_url(), args.provider
-        )
+        check_kernel_provider(kernel_url, args.provider)
+    if args.condition is None:
+        check_kernel_mode(kernel_url, canonical_condition(args.method))
 
     orchestrator = EvaluationOrchestrator(
         trials=args.trials,
