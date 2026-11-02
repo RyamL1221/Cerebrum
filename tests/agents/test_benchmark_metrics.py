@@ -191,6 +191,7 @@ def test_comparative_output_printed():
         mock_args.output = "/tmp/test"
         mock_args.csv = False
         mock_args.condition = "both"
+        mock_args.provider = None
         mock_parser_cls.return_value.parse_args.return_value = mock_args
 
         main()

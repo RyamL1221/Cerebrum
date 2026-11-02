@@ -111,6 +111,7 @@ class InjectionDiagnostics(BaseModel):
     after_visibility: int = 0
     after_dedupe: int = 0
     scores_present: bool = False
+    threshold_used: Optional[float] = None
     after_threshold: int = 0
     after_cap: int = 0
     top_k_used: Dict[str, int] = {}

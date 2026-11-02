@@ -33,6 +33,8 @@ import statistics
 import sys
 from datetime import datetime
 
+import requests
+
 # Ensure the project root is on sys.path when running as a script
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _project_root not in sys.path:
@@ -84,6 +86,22 @@ def _parse_model_arg(model_str: str | None) -> list | None:
         return [{"name": name, "backend": backend}]
     # No backend specified — pass name only
     return [{"name": model_str}]
+
+
+def check_kernel_provider(kernel_url: str, expected: str) -> None:
+    """Fail unless the live kernel serves memory from ``expected``.
+
+    The provider is kernel configuration, so the harness cannot switch
+    it; this only refuses to run against the wrong one.
+    """
+    response = requests.get(f"{kernel_url}/memory/config", timeout=10)
+    response.raise_for_status()
+    actual = response.json().get("provider")
+    if actual != expected:
+        raise SystemExit(
+            f"--provider {expected}: the kernel at {kernel_url} serves "
+            f"memory from {actual!r}"
+        )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -175,6 +193,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "isolation. Prevents residual memories from prior runs from "
             "polluting current run results. When not specified, a random "
             "UUID suffix is generated automatically."
+        ),
+    )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help=(
+            "Memory provider the kernel must be running (e.g. 'mem0', "
+            "'in-house'). Checked against /memory/config before any "
+            "trial; the run stops if it differs."
         ),
     )
     parser.add_argument(
@@ -606,6 +634,11 @@ def main():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    if args.provider:
+        check_kernel_provider(
+            args.kernel_url or config.get_kernel_url(), args.provider
+        )
 
     orchestrator = EvaluationOrchestrator(
         trials=args.trials,
