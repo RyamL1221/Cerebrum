@@ -2,7 +2,8 @@
 
 Applies the rule pre-registered in AIOS docs/REVALIDATION.md and reports
 what the injection diagnostics show. Reads each cell's results JSON from
-``<dir>/<model>_<method>/results_<method>.json``.
+``<dir>/<model>_<method>/results_<method>.json``, under the method's
+current name or an old one (``conditions.results_path``).
 
     python -m benchmarks.shared_memory.revalidate \\
         --new results/revalidation --workshop results \\
@@ -18,8 +19,10 @@ from pathlib import Path
 
 from scipy import stats
 
+from benchmarks.shared_memory.conditions import results_path
+
 MODELS = ("gpt4o", "llama", "qwen")
-METHODS = ("kernel_shared", "mem0_default")
+METHODS = ("kernel_shared", "kernel_private")
 DIMENSIONS = {
     "profile": "profile_usage_score",
     "task": "task_usage_score",
@@ -34,8 +37,7 @@ MIN_CELLS_PASSED = 7
 
 def load_trials(directory: Path, model: str, method: str) -> list:
     """Load one cell's trials."""
-    path = directory / f"{model}_{method}" / f"results_{method}.json"
-    with open(path) as handle:
+    with open(results_path(directory, model, method)) as handle:
         return json.load(handle)["conditions"][0]["trials"]
 
 

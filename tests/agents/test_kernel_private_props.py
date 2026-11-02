@@ -1,8 +1,8 @@
-"""Property-based tests for the mem0_default pipeline path using Hypothesis.
+"""Property-based tests for the kernel_private pipeline path using Hypothesis.
 
 Feature: personalization-baselines
-Property 7: mem0_default delegates to AgentPipeline(share_memory=False)
-Property 8: mem0_default method label is always set correctly
+Property 7: kernel_private delegates to AgentPipeline(share_memory=False)
+Property 8: kernel_private method label is always set correctly
 """
 
 import sys
@@ -76,11 +76,11 @@ def synthetic_trial_data_strategy(draw):
 
 
 # ---------------------------------------------------------------------------
-# Property 7: mem0_default delegates to AgentPipeline(share_memory=False)
+# Property 7: kernel_private delegates to AgentPipeline(share_memory=False)
 # ---------------------------------------------------------------------------
 
 class TestMem0DefaultDelegation:
-    """Feature: personalization-baselines, Property 7: mem0_default delegates correctly
+    """Feature: personalization-baselines, Property 7: kernel_private delegates correctly
 
     **Validates: Requirements 5.7**
     """
@@ -88,7 +88,7 @@ class TestMem0DefaultDelegation:
     @given(trial_data=synthetic_trial_data_strategy())
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_share_memory_is_false(self, trial_data):
-        """For any SyntheticTrialData, mem0_default must create AgentPipeline
+        """For any SyntheticTrialData, kernel_private must create AgentPipeline
         with share_memory=False.
         """
         captured = {}
@@ -100,13 +100,13 @@ class TestMem0DefaultDelegation:
             original_init(self, share_memory=share_memory, assistant_llms=assistant_llms)
 
         mock_result = MagicMock()
-        mock_result.method = "mem0_default"
+        mock_result.method = "kernel_private"
 
         with patch.object(AgentPipeline, "__init__", capturing_init), \
              patch.object(AgentPipeline, "run_trial", return_value=mock_result):
-            pipeline = MethodPipeline(method="mem0_default")
-            method_user_id = f"{trial_data.user_id}__mem0_default"
-            pipeline._run_mem0_default(trial_data, method_user_id)
+            pipeline = MethodPipeline(method="kernel_private")
+            method_user_id = f"{trial_data.user_id}__kernel_private"
+            pipeline._run_kernel_private(trial_data, method_user_id)
 
         assert captured["share_memory"] is False, (
             f"Expected share_memory=False, got {captured['share_memory']}"
@@ -118,18 +118,18 @@ class TestMem0DefaultDelegation:
         """For any SyntheticTrialData, the trial passed to AgentPipeline must
         have user_id set to the method_user_id (not the original).
         """
-        method_user_id = f"{trial_data.user_id}__mem0_default"
+        method_user_id = f"{trial_data.user_id}__kernel_private"
         captured_trial = {}
 
         def capturing_run_trial(self, scoped_trial):
             captured_trial["user_id"] = scoped_trial.user_id
             result = MagicMock()
-            result.method = "mem0_default"
+            result.method = "kernel_private"
             return result
 
         with patch.object(AgentPipeline, "run_trial", capturing_run_trial):
-            pipeline = MethodPipeline(method="mem0_default")
-            pipeline._run_mem0_default(trial_data, method_user_id)
+            pipeline = MethodPipeline(method="kernel_private")
+            pipeline._run_kernel_private(trial_data, method_user_id)
 
         assert captured_trial["user_id"] == method_user_id, (
             f"Expected user_id='{method_user_id}', got '{captured_trial['user_id']}'"
@@ -138,16 +138,16 @@ class TestMem0DefaultDelegation:
     @given(trial_data=synthetic_trial_data_strategy())
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_original_trial_data_unchanged(self, trial_data):
-        """_run_mem0_default must not mutate the original trial_data."""
+        """_run_kernel_private must not mutate the original trial_data."""
         original_user_id = trial_data.user_id
-        method_user_id = f"{trial_data.user_id}__mem0_default"
+        method_user_id = f"{trial_data.user_id}__kernel_private"
 
         mock_result = MagicMock()
-        mock_result.method = "mem0_default"
+        mock_result.method = "kernel_private"
 
         with patch.object(AgentPipeline, "run_trial", return_value=mock_result):
-            pipeline = MethodPipeline(method="mem0_default")
-            pipeline._run_mem0_default(trial_data, method_user_id)
+            pipeline = MethodPipeline(method="kernel_private")
+            pipeline._run_kernel_private(trial_data, method_user_id)
 
         assert trial_data.user_id == original_user_id, (
             f"Original trial_data.user_id was mutated: expected '{original_user_id}', "
@@ -156,35 +156,35 @@ class TestMem0DefaultDelegation:
 
 
 # ---------------------------------------------------------------------------
-# Property 8: mem0_default method label
+# Property 8: kernel_private method label
 # ---------------------------------------------------------------------------
 
 class TestMem0DefaultMethodLabel:
-    """Feature: personalization-baselines, Property 8: mem0_default method label
+    """Feature: personalization-baselines, Property 8: kernel_private method label
 
     **Validates: Requirements 5.8**
     """
 
     @given(trial_data=synthetic_trial_data_strategy())
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    def test_method_is_mem0_default(self, trial_data):
-        """For any SyntheticTrialData, _run_mem0_default must set method='mem0_default'."""
+    def test_method_is_kernel_private(self, trial_data):
+        """For any SyntheticTrialData, _run_kernel_private must set method='kernel_private'."""
         mock_result = MagicMock()
         mock_result.method = "kernel_shared"  # Simulate AgentPipeline not setting it
 
         with patch.object(AgentPipeline, "run_trial", return_value=mock_result):
-            pipeline = MethodPipeline(method="mem0_default")
-            method_user_id = f"{trial_data.user_id}__mem0_default"
-            result = pipeline._run_mem0_default(trial_data, method_user_id)
+            pipeline = MethodPipeline(method="kernel_private")
+            method_user_id = f"{trial_data.user_id}__kernel_private"
+            result = pipeline._run_kernel_private(trial_data, method_user_id)
 
-        assert result.method == "mem0_default", (
-            f"Expected method='mem0_default', got {result.method!r}"
+        assert result.method == "kernel_private", (
+            f"Expected method='kernel_private', got {result.method!r}"
         )
 
 
 if __name__ == "__main__":
     t7 = TestMem0DefaultDelegation()
-    print("Running Property 7: mem0_default delegates to AgentPipeline(share_memory=False)...")
+    print("Running Property 7: kernel_private delegates to AgentPipeline(share_memory=False)...")
     t7.test_share_memory_is_false()
     print("PASSED: share_memory=False for all inputs")
     t7.test_user_id_is_scoped()
@@ -193,6 +193,6 @@ if __name__ == "__main__":
     print("PASSED: original trial_data not mutated")
 
     t8 = TestMem0DefaultMethodLabel()
-    print("\nRunning Property 8: mem0_default method label...")
-    t8.test_method_is_mem0_default()
-    print("PASSED: method == 'mem0_default' for all inputs")
+    print("\nRunning Property 8: kernel_private method label...")
+    t8.test_method_is_kernel_private()
+    print("PASSED: method == 'kernel_private' for all inputs")

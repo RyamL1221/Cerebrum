@@ -155,10 +155,11 @@ class TestComparativeSummaryDeltaArithmetic:
 
         output = captured.getvalue()
 
-        # Find the baseline row in the output (line starting with baseline_name)
+        # Find the baseline row: its first column is the name. A prefix
+        # match would take "kernel_shared" for a name such as "ke".
         baseline_row = None
         for line in output.splitlines():
-            if line.strip().startswith(baseline_name):
+            if line.split()[:1] == [baseline_name]:
                 baseline_row = line.strip()
                 break
 
@@ -249,7 +250,7 @@ class TestComparativeSummaryDeltaArithmetic:
         # Find the kernel_shared row
         ks_row = None
         for line in output.splitlines():
-            if line.strip().startswith("kernel_shared"):
+            if line.split()[:1] == ["kernel_shared"]:
                 ks_row = line.strip()
                 break
 

@@ -21,11 +21,14 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+from cerebrum.example.agents.profile_agent import agent as profile_agent_module
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
+from cerebrum.example.agents.task_agent import agent as task_agent_module
 from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.example.agents.assistant_agent.agent import AssistantAgent
 from cerebrum.memory.apis import search_memories, create_memory
 
+from benchmarks.shared_memory.conditions import canonical_condition
 from benchmarks.shared_memory.models import (
     InjectedMemoryEntry,
     InjectionDiagnostics,
@@ -103,7 +106,11 @@ class AgentPipeline:
             # Call through to the real create_memory (captured before patch)
             return _real_create_memory(agent_name, content, metadata=metadata, base_url=base_url)
 
-        with patch("cerebrum.memory.apis.create_memory", side_effect=capturing_create_memory):
+        # The agents import create_memory by name, so patch their modules'
+        # references as well as the SDK's own.
+        with patch("cerebrum.memory.apis.create_memory", side_effect=capturing_create_memory), \
+                patch.object(profile_agent_module, "create_memory", side_effect=capturing_create_memory), \
+                patch.object(task_agent_module, "create_memory", side_effect=capturing_create_memory):
             # Step 1: Run ProfileAgent with synthetic profile data
             profile_agent = ProfileAgent("profile_agent")
             profile_agent.share_memory = self.share_memory
@@ -456,13 +463,14 @@ class MethodPipeline:
 
     Args:
         method: One of ``"kernel_shared"``, ``"naive_concat"``,
-            ``"vanilla_rag"``, or ``"mem0_default"``.
-        top_k: Number of chunks/entries to retrieve for ``vanilla_rag``
-            and ``mem0_default`` (default 3).
+            ``"vanilla_rag"``, or ``"kernel_private"`` (a deprecated name
+            is accepted with a warning).
+        top_k: Number of chunks to retrieve for ``vanilla_rag``
+            (default 3).
     """
 
     def __init__(self, method: str, top_k: int = 3, assistant_llms: list | None = None):
-        self.method = method
+        self.method = canonical_condition(method)
         self.top_k = top_k
         self.assistant_llms = assistant_llms
 
@@ -489,12 +497,12 @@ class MethodPipeline:
             return self._run_naive_concat(trial_data, method_user_id)
         elif self.method == "vanilla_rag":
             return self._run_vanilla_rag(trial_data, method_user_id)
-        elif self.method == "mem0_default":
-            return self._run_mem0_default(trial_data, method_user_id)
+        elif self.method == "kernel_private":
+            return self._run_kernel_private(trial_data, method_user_id)
         else:
             raise ValueError(
                 f"Unknown method: {self.method!r}. "
-                "Valid methods are: kernel_shared, naive_concat, vanilla_rag, mem0_default."
+                "Valid methods are: kernel_shared, naive_concat, vanilla_rag, kernel_private."
             )
 
     def _run_kernel_shared(
@@ -694,7 +702,7 @@ class MethodPipeline:
             retrieved_context_count=len(selected_chunks),
         )
 
-    def _run_mem0_default(
+    def _run_kernel_private(
         self, trial_data: SyntheticTrialData, method_user_id: str
     ) -> PipelineResult:
         """Private-memory baseline using the same 3-agent pipeline.
@@ -704,19 +712,19 @@ class MethodPipeline:
         but with sharing_policy="private", so the kernel's auto_inject will
         NOT surface them cross-agent to AssistantAgent.
 
-        This ensures the only variable between kernel_shared and mem0_default
-        is whether memories are shared or private.
+        This ensures the only variable between kernel_shared and
+        kernel_private is whether memories are shared or private.
 
         Args:
             trial_data: Original trial data.
-            method_user_id: Method-scoped user ID (e.g. ``alice__mem0_default``).
+            method_user_id: Method-scoped user ID (e.g. ``alice__kernel_private``).
 
         Returns:
             PipelineResult from AgentPipeline with method set to
-            ``"mem0_default"``.
+            ``"kernel_private"``.
         """
         scoped_trial = trial_data.model_copy(update={"user_id": method_user_id})
         pipeline = AgentPipeline(share_memory=False, assistant_llms=self.assistant_llms)
         result = pipeline.run_trial(scoped_trial)
-        result.method = "mem0_default"
+        result.method = "kernel_private"
         return result

@@ -5,8 +5,10 @@ profile usage, task-context usage, and integration using a structured
 3-score rubric.
 """
 
+import hashlib
 import json
 import logging
+from string import Template
 from typing import Any, Dict, List
 
 from cerebrum.llm.apis import llm_chat_with_json_output
@@ -20,6 +22,86 @@ from benchmarks.shared_memory.models import (
 from benchmarks.shared_memory.synth import _unwrap_nested
 
 logger = logging.getLogger(__name__)
+
+# Version 2 names no memory mechanism, so the prompt is the same for every
+# condition, and drops the plausible-actions section, which results files
+# do not store and so a re-judge could not reproduce. The rubric is
+# unchanged from version 1.
+JUDGE_PROMPT_VERSION = 2
+
+SYSTEM_PROMPT = (
+    "You are an expert evaluator. You MUST respond with ONLY a valid JSON "
+    "object. No markdown code fences. No explanation text. No preamble. "
+    "Just the raw JSON object. You are evaluating whether an assistant's "
+    "response reflects the user profile and task context given below. A "
+    "concise response that correctly references these attributes is "
+    "well-personalized; a long response that does not is generic."
+)
+
+USER_PROMPT_TEMPLATE = Template(
+    "Evaluate the following AI assistant response.\n\n"
+    "--- USER PROFILE ---\n"
+    "Name: $user_name\n"
+    "Preferred Tools: $preferred_tools\n"
+    "Preferred Language: $preferred_language\n"
+    "Response Style: $response_style\n\n"
+    "--- TASK CONTEXT ---\n"
+    "Current Project: $current_project\n"
+    "Active Experiment: $active_experiment\n"
+    "Goals: $goals\n"
+    "Blockers: $blockers\n"
+    "Next Steps: $next_steps\n\n"
+    "--- FOLLOW-UP QUERY ---\n"
+    "$query\n\n"
+    "--- ASSISTANT RESPONSE ---\n"
+    "$response\n\n"
+    "--- SCORING RUBRIC ---\n"
+    "Score based on whether the response content references "
+    "profile and task attributes, regardless of response length. "
+    "A short response that correctly references the user's "
+    "preferred tools and current project is well-personalized.\n\n"
+    "Profile Usage (1-5):\n"
+    "  5 = Correctly and specifically references multiple profile "
+    "attributes (tools, language, style) in the recommendation, "
+    "regardless of response length\n"
+    "  4 = Correctly references most profile attributes\n"
+    "  3 = References some profile attributes but misses key ones\n"
+    "  2 = Vague or incorrect references to profile attributes\n"
+    "  1 = No evidence of profile knowledge; response could apply "
+    "to any developer\n\n"
+    "Task Usage (1-5):\n"
+    "  5 = Correctly and specifically references project goals, "
+    "blockers, and next steps in the recommendation, "
+    "regardless of response length\n"
+    "  4 = Correctly references most task context details\n"
+    "  3 = References some task context details but misses key ones\n"
+    "  2 = Vague or incorrect references to task context\n"
+    "  1 = No evidence of task context knowledge; response is "
+    "generic advice\n\n"
+    "Integration (1-5):\n"
+    "  5 = Seamlessly combines profile preferences and task context "
+    "into a single grounded recommendation\n"
+    "  4 = Combines both sources with minor gaps in integration\n"
+    "  3 = Addresses profile and task context separately without "
+    "integrating them\n"
+    "  2 = Mentions both sources but the recommendation does not "
+    "logically follow from them\n"
+    "  1 = No integration; response addresses at most one source "
+    "or is entirely generic\n\n"
+    "Respond with ONLY a JSON object (no markdown fences, no explanation, "
+    "no text before or after). Use exactly these keys:\n"
+    '{"profile_usage_score": <int 1-5>, "task_usage_score": <int 1-5>, '
+    '"integration_score": <int 1-5>, "profile_usage_reasoning": '
+    '"<string>", "task_usage_reasoning": "<string>", '
+    '"integration_reasoning": "<string>"}'
+)
+
+
+def judge_prompt_sha256() -> str:
+    """Return the SHA-256 of the judge's system prompt and user template."""
+    text = SYSTEM_PROMPT + "\n" + USER_PROMPT_TEMPLATE.template
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 # Canonical field names for the 3-score rubric
 _SCORE_FIELDS = [
@@ -125,89 +207,23 @@ class LLMJudge:
         response: str,
         profile: SyntheticProfile,
         task_context: SyntheticTaskContext,
-        plausible_actions: list[str] | None = None,
     ) -> List[Dict[str, str]]:
         """Build the messages list for the LLM judge call."""
-        # Build plausible actions section (only when provided and non-empty)
-        plausible_actions_section = ""
-        if plausible_actions:
-            actions_list = "\n".join(
-                f"  {i}. {action}" for i, action in enumerate(plausible_actions, 1)
-            )
-            plausible_actions_section = (
-                "--- PLAUSIBLE ACTIONS ---\n"
-                "The developer had these pending options to choose from:\n"
-                f"{actions_list}\n\n"
-            )
-
-        user_content = (
-            "Evaluate the following AI assistant response.\n\n"
-            "--- USER PROFILE ---\n"
-            f"Name: {profile.user_name}\n"
-            f"Preferred Tools: {', '.join(profile.preferred_tools)}\n"
-            f"Preferred Language: {profile.preferred_language}\n"
-            f"Response Style: {profile.response_style}\n\n"
-            "--- TASK CONTEXT ---\n"
-            f"Current Project: {task_context.current_project}\n"
-            f"Active Experiment: {task_context.active_experiment}\n"
-            f"Goals: {', '.join(task_context.goals)}\n"
-            f"Blockers: {', '.join(task_context.blockers)}\n"
-            f"Next Steps: {', '.join(task_context.next_steps)}\n\n"
-            f"{plausible_actions_section}"
-            "--- FOLLOW-UP QUERY ---\n"
-            f"{query}\n\n"
-            "--- ASSISTANT RESPONSE ---\n"
-            f"{response}\n\n"
-            "--- SCORING RUBRIC ---\n"
-            "Score based on whether the response content references "
-            "profile and task attributes, regardless of response length. "
-            "A short response that correctly references the user's "
-            "preferred tools and current project is well-personalized.\n\n"
-            "Profile Usage (1-5):\n"
-            "  5 = Correctly and specifically references multiple profile "
-            "attributes (tools, language, style) in the recommendation, "
-            "regardless of response length\n"
-            "  4 = Correctly references most profile attributes\n"
-            "  3 = References some profile attributes but misses key ones\n"
-            "  2 = Vague or incorrect references to profile attributes\n"
-            "  1 = No evidence of profile knowledge; response could apply "
-            "to any developer\n\n"
-            "Task Usage (1-5):\n"
-            "  5 = Correctly and specifically references project goals, "
-            "blockers, and next steps in the recommendation, "
-            "regardless of response length\n"
-            "  4 = Correctly references most task context details\n"
-            "  3 = References some task context details but misses key ones\n"
-            "  2 = Vague or incorrect references to task context\n"
-            "  1 = No evidence of task context knowledge; response is "
-            "generic advice\n\n"
-            "Integration (1-5):\n"
-            "  5 = Seamlessly combines profile preferences and task context "
-            "into a single grounded recommendation\n"
-            "  4 = Combines both sources with minor gaps in integration\n"
-            "  3 = Addresses profile and task context separately without "
-            "integrating them\n"
-            "  2 = Mentions both sources but the recommendation does not "
-            "logically follow from them\n"
-            "  1 = No integration; response addresses at most one source "
-            "or is entirely generic\n\n"
-            "Respond with ONLY a JSON object (no markdown fences, no explanation, no text before or after). "
-            "Use exactly these keys:\n"
-            '{"profile_usage_score": <int 1-5>, "task_usage_score": <int 1-5>, "integration_score": <int 1-5>, '
-            '"profile_usage_reasoning": "<string>", "task_usage_reasoning": "<string>", "integration_reasoning": "<string>"}'
+        user_content = USER_PROMPT_TEMPLATE.substitute(
+            user_name=profile.user_name,
+            preferred_tools=", ".join(profile.preferred_tools),
+            preferred_language=profile.preferred_language,
+            response_style=profile.response_style,
+            current_project=task_context.current_project,
+            active_experiment=task_context.active_experiment,
+            goals=", ".join(task_context.goals),
+            blockers=", ".join(task_context.blockers),
+            next_steps=", ".join(task_context.next_steps),
+            query=query,
+            response=response,
         )
         return [
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert evaluator. You MUST respond with ONLY a valid JSON object. "
-                    "No markdown code fences. No explanation text. No preamble. Just the raw JSON object. "
-                    "The assistant had access to shared memories injected "
-                    "by the kernel containing the user's profile and task "
-                    "context. A concise response that demonstrates awareness "
-                    "of these attributes is well-personalized, not generic."
-                ),
-            },
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
 
@@ -217,11 +233,10 @@ class LLMJudge:
         response: str,
         profile: SyntheticProfile,
         task_context: SyntheticTaskContext,
-        plausible_actions: list[str] | None = None,
     ) -> JudgeScores:
         """Score an assistant response on profile usage, task usage, and integration."""
         messages = self._build_judge_prompt(
-            query, response, profile, task_context, plausible_actions
+            query, response, profile, task_context
         )
 
         response_format: Dict[str, Any] = {
@@ -419,19 +434,26 @@ class HybridJudge:
         response: str,
         profile: SyntheticProfile,
         task_context: SyntheticTaskContext,
-        plausible_actions: list[str] | None = None,
     ) -> JudgeScores:
         """Score using both keyword matching and LLM judge."""
-        # Keyword-based scores
+        llm_scores = self.llm_judge.evaluate(
+            query, response, profile, task_context
+        )
+        return self.combine(response, profile, task_context, llm_scores)
+
+    @staticmethod
+    def combine(
+        response: str,
+        profile: SyntheticProfile,
+        task_context: SyntheticTaskContext,
+        llm_scores: JudgeScores,
+    ) -> JudgeScores:
+        """Average the keyword scores with the LLM's. A missing LLM score
+        falls back to the keyword score alone."""
         keywords = _extract_keywords(profile, task_context)
         kw_profile = keyword_score(response, keywords["profile"])
         kw_task = keyword_score(response, keywords["task"])
         kw_integration = min(kw_profile, kw_task)  # both must be present
-
-        # LLM-based scores
-        llm_scores = self.llm_judge.evaluate(
-            query, response, profile, task_context, plausible_actions
-        )
 
         # Combine: average keyword and LLM scores
         def _avg(kw: int, llm_val: int | None) -> int:

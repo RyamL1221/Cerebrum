@@ -48,7 +48,12 @@ from benchmarks.shared_memory.models import (
     MemoryCounts,
     TrialResult,
 )
-from benchmarks.shared_memory.judge import HybridJudge
+from benchmarks.shared_memory.conditions import CONDITIONS, canonical_condition
+from benchmarks.shared_memory.judge import (
+    JUDGE_PROMPT_VERSION,
+    HybridJudge,
+    judge_prompt_sha256,
+)
 from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
 from benchmarks.shared_memory.results import ResultsWriter
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
@@ -57,7 +62,7 @@ from cerebrum.config.config_manager import config
 logger = logging.getLogger(__name__)
 
 # All valid method names (excluding the meta-value "all")
-_ALL_METHODS = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+_ALL_METHODS = list(CONDITIONS)
 
 
 def _parse_model_arg(model_str: str | None) -> list | None:
@@ -123,11 +128,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--method",
-        choices=["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default", "all"],
+        type=canonical_condition,
+        choices=[*CONDITIONS, "all"],
         default="kernel_shared",
         help=(
             "Personalization method to evaluate (default: kernel_shared). "
-            "Use 'all' to run all four methods on the same trial data."
+            "Use 'all' to run all four methods on the same trial data. "
+            "Deprecated names are accepted with a warning."
         ),
     )
     parser.add_argument(
@@ -194,7 +201,7 @@ class EvaluationOrchestrator:
             When set, the orchestrator uses the legacy AgentPipeline path for
             backward compatibility.
         method: Method to evaluate — one of "kernel_shared", "naive_concat",
-            "vanilla_rag", "mem0_default", or "all". Ignored when ``condition``
+            "vanilla_rag", "kernel_private", or "all". Ignored when ``condition``
             is set.
     """
 
@@ -215,7 +222,7 @@ class EvaluationOrchestrator:
         self.output_dir = output_dir
         self.write_csv = write_csv
         self.condition = condition
-        self.method = method
+        self.method = canonical_condition(method)
         self.assistant_llms = assistant_llms  # passed to AssistantAgent and SyntheticDataGenerator
         self.judge_llms = judge_llms or assistant_llms  # falls back to assistant model if not set
         self.run_id = run_id  # None → SyntheticDataGenerator auto-generates UUID
@@ -387,19 +394,10 @@ class EvaluationOrchestrator:
                 response=pipeline_result.assistant_response,
                 profile=trial_data.profile,
                 task_context=trial_data.task_context,
-                plausible_actions=trial_data.plausible_actions,
             )
         except Exception as e:
             logger.warning("Trial %d: judge evaluation failed: %s", trial_index, e)
             scores = JudgeScores()
-
-        # Memory counts heuristic (legacy path only)
-        if condition == "phase2":
-            memory_counts = MemoryCounts(total=2, shared=2, private=0)
-        elif condition == "phase1":
-            memory_counts = MemoryCounts(total=2, shared=0, private=2)
-        else:
-            memory_counts = MemoryCounts()
 
         return TrialResult(
             trial_index=trial_index,
@@ -408,10 +406,11 @@ class EvaluationOrchestrator:
             profile_usage_score=scores.profile_usage_score,
             task_usage_score=scores.task_usage_score,
             integration_score=scores.integration_score,
-            memory_counts=memory_counts,
+            memory_counts=MemoryCounts.of(pipeline_result.written_memories),
             retrieved_context_count=pipeline_result.retrieved_context_count,
             latency_seconds=pipeline_result.latency_seconds,
             follow_up_query=trial_data.follow_up_query,
+            plausible_actions=trial_data.plausible_actions,
             assistant_response=pipeline_result.assistant_response or "",
             synthetic_profile=trial_data.profile,
             synthetic_task_context=trial_data.task_context,
@@ -481,6 +480,8 @@ class EvaluationOrchestrator:
             trials_per_condition=self.trials,
             timestamp=datetime.now().isoformat(),
             kernel_url=config.get_kernel_url(),
+            judge_prompt_version=JUDGE_PROMPT_VERSION,
+            judge_prompt_sha256=judge_prompt_sha256(),
             conditions_run=conditions,
         )
 
@@ -572,6 +573,8 @@ class EvaluationOrchestrator:
             trials_per_condition=self.trials,
             timestamp=datetime.now().isoformat(),
             kernel_url=config.get_kernel_url(),
+            judge_prompt_version=JUDGE_PROMPT_VERSION,
+            judge_prompt_sha256=judge_prompt_sha256(),
             conditions_run=methods_to_run,
             methods_run=methods_to_run,
         )

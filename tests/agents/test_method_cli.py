@@ -47,14 +47,14 @@ def test_method_accepts_vanilla_rag():
     print("PASSED: --method vanilla_rag accepted")
 
 
-def test_method_accepts_mem0_default():
-    """--method mem0_default is a valid choice."""
+def test_method_accepts_kernel_private():
+    """--method kernel_private is a valid choice."""
     parser = build_arg_parser()
-    args = parser.parse_args(["--method", "mem0_default"])
-    assert args.method == "mem0_default", (
-        f"Expected method='mem0_default', got {args.method!r}"
+    args = parser.parse_args(["--method", "kernel_private"])
+    assert args.method == "kernel_private", (
+        f"Expected method='kernel_private', got {args.method!r}"
     )
-    print("PASSED: --method mem0_default accepted")
+    print("PASSED: --method kernel_private accepted")
 
 
 def test_method_accepts_all():
@@ -135,7 +135,7 @@ def test_condition_and_method_can_coexist():
 def test_all_five_valid_values():
     """All five valid method values are accepted by the parser."""
     parser = build_arg_parser()
-    valid_values = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default", "all"]
+    valid_values = ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private", "all"]
     for value in valid_values:
         args = parser.parse_args(["--method", value])
         assert args.method == value, (
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     test_method_accepts_kernel_shared()
     test_method_accepts_naive_concat()
     test_method_accepts_vanilla_rag()
-    test_method_accepts_mem0_default()
+    test_method_accepts_kernel_private()
     test_method_accepts_all()
     test_method_defaults_to_kernel_shared()
     test_invalid_method_rejected()

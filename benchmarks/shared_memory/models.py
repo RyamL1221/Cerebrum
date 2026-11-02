@@ -91,14 +91,6 @@ class JudgeScores(BaseModel):
     integration_reasoning: Optional[str] = None
 
 
-class MemoryCounts(BaseModel):
-    """Memory creation counts for a trial."""
-
-    total: int = 0
-    shared: int = 0
-    private: int = 0
-
-
 class InjectedMemoryEntry(BaseModel):
     """Single injected memory with source attribution."""
 
@@ -135,6 +127,26 @@ class WrittenMemoryRecord(BaseModel):
     user_id: str
 
 
+class MemoryCounts(BaseModel):
+    """Counts of the memories the profile and task agents created in a
+    trial, derived from its ``written_memories``."""
+
+    total: int = 0
+    shared: int = 0
+    private: int = 0
+
+    @classmethod
+    def of(cls, written: List[WrittenMemoryRecord]) -> "MemoryCounts":
+        """Count written memories by sharing policy."""
+        return cls(
+            total=len(written),
+            shared=sum(1 for w in written if w.sharing_policy == "shared"),
+            private=sum(
+                1 for w in written if w.sharing_policy == "private"
+            ),
+        )
+
+
 class TrialResult(BaseModel):
     """Complete result for one trial."""
 
@@ -148,6 +160,7 @@ class TrialResult(BaseModel):
     retrieved_context_count: Optional[int] = None
     latency_seconds: Optional[float] = None
     follow_up_query: str = ""
+    plausible_actions: List[str] = []
     assistant_response: str = ""
     synthetic_profile: Optional[SyntheticProfile] = None
     synthetic_task_context: Optional[SyntheticTaskContext] = None
@@ -233,6 +246,11 @@ class ExperimentMetadata(BaseModel):
     kernel_url: str
     conditions_run: List[str]
     methods_run: List[str] = []
+    # None in files written before version 2, whose prompt was version 1.
+    judge_prompt_version: Optional[int] = None
+    judge_prompt_sha256: Optional[str] = None
+    # Set by rejudge.py: the source file and how it was re-scored.
+    rejudge: Optional[dict] = None
     git_commit: Optional[str] = Field(default_factory=_harness_commit)
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
     config_snapshot: dict = Field(default_factory=_config_snapshot)

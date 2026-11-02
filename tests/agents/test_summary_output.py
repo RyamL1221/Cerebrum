@@ -99,7 +99,7 @@ def _make_single_method_experiment(method_name, total_trials=5, failed_trials=1)
 
 def _make_multi_method_experiment(total_trials=5, failed_trials=0):
     """Build a minimal ExperimentResults for all four methods."""
-    methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+    methods = ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]
     conditions = []
     for i, method_name in enumerate(methods):
         trials = [_make_trial_result(j, method_name, method_name) for j in range(total_trials)]
@@ -165,7 +165,7 @@ def test_multi_method_prints_all_method_names():
     experiment = _make_multi_method_experiment()
     output = _capture_summary(experiment)
 
-    for method_name in ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]:
+    for method_name in ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]:
         assert method_name in output, (
             f"Expected method name '{method_name}' in summary output.\n"
             f"Output:\n{output}"
@@ -241,7 +241,7 @@ def test_multi_method_delta_values_are_numeric():
 
 def test_single_method_no_delta_values():
     """Single-method summary must not contain delta column headers."""
-    experiment = _make_single_method_experiment("mem0_default")
+    experiment = _make_single_method_experiment("kernel_private")
     output = _capture_summary(experiment)
 
     # Should not have DeltaProfile, DeltaTask, DeltaInteg headers

@@ -87,7 +87,7 @@ def _make_single_method_experiment(method_name):
 
 def _make_all_methods_experiment():
     """Build a minimal ExperimentResults for all four methods."""
-    methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+    methods = ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]
     conditions = []
     for method_name in methods:
         trial = _make_trial_result(0, method_name, method_name, retrieved_context_count=2)
@@ -144,20 +144,20 @@ def test_single_method_vanilla_rag_produces_correct_filename():
         shutil.rmtree(tmpdir)
 
 
-def test_single_method_mem0_default_produces_correct_filename():
-    """Single-method run with mem0_default produces results_mem0_default.json."""
+def test_single_method_kernel_private_produces_correct_filename():
+    """Single-method run with kernel_private produces results_kernel_private.json."""
     tmpdir = tempfile.mkdtemp()
     try:
         writer = ResultsWriter(output_dir=tmpdir, write_csv=False)
-        experiment = _make_single_method_experiment("mem0_default")
+        experiment = _make_single_method_experiment("kernel_private")
 
-        path = writer.write_json(experiment, filename="results_mem0_default.json")
+        path = writer.write_json(experiment, filename="results_kernel_private.json")
 
-        assert os.path.basename(path) == "results_mem0_default.json", (
-            f"Expected filename 'results_mem0_default.json', got {os.path.basename(path)!r}"
+        assert os.path.basename(path) == "results_kernel_private.json", (
+            f"Expected filename 'results_kernel_private.json', got {os.path.basename(path)!r}"
         )
         assert os.path.exists(path), f"File not found: {path}"
-        print("PASSED: mem0_default produces results_mem0_default.json")
+        print("PASSED: kernel_private produces results_kernel_private.json")
     finally:
         shutil.rmtree(tmpdir)
 
@@ -328,7 +328,7 @@ def test_csv_all_methods_has_method_and_count_columns():
         assert len(rows) == 4, f"Expected 4 rows (one per method), got {len(rows)}"
 
         methods_in_csv = {row["method"] for row in rows}
-        expected_methods = {"kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"}
+        expected_methods = {"kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"}
         assert methods_in_csv == expected_methods, (
             f"Expected methods {expected_methods}, got {methods_in_csv}"
         )
@@ -357,7 +357,7 @@ def test_default_filename_fallback():
 if __name__ == "__main__":
     test_single_method_naive_concat_produces_correct_filename()
     test_single_method_vanilla_rag_produces_correct_filename()
-    test_single_method_mem0_default_produces_correct_filename()
+    test_single_method_kernel_private_produces_correct_filename()
     test_single_method_kernel_shared_produces_correct_filename()
     test_all_methods_produces_results_all_methods_json()
     test_json_output_is_valid_json()

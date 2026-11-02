@@ -1,4 +1,4 @@
-"""Unit tests for the mem0_default pipeline path isolation.
+"""Unit tests for the kernel_private pipeline path isolation.
 
 Verifies that:
 - No kernel memory calls (create_memory, search_memories) are made
@@ -47,8 +47,8 @@ def _mock_assistant_result():
 
 
 def test_no_create_memory_calls():
-    """mem0_default must not call AIOS kernel create_memory."""
-    pipeline = MethodPipeline(method="mem0_default")
+    """kernel_private must not call AIOS kernel create_memory."""
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     mock_memory = MagicMock()
@@ -63,15 +63,15 @@ def test_no_create_memory_calls():
     ), patch(
         "cerebrum.memory.apis.create_memory"
     ) as mock_create:
-        pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     mock_create.assert_not_called()
-    print("PASSED: AIOS create_memory is never called in mem0_default")
+    print("PASSED: AIOS create_memory is never called in kernel_private")
 
 
 def test_no_search_memories_calls():
-    """mem0_default must not call AIOS kernel search_memories."""
-    pipeline = MethodPipeline(method="mem0_default")
+    """kernel_private must not call AIOS kernel search_memories."""
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     mock_memory = MagicMock()
@@ -86,15 +86,15 @@ def test_no_search_memories_calls():
     ), patch(
         "cerebrum.memory.apis.search_memories"
     ) as mock_search:
-        pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     mock_search.assert_not_called()
-    print("PASSED: AIOS search_memories is never called in mem0_default")
+    print("PASSED: AIOS search_memories is never called in kernel_private")
 
 
 def test_add_called_before_search():
-    """mem0_default must call memory.add before memory.search (call order matters)."""
-    pipeline = MethodPipeline(method="mem0_default")
+    """kernel_private must call memory.add before memory.search (call order matters)."""
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     call_order = []
@@ -116,7 +116,7 @@ def test_add_called_before_search():
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         return_value=_mock_assistant_result(),
     ), patch("mem0.Memory", return_value=mock_memory):
-        pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     # add must be called at least once before search
     assert "add" in call_order, "memory.add was never called"
@@ -131,8 +131,8 @@ def test_add_called_before_search():
 
 
 def test_add_called_twice_before_search():
-    """mem0_default calls add twice (profile + task) before calling search."""
-    pipeline = MethodPipeline(method="mem0_default")
+    """kernel_private calls add twice (profile + task) before calling search."""
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     call_order = []
@@ -154,7 +154,7 @@ def test_add_called_twice_before_search():
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         return_value=_mock_assistant_result(),
     ), patch("mem0.Memory", return_value=mock_memory):
-        pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     add_count = call_order.count("add")
     search_count = call_order.count("search")
@@ -173,7 +173,7 @@ def test_add_called_twice_before_search():
 
 def test_add_exception_sets_retrieved_context_count_zero():
     """When memory.add raises, retrieved_context_count must be 0."""
-    pipeline = MethodPipeline(method="mem0_default")
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     mock_memory = MagicMock()
@@ -183,7 +183,7 @@ def test_add_exception_sets_retrieved_context_count_zero():
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         return_value=_mock_assistant_result(),
     ), patch("mem0.Memory", return_value=mock_memory):
-        result = pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        result = pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     assert result.retrieved_context_count == 0, (
         f"Expected retrieved_context_count=0 after add exception, "
@@ -194,7 +194,7 @@ def test_add_exception_sets_retrieved_context_count_zero():
 
 def test_search_exception_sets_retrieved_context_count_zero():
     """When memory.search raises, retrieved_context_count must be 0."""
-    pipeline = MethodPipeline(method="mem0_default")
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     mock_memory = MagicMock()
@@ -205,7 +205,7 @@ def test_search_exception_sets_retrieved_context_count_zero():
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         return_value=_mock_assistant_result(),
     ), patch("mem0.Memory", return_value=mock_memory):
-        result = pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        result = pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     assert result.retrieved_context_count == 0, (
         f"Expected retrieved_context_count=0 after search exception, "
@@ -216,7 +216,7 @@ def test_search_exception_sets_retrieved_context_count_zero():
 
 def test_exception_does_not_fail_trial():
     """Mem0 exception must not cause the pipeline to raise — result is returned."""
-    pipeline = MethodPipeline(method="mem0_default")
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     mock_memory = MagicMock()
@@ -227,11 +227,11 @@ def test_exception_does_not_fail_trial():
         return_value=_mock_assistant_result(),
     ), patch("mem0.Memory", return_value=mock_memory):
         # Must not raise — result must be returned
-        result = pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        result = pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     assert result is not None, "Expected a PipelineResult, got None"
-    assert result.method == "mem0_default", (
-        f"Expected method='mem0_default', got {result.method!r}"
+    assert result.method == "kernel_private", (
+        f"Expected method='kernel_private', got {result.method!r}"
     )
     assert result.assistant_response == "mocked response", (
         "AssistantAgent.run should still be called after Mem0 exception"
@@ -241,7 +241,7 @@ def test_exception_does_not_fail_trial():
 
 def test_exception_does_not_prevent_assistant_run():
     """When Mem0 raises, AssistantAgent.run must still be called."""
-    pipeline = MethodPipeline(method="mem0_default")
+    pipeline = MethodPipeline(method="kernel_private")
     trial_data = _make_trial_data()
 
     mock_memory = MagicMock()
@@ -257,7 +257,7 @@ def test_exception_does_not_prevent_assistant_run():
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         counting_run,
     ), patch("mem0.Memory", return_value=mock_memory):
-        pipeline._run_mem0_default(trial_data, "eve_davis__mem0_default")
+        pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     assert len(assistant_calls) == 1, (
         f"Expected AssistantAgent.run called once, got {len(assistant_calls)}"
@@ -274,4 +274,4 @@ if __name__ == "__main__":
     test_search_exception_sets_retrieved_context_count_zero()
     test_exception_does_not_fail_trial()
     test_exception_does_not_prevent_assistant_run()
-    print("\nAll mem0_default unit tests passed.")
+    print("\nAll kernel_private unit tests passed.")

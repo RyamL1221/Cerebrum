@@ -1,10 +1,10 @@
-"""Regression tests: mem0_default uses the 3-agent pipeline with share_memory=False.
+"""Regression tests: kernel_private uses the 3-agent pipeline with share_memory=False.
 
-Verifies that _run_mem0_default:
+Verifies that _run_kernel_private:
 1. Delegates to AgentPipeline(share_memory=False) — same pathway as kernel_shared
 2. ProfileAgent and TaskAgent write memories with sharing_policy="private"
 3. AssistantAgent runs without cross-agent memory injection
-4. Result method is set to "mem0_default"
+4. Result method is set to "kernel_private"
 
 No running kernel, Ollama, ChromaDB, or real LLM required.
 """
@@ -39,8 +39,8 @@ def _make_trial_data(user_id="test_user_abc"):
     )
 
 
-def test_mem0_default_delegates_to_agent_pipeline_with_share_memory_false():
-    """mem0_default creates AgentPipeline(share_memory=False) and calls run_trial."""
+def test_kernel_private_delegates_to_agent_pipeline_with_share_memory_false():
+    """kernel_private creates AgentPipeline(share_memory=False) and calls run_trial."""
     trial_data = _make_trial_data()
 
     captured_args = {}
@@ -53,22 +53,22 @@ def test_mem0_default_delegates_to_agent_pipeline_with_share_memory_false():
         original_init(self, share_memory=share_memory, assistant_llms=assistant_llms)
 
     mock_result = MagicMock()
-    mock_result.method = "mem0_default"
+    mock_result.method = "kernel_private"
 
     with patch.object(AgentPipeline, "__init__", capturing_init), \
          patch.object(AgentPipeline, "run_trial", return_value=mock_result):
-        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-        result = pipeline._run_mem0_default(trial_data, f"{trial_data.user_id}__mem0_default")
+        pipeline = MethodPipeline(method="kernel_private", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline._run_kernel_private(trial_data, f"{trial_data.user_id}__kernel_private")
 
     assert captured_args["share_memory"] is False, (
         f"Expected share_memory=False, got {captured_args['share_memory']}"
     )
 
 
-def test_mem0_default_scopes_user_id_with_method_suffix():
-    """mem0_default passes method-scoped user_id to AgentPipeline."""
+def test_kernel_private_scopes_user_id_with_method_suffix():
+    """kernel_private passes method-scoped user_id to AgentPipeline."""
     trial_data = _make_trial_data(user_id="alice")
-    method_user_id = "alice__mem0_default"
+    method_user_id = "alice__kernel_private"
 
     captured_trial = {}
 
@@ -79,32 +79,32 @@ def test_mem0_default_scopes_user_id_with_method_suffix():
         return result
 
     with patch.object(AgentPipeline, "run_trial", capturing_run_trial):
-        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-        result = pipeline._run_mem0_default(trial_data, method_user_id)
+        pipeline = MethodPipeline(method="kernel_private", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline._run_kernel_private(trial_data, method_user_id)
 
     assert captured_trial["user_id"] == method_user_id, (
         f"Expected user_id='{method_user_id}', got '{captured_trial['user_id']}'"
     )
 
 
-def test_mem0_default_sets_method_to_mem0_default():
-    """mem0_default sets result.method='mem0_default' regardless of AgentPipeline output."""
+def test_kernel_private_sets_method_to_kernel_private():
+    """kernel_private sets result.method='kernel_private' regardless of AgentPipeline output."""
     trial_data = _make_trial_data()
 
     mock_result = MagicMock()
     mock_result.method = "kernel_shared"  # AgentPipeline doesn't set method
 
     with patch.object(AgentPipeline, "run_trial", return_value=mock_result):
-        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
-        result = pipeline._run_mem0_default(trial_data, f"{trial_data.user_id}__mem0_default")
+        pipeline = MethodPipeline(method="kernel_private", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        result = pipeline._run_kernel_private(trial_data, f"{trial_data.user_id}__kernel_private")
 
-    assert result.method == "mem0_default", (
-        f"Expected method='mem0_default', got {result.method!r}"
+    assert result.method == "kernel_private", (
+        f"Expected method='kernel_private', got {result.method!r}"
     )
 
 
-def test_mem0_default_passes_assistant_llms():
-    """mem0_default forwards assistant_llms to AgentPipeline."""
+def test_kernel_private_passes_assistant_llms():
+    """kernel_private forwards assistant_llms to AgentPipeline."""
     trial_data = _make_trial_data()
     llms = [{"name": "gpt-4o", "backend": "azure"}]
 
@@ -117,22 +117,22 @@ def test_mem0_default_passes_assistant_llms():
         original_init(self, share_memory=share_memory, assistant_llms=assistant_llms)
 
     mock_result = MagicMock()
-    mock_result.method = "mem0_default"
+    mock_result.method = "kernel_private"
 
     with patch.object(AgentPipeline, "__init__", capturing_init), \
          patch.object(AgentPipeline, "run_trial", return_value=mock_result):
-        pipeline = MethodPipeline(method="mem0_default", assistant_llms=llms)
-        pipeline._run_mem0_default(trial_data, f"{trial_data.user_id}__mem0_default")
+        pipeline = MethodPipeline(method="kernel_private", assistant_llms=llms)
+        pipeline._run_kernel_private(trial_data, f"{trial_data.user_id}__kernel_private")
 
     assert captured_args["assistant_llms"] == llms, (
         f"Expected assistant_llms={llms}, got {captured_args['assistant_llms']}"
     )
 
 
-def test_mem0_default_full_pipeline_writes_private_memories():
-    """End-to-end: mem0_default pipeline writes memories with sharing_policy='private'."""
+def test_kernel_private_full_pipeline_writes_private_memories():
+    """End-to-end: kernel_private pipeline writes memories with sharing_policy='private'."""
     trial_data = _make_trial_data()
-    method_user_id = f"{trial_data.user_id}__mem0_default"
+    method_user_id = f"{trial_data.user_id}__kernel_private"
 
     create_calls = []
 
@@ -156,10 +156,10 @@ def test_mem0_default_full_pipeline_writes_private_memories():
          patch("cerebrum.example.agents.task_agent.agent.llm_chat_with_json_output", side_effect=mock_llm_chat_json), \
          patch("cerebrum.memory.apis.create_memory", side_effect=mock_create_memory), \
          patch("cerebrum.memory.apis.search_memories", side_effect=mock_search_memories):
-        pipeline = MethodPipeline(method="mem0_default", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
+        pipeline = MethodPipeline(method="kernel_private", assistant_llms=[{"name": "gpt-4o", "backend": "azure"}])
         result = pipeline.run_trial(trial_data)
 
-    assert result.method == "mem0_default"
+    assert result.method == "kernel_private"
 
     # All memories should be private since share_memory=False
     for c in create_calls:
@@ -186,16 +186,16 @@ def record(name: str, passed: bool, detail: str = ""):
 
 def run_all():
     print("=" * 70)
-    print("mem0_default Pipeline Delegation — Regression Tests")
-    print("Confirms mem0_default uses AgentPipeline(share_memory=False).")
+    print("kernel_private Pipeline Delegation — Regression Tests")
+    print("Confirms kernel_private uses AgentPipeline(share_memory=False).")
     print("=" * 70)
 
     tests = [
-        ("delegates_share_memory_false", test_mem0_default_delegates_to_agent_pipeline_with_share_memory_false),
-        ("scopes_user_id", test_mem0_default_scopes_user_id_with_method_suffix),
-        ("sets_method_mem0_default", test_mem0_default_sets_method_to_mem0_default),
-        ("passes_assistant_llms", test_mem0_default_passes_assistant_llms),
-        ("full_pipeline_private_memories", test_mem0_default_full_pipeline_writes_private_memories),
+        ("delegates_share_memory_false", test_kernel_private_delegates_to_agent_pipeline_with_share_memory_false),
+        ("scopes_user_id", test_kernel_private_scopes_user_id_with_method_suffix),
+        ("sets_method_kernel_private", test_kernel_private_sets_method_to_kernel_private),
+        ("passes_assistant_llms", test_kernel_private_passes_assistant_llms),
+        ("full_pipeline_private_memories", test_kernel_private_full_pipeline_writes_private_memories),
     ]
 
     for name, test_fn in tests:

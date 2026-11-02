@@ -62,7 +62,7 @@ def test_trial_result_method_default_is_empty_string():
 
 def test_trial_result_method_can_be_set():
     """TrialResult.method can be set to any method name."""
-    for method_name in ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]:
+    for method_name in ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]:
         result = TrialResult(trial_index=0, condition=method_name, method=method_name)
         assert result.method == method_name, (
             f"Expected method={method_name!r}, got {result.method!r}"
@@ -130,7 +130,7 @@ def test_experiment_metadata_methods_run_default_is_empty_list():
 
 def test_experiment_metadata_methods_run_can_be_set():
     """ExperimentMetadata.methods_run can be set to a list of method names."""
-    methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+    methods = ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]
     meta = ExperimentMetadata(
         trials_per_condition=10,
         timestamp="2024-01-01T00:00:00",
@@ -146,7 +146,7 @@ def test_experiment_metadata_methods_run_can_be_set():
 
 def test_condition_results_condition_can_be_method_name():
     """ConditionResults.condition can be set to a method name (not just phase1/phase2)."""
-    for method_name in ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]:
+    for method_name in ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]:
         trial = TrialResult(trial_index=0, condition=method_name, method=method_name)
         cond_result = ConditionResults(
             condition=method_name,

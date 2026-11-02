@@ -148,7 +148,7 @@ class TestUnifiedTrialDataAcrossMethods:
         }
 
         # Track which trial_data was passed to each (method, trial_index) call
-        calls_by_method: dict = {m: [] for m in ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]}
+        calls_by_method: dict = {m: [] for m in ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]}
 
         def make_mock_run_trial(method_name: str):
             """Return a mock run_trial that records the trial_data argument."""
@@ -222,7 +222,7 @@ class TestUnifiedTrialDataAcrossMethods:
             orch.run()
 
         # Verify all four methods were called
-        all_methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+        all_methods = ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]
         for method_name in all_methods:
             assert len(calls_by_method[method_name]) == num_trials, (
                 f"Method '{method_name}' was called {len(calls_by_method[method_name])} times, "
@@ -461,7 +461,7 @@ class TestUnifiedTrialDataAcrossMethods:
             )
             experiment = orch.run()
 
-        expected_methods = ["kernel_shared", "naive_concat", "vanilla_rag", "mem0_default"]
+        expected_methods = ["kernel_shared", "naive_concat", "vanilla_rag", "kernel_private"]
         actual_methods = experiment.experiment_metadata.methods_run
         assert sorted(actual_methods) == sorted(expected_methods), (
             f"methods_run mismatch.\n"
