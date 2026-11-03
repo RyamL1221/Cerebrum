@@ -33,6 +33,8 @@ class TaskAgent:
         self.config = self.load_config()
         self.messages = []
         self.rounds = 0
+        # The kernel's token usage of the last extraction call.
+        self.token_usage = None
 
     def load_config(self) -> dict:
         """Load agent configuration from config.json in the agent's directory."""
@@ -76,6 +78,7 @@ class TaskAgent:
                     "agent_name": self.agent_name,
                     "result": result_summary,
                     "rounds": self.rounds,
+                    "token_usage": self.token_usage,
                 }
             user_id = str(user_id).strip()
             memory_ids = self._upsert_task_memory(user_id, context_data)
@@ -94,6 +97,7 @@ class TaskAgent:
                 "agent_name": self.agent_name,
                 "result": result_summary,
                 "rounds": self.rounds,
+                "token_usage": self.token_usage,
             }
 
         except Exception as e:
@@ -101,6 +105,7 @@ class TaskAgent:
                 "agent_name": self.agent_name,
                 "result": f"Error: {e}",
                 "rounds": self.rounds,
+                "token_usage": self.token_usage,
             }
 
     def _extract_task_context(self, task_input: str) -> dict:
@@ -162,6 +167,7 @@ class TaskAgent:
             response_format=response_format,
         )
 
+        self.token_usage = response.get("token_usage")
         return parse_json_reply(response["response"]["response_message"])
 
     def _upsert_task_memory(self, user_id: str, context_data: dict) -> list:

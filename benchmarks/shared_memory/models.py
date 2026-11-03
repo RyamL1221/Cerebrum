@@ -148,6 +148,59 @@ class MemoryCounts(BaseModel):
         )
 
 
+class TokenUsage(BaseModel):
+    """Tokens of one group of LLM or embedding calls in a trial.
+
+    ``models`` are LiteLLM-style names (``azure/gpt-4o``,
+    ``ollama/nomic-embed-text``), the keys of ``prices.yaml``.
+    """
+
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    models: List[str] = []
+
+    @classmethod
+    def of_calls(
+        cls, usages: List[Optional[dict]], model: Optional[str] = None
+    ) -> "TokenUsage":
+        """Sum the kernel's per-call ``token_usage`` dicts. A call whose
+        backend reported no usage (None) counts as a call with 0
+        tokens."""
+        prompt = sum((u or {}).get("prompt_tokens") or 0 for u in usages)
+        completion = sum(
+            (u or {}).get("completion_tokens") or 0 for u in usages
+        )
+        return cls(
+            calls=len(usages),
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=prompt + completion,
+            models=[model] if model and usages else [],
+        )
+
+
+class LatencyBreakdown(BaseModel):
+    """Where the assistant call's time went, in milliseconds.
+
+    ``kernel_overhead_ms`` is the memory stages (barrier wait, provider
+    search, selection, formatting; done by the kernel in the kernel
+    conditions and by the agent in the native ones) plus
+    ``schedule_wait_ms``, the kernel scheduler's wait before the model
+    call. ``llm_ms`` is the model call itself; overhead + llm_ms is the
+    assistant call's latency. None where nothing was measured.
+    """
+
+    barrier_wait_ms: Optional[float] = None
+    search_ms: Optional[float] = None
+    select_ms: Optional[float] = None
+    format_ms: Optional[float] = None
+    kernel_overhead_ms: Optional[float] = None
+    llm_ms: Optional[float] = None
+    schedule_wait_ms: Optional[float] = None
+
+
 class TrialResult(BaseModel):
     """Complete result for one trial."""
 
@@ -168,6 +221,13 @@ class TrialResult(BaseModel):
     retrieval_log: Optional[RetrievalLog] = None
     injection_diagnostics: Optional[InjectionDiagnostics] = None
     written_memories: List[WrittenMemoryRecord] = []
+    # Cost (Subtask 7). The assistant's call, the writers' extraction
+    # calls, and the memory backend's own LLM and embedding calls.
+    token_usage: TokenUsage = TokenUsage()
+    writer_tokens: TokenUsage = TokenUsage()
+    backend_llm_tokens: TokenUsage = TokenUsage()
+    embedding_tokens: TokenUsage = TokenUsage()
+    latency_breakdown: LatencyBreakdown = LatencyBreakdown()
     failed: bool = False
     error_message: Optional[str] = None
 

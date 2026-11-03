@@ -1,0 +1,27 @@
+# USD per 1M tokens, keyed by the LiteLLM-style model name the harness
+# records (TokenUsage.models). Prices change: update `as_of` and `source`
+# with every edit, and price a run with the table that was current for it.
+as_of: "2026-11-03"
+source: >-
+  Azure OpenAI global standard pay-as-you-go, as reported by price
+  aggregators (inference.net, computeprices.com, futureagi.com) on
+  2026-11-03; Microsoft's pricing page was not checked directly.
+  Regional (US / EU) deployments are listed at 2.75 / 11.00.
+models:
+  azure/gpt-4o:
+    input: 2.50
+    output: 10.00
+  # Local models run on our own hardware through Ollama: no per-token
+  # price. Their cost is time, which latency_breakdown records.
+  ollama/llama3.1:8b:
+    input: 0.0
+    output: 0.0
+    note: local (Ollama), no per-token price
+  ollama/qwen2.5:7b:
+    input: 0.0
+    output: 0.0
+    note: local (Ollama), no per-token price
+  ollama/nomic-embed-text:
+    input: 0.0
+    output: 0.0
+    note: local (Ollama) embedding model, no per-token price

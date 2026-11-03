@@ -48,6 +48,7 @@ from benchmarks.shared_memory.models import (
     ExperimentResults,
     JudgeScores,
     MemoryCounts,
+    TokenUsage,
     TrialResult,
 )
 from benchmarks.shared_memory.conditions import (
@@ -107,6 +108,22 @@ def check_kernel_provider(kernel_url: str, expected: str) -> None:
             f"--provider {expected}: the kernel at {kernel_url} serves "
             f"memory from {actual!r}"
         )
+
+
+def read_backend_usage(kernel_url: str, user_id: str) -> dict:
+    """The kernel's record of its memory backend's own LLM and embedding
+    calls for one trial's user, as TokenUsage fields. Reading empties the
+    record."""
+    response = requests.get(
+        f"{kernel_url}/memory/cost",
+        params={"user_id": user_id}, timeout=30,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return {
+        "backend_llm_tokens": TokenUsage(**body["backend_llm_tokens"]),
+        "embedding_tokens": TokenUsage(**body["embedding_tokens"]),
+    }
 
 
 def check_kernel_mode(kernel_url: str, method: str) -> None:
@@ -462,6 +479,26 @@ class EvaluationOrchestrator:
             logger.warning("Trial %d: judge evaluation failed: %s", trial_index, e)
             scores = JudgeScores()
 
+        # Read after judging, so the kernel's background conversation
+        # write (and its embedding call) has finished.
+        backend_usage = {
+            "backend_llm_tokens": pipeline_result.backend_llm_tokens,
+            "embedding_tokens": pipeline_result.embedding_tokens,
+        }
+        if (pipeline_result.backend_llm_tokens is None
+                and pipeline_result.backend_usage_user_id):
+            try:
+                backend_usage = read_backend_usage(
+                    self.kernel_url, pipeline_result.backend_usage_user_id
+                )
+            except requests.RequestException as e:
+                logger.warning(
+                    "Trial %d: backend usage unavailable: %s", trial_index, e
+                )
+        backend_usage = {
+            key: value or TokenUsage() for key, value in backend_usage.items()
+        }
+
         return TrialResult(
             trial_index=trial_index,
             condition=condition,
@@ -480,6 +517,10 @@ class EvaluationOrchestrator:
             retrieval_log=retrieval_log,
             injection_diagnostics=pipeline_result.injection_diagnostics,
             written_memories=pipeline_result.written_memories,
+            token_usage=pipeline_result.token_usage,
+            writer_tokens=pipeline_result.writer_tokens,
+            latency_breakdown=pipeline_result.latency_breakdown,
+            **backend_usage,
         )
 
     def run(self) -> ExperimentResults:

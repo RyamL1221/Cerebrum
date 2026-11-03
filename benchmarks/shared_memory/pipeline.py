@@ -39,9 +39,11 @@ from cerebrum.example.agents.native.agents import (
 from benchmarks.shared_memory.models import (
     InjectedMemoryEntry,
     InjectionDiagnostics,
+    LatencyBreakdown,
     RetrievalLog,
     RetrievalLogEntry,
     SyntheticTrialData,
+    TokenUsage,
     WrittenMemoryRecord,
 )
 
@@ -60,6 +62,63 @@ class PipelineResult:
     written_memories: List[WrittenMemoryRecord] = field(default_factory=list)
     method: str = ""
     retrieved_context_count: Optional[int] = None
+    token_usage: TokenUsage = field(default_factory=TokenUsage)
+    writer_tokens: TokenUsage = field(default_factory=TokenUsage)
+    latency_breakdown: LatencyBreakdown = field(
+        default_factory=LatencyBreakdown
+    )
+    # The memory backend's own calls. Native agents report them; for the
+    # kernel conditions they are None here and read from the kernel's
+    # /memory/cost under ``backend_usage_user_id`` once the trial's
+    # background conversation write has run (run_evaluation).
+    backend_llm_tokens: Optional[TokenUsage] = None
+    embedding_tokens: Optional[TokenUsage] = None
+    backend_usage_user_id: Optional[str] = None
+
+
+def model_name(llms: Optional[list]) -> Optional[str]:
+    """The LiteLLM-style name (``<backend>/<model>``) of a run's model."""
+    if not llms:
+        return None
+    entry = llms[0]
+    name, backend = entry.get("name"), entry.get("backend")
+    return f"{backend}/{name}" if backend else name
+
+
+LATENCY_KEYS = tuple(LatencyBreakdown.model_fields)
+
+
+def cost_fields(
+    assistant_result: dict, writer_results: List[dict],
+    llms: Optional[list],
+) -> dict:
+    """The assistant's and the writers' token usage and the latency
+    breakdown, as PipelineResult fields.
+
+    A call counts when the kernel replied (its result carries a
+    ``token_usage`` key, None when the backend reports no usage).
+    The latency keys come from the injection diagnostics, where the
+    kernel or the native agent put them; without diagnostics only the
+    kernel's model-call timing is known.
+    """
+    model = model_name(llms)
+
+    def usage(results: List[dict]) -> TokenUsage:
+        return TokenUsage.of_calls(
+            [r.get("token_usage") for r in results if "token_usage" in r],
+            model,
+        )
+
+    source = assistant_result.get("injection_diagnostics")
+    if not isinstance(source, dict) or "llm_ms" not in source:
+        source = assistant_result.get("llm_timing") or {}
+    return {
+        "token_usage": usage([assistant_result]),
+        "writer_tokens": usage(writer_results),
+        "latency_breakdown": LatencyBreakdown(**{
+            key: source[key] for key in LATENCY_KEYS if key in source
+        }),
+    }
 
 
 class AgentPipeline:
@@ -202,6 +261,11 @@ class AgentPipeline:
             retrieval_log=retrieval_log,
             injection_diagnostics=injection_diagnostics,
             written_memories=written_records,
+            backend_usage_user_id=trial_data.user_id,
+            **cost_fields(
+                assistant_result, [profile_result, task_result],
+                self.assistant_llms,
+            ),
         )
 
     def _extract_injection_diagnostics(
@@ -608,6 +672,8 @@ class MethodPipeline:
             written_memories=[],
             method="naive_concat",
             retrieved_context_count=0,
+            backend_usage_user_id=method_user_id,
+            **cost_fields(assistant_result, [], self.assistant_llms),
         )
 
     def _run_vanilla_rag(
@@ -714,6 +780,8 @@ class MethodPipeline:
             written_memories=[],
             method="vanilla_rag",
             retrieved_context_count=len(selected_chunks),
+            backend_usage_user_id=method_user_id,
+            **cost_fields(assistant_result, [], self.assistant_llms),
         )
 
     def _run_kernel_private(
@@ -785,6 +853,7 @@ class MethodPipeline:
         )
         assistant_result = assistant_agent.run(trial_data.follow_up_query)
         timing = assistant_result["timing"]
+        backend = assistant_result["backend_usage"]
 
         reader = AgentPipeline(share_memory=True)
         diagnostics = reader._extract_injection_diagnostics(assistant_result)
@@ -809,4 +878,12 @@ class MethodPipeline:
             injection_diagnostics=diagnostics,
             written_memories=written,
             method=self.method,
+            backend_llm_tokens=TokenUsage(
+                **backend["backend_llm_tokens"]
+            ),
+            embedding_tokens=TokenUsage(**backend["embedding_tokens"]),
+            **cost_fields(
+                assistant_result, [profile_result, task_result],
+                self.assistant_llms,
+            ),
         )

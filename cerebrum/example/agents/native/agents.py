@@ -24,6 +24,7 @@ from cerebrum.example.agents.native.sharing import (
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
 from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.llm.apis import llm_chat
+from cerebrum.utils import usage
 
 BACKENDS = ("mem0", "inhouse")
 COSINE = {"hnsw": {"space": "cosine"}}
@@ -55,8 +56,13 @@ class NativeMemory:
         agent_name: str, metadata: Dict[str, Any],
     ) -> None:
         """Store one memory: Mem0 extracts facts from ``messages``; the
-        in-house store keeps ``text`` verbatim."""
+        in-house store keeps ``text`` verbatim. The backend's LLM and
+        embedding calls count to the user's trial."""
         user_id = metadata["user_id"]
+        with usage.tagged(user_id):
+            self._write(messages, text, agent_name, metadata, user_id)
+
+    def _write(self, messages, text, agent_name, metadata, user_id) -> None:
         if self.backend == "mem0":
             self.mem0.add(
                 messages, user_id=user_id, agent_id=agent_name,
@@ -73,6 +79,10 @@ class NativeMemory:
     def search(self, query: str, user_id: str, k: int) -> List[dict]:
         """The user's memories nearest the query, as
         ``{memory_id, content, metadata, score}`` rows, in backend order."""
+        with usage.tagged(user_id):
+            return self._search(query, user_id, k)
+
+    def _search(self, query: str, user_id: str, k: int) -> List[dict]:
         if self.backend == "mem0":
             results = self.mem0.search(
                 query, filters={"user_id": user_id}, top_k=k
@@ -147,6 +157,7 @@ class _NativeWriter:
             "agent_name": self.agent_name,
             "result": text,
             "written": metadata,
+            "token_usage": self.extractor.token_usage,
         }
 
 
@@ -194,15 +205,20 @@ class NativeAssistantAgent:
         )
 
     def run(self, task_input: str) -> dict:
+        """Answer one query. The timing keys are the kernel's
+        (``barrier_wait_ms`` is 0: there is no barrier); the backend's
+        own token usage for the trial, writers included, is read from
+        this process's accumulator after the conversation write."""
         user_id = self.user_id
         k = self.memory.settings.k
         started = time.perf_counter()
         rows = self.memory.search(task_input, user_id, k)
+        searched = time.perf_counter()
         partitioned = [r for r in rows if in_partition(user_id, r["metadata"])]
         kept = [
             r for r in partitioned if visible(self.agent_name, r["metadata"])
         ][:k]
-        retrieved = time.perf_counter()
+        selected = time.perf_counter()
 
         messages = []
         block = self._block(kept) if kept else ""
@@ -212,6 +228,7 @@ class NativeAssistantAgent:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": task_input},
         ]
+        formatted = time.perf_counter()
         response = llm_chat(
             agent_name=self.agent_name,
             messages=messages,
@@ -232,17 +249,45 @@ class NativeAssistantAgent:
             memory_metadata(self.agent_name, user_id, "conversation", PRIVATE),
         )
         written = time.perf_counter()
+        records = usage.ACCUMULATOR.take(user_id)
 
+        llm_timing = (response or {}).get("llm_timing") or {}
+        stages = {
+            "barrier_wait_ms": 0.0,
+            "search_ms": (searched - started) * 1000,
+            "select_ms": (selected - searched) * 1000,
+            "format_ms": (formatted - selected) * 1000,
+        }
+        # As in the kernel conditions, the overhead includes the kernel
+        # scheduler's wait before the model call.
+        wait = llm_timing.get("schedule_wait_ms")
+        latency = {
+            **stages,
+            "schedule_wait_ms": wait,
+            "kernel_overhead_ms": sum(stages.values()) + (wait or 0.0),
+            "llm_ms": llm_timing.get("llm_ms"),
+        }
+        diagnostics = self._diagnostics(
+            user_id, k, rows, partitioned, kept, block
+        )
+        diagnostics.update(latency)
         return {
             "agent_name": self.agent_name,
             "result": answer,
             "rounds": 1,
-            "injection_diagnostics": self._diagnostics(
-                user_id, k, rows, partitioned, kept, block
-            ),
+            "injection_diagnostics": diagnostics,
+            "token_usage": (response or {}).get("token_usage"),
+            "llm_timing": llm_timing,
+            "backend_usage": {
+                "backend_llm_tokens": usage.summarize(
+                    records, usage.BACKEND_EXTRACTION
+                ),
+                "embedding_tokens": usage.summarize(records, usage.EMBEDDING),
+                "records": records,
+            },
             "timing": {
-                "retrieve_seconds": retrieved - started,
-                "llm_seconds": answered - retrieved,
+                "retrieve_seconds": formatted - started,
+                "llm_seconds": answered - formatted,
                 "write_seconds": written - answered,
             },
         }

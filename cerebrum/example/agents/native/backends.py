@@ -11,6 +11,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+from cerebrum.utils.usage import (
+    count_embeddings,
+    install_litellm_logger,
+    litellm_model_name,
+)
+
 # Mem0 reports usage to its telemetry service unless told not to.
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 
@@ -41,39 +47,33 @@ def store_dir(condition: str) -> str:
 
 
 def mem0_llm(backend_llm: Dict[str, Any]) -> Dict[str, Any]:
-    """Mem0's ``llm`` config for the pinned internal LLM."""
+    """Mem0's ``llm`` config for the pinned internal LLM: Mem0's
+    ``litellm`` provider, so each call reaches LiteLLM's callbacks and is
+    counted per trial (``cerebrum.utils.usage``). LiteLLM reads the
+    credentials from the environment (``AZURE_API_KEY``,
+    ``AZURE_API_BASE``, ``AZURE_API_VERSION``), the same variables the
+    kernel's LiteLLM calls read. Ollama is reached at LiteLLM's default
+    address."""
     provider = backend_llm.get("provider")
     model = backend_llm.get("model")
     if not provider or not model:
         raise ValueError("memory.backend_llm needs a provider and a model")
-    config: Dict[str, Any] = {
-        "model": model,
-        "temperature": backend_llm.get("temperature", 0.1),
-    }
-    if provider == "azure_openai":
-        # The same variables the kernel's LiteLLM calls read.
-        config["azure_kwargs"] = {
-            "api_key": os.environ["AZURE_API_KEY"],
-            "azure_endpoint": os.environ["AZURE_API_BASE"],
-            "api_version": os.environ["AZURE_API_VERSION"],
-            "azure_deployment": model,
-        }
-    elif provider == "ollama":
-        config["ollama_base_url"] = backend_llm.get(
-            "ollama_base_url", "http://localhost:11434"
-        )
-    else:
+    if provider not in ("azure_openai", "ollama"):
         raise ValueError(f"unsupported backend_llm provider {provider!r}")
-    return {"provider": provider, "config": config}
+    return {"provider": "litellm", "config": {
+        "model": litellm_model_name(provider, model),
+        "temperature": backend_llm.get("temperature", 0.1),
+    }}
 
 
 def mem0_client(settings: NativeSettings):
     """One ``mem0.Memory`` on the condition's shared store."""
     from mem0 import Memory
 
+    install_litellm_logger()
     root = store_dir("native_mem0")
     embedding = settings.embedding
-    return Memory.from_config({
+    client = Memory.from_config({
         "llm": mem0_llm(settings.backend_llm),
         "embedder": {"provider": embedding["provider"], "config": {
             "model": embedding["model"],
@@ -86,6 +86,8 @@ def mem0_client(settings: NativeSettings):
         }},
         "history_db_path": os.path.join(root, "history.db"),
     })
+    count_embeddings(client.embedding_model.client, embedding["model"])
+    return client
 
 
 def chroma_client():
@@ -117,7 +119,9 @@ class Embedder:
 
         self.model = embedding["model"]
         self.dimension = embedding["dimension"]
-        self._client = Client(host=embedding["ollama_base_url"])
+        self._client = count_embeddings(
+            Client(host=embedding["ollama_base_url"]), self.model
+        )
 
     def __call__(self, text: str) -> List[float]:
         vector = self._client.embed(model=self.model, input=text)[

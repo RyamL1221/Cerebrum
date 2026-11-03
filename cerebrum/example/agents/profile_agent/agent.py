@@ -33,6 +33,8 @@ class ProfileAgent:
         self.config = self.load_config()
         self.messages = []
         self.rounds = 0
+        # The kernel's token usage of the last extraction call.
+        self.token_usage = None
 
     def load_config(self) -> dict:
         """Load agent configuration from config.json in the agent's directory."""
@@ -74,6 +76,7 @@ class ProfileAgent:
                     "agent_name": self.agent_name,
                     "result": result_summary,
                     "rounds": self.rounds,
+                    "token_usage": self.token_usage,
                 }
             user_id = str(user_id).strip()
             memory_ids = self._upsert_profile_memory(user_id, profile_data)
@@ -90,6 +93,7 @@ class ProfileAgent:
                 "agent_name": self.agent_name,
                 "result": result_summary,
                 "rounds": self.rounds,
+                "token_usage": self.token_usage,
             }
 
         except Exception as e:
@@ -97,6 +101,7 @@ class ProfileAgent:
                 "agent_name": self.agent_name,
                 "result": f"Error: {e}",
                 "rounds": self.rounds,
+                "token_usage": self.token_usage,
             }
 
     def _extract_profile(self, task_input: str) -> dict:
@@ -150,6 +155,7 @@ class ProfileAgent:
             response_format=response_format,
         )
 
+        self.token_usage = response.get("token_usage")
         return parse_json_reply(response["response"]["response_message"])
 
     def _upsert_profile_memory(self, user_id: str, profile_data: dict) -> list:
