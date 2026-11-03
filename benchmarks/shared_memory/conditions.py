@@ -16,8 +16,31 @@ CONDITIONS = ("kernel_shared", "naive_concat", "vanilla_rag", "kernel_private")
 # kernel must run with injection and extraction off.
 NATIVE_CONDITIONS = ("native_mem0", "native_inhouse")
 
+# Every agent runs the kernel's memory pipeline library itself
+# (docs/REPLICATED_LOGIC.md in AIOS): the kernel must run with injection
+# and extraction off, as for the native conditions.
+REPLICATED_CONDITIONS = ("replicated_mem0", "replicated_inhouse")
+
+# Conditions whose agents manage memory themselves.
+AGENT_MANAGED_CONDITIONS = NATIVE_CONDITIONS + REPLICATED_CONDITIONS
+
 # Conditions that need the kernel to inject memories.
 KERNEL_INJECTION_CONDITIONS = ("kernel_shared", "kernel_private")
+
+
+def locus_of(condition: str) -> str:
+    """Where a condition's memory logic runs: ``kernel``,
+    ``replicated`` (the kernel's library, in each agent), ``native``
+    (the backend's own SDK, in each agent), or ``none`` (no memory
+    system: the context-in-prompt baselines)."""
+    condition = canonical_condition(condition)
+    if condition in KERNEL_INJECTION_CONDITIONS:
+        return "kernel"
+    if condition in REPLICATED_CONDITIONS:
+        return "replicated"
+    if condition in NATIVE_CONDITIONS:
+        return "native"
+    return "none"
 
 # Deprecated name -> current name. ``mem0_default`` was the kernel pipeline
 # with sharing off, not Mem0's own behavior.

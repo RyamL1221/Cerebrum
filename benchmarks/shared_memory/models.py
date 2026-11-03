@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import requests
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from benchmarks.shared_memory.conditions import locus_of
 from cerebrum.config.config_manager import config
 
 
@@ -228,8 +229,20 @@ class TrialResult(BaseModel):
     backend_llm_tokens: TokenUsage = TokenUsage()
     embedding_tokens: TokenUsage = TokenUsage()
     latency_breakdown: LatencyBreakdown = LatencyBreakdown()
+    # Where the memory logic ran (Subtask 8): "kernel", "replicated",
+    # "native" or "none"; derived from the method when not given.
+    locus: str = ""
+    # The memory pipeline library's source hash for kernel and
+    # replicated trials (aios.memory.pipeline.PIPELINE_VERSION).
+    pipeline_version: Optional[str] = None
     failed: bool = False
     error_message: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _fill_locus(self) -> "TrialResult":
+        if not self.locus:
+            self.locus = locus_of(self.method or self.condition)
+        return self
 
 
 # ---------------------------------------------------------------------------

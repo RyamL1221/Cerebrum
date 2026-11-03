@@ -74,6 +74,9 @@ class PipelineResult:
     backend_llm_tokens: Optional[TokenUsage] = None
     embedding_tokens: Optional[TokenUsage] = None
     backend_usage_user_id: Optional[str] = None
+    # The memory pipeline library's version that ran the trial's memory
+    # logic (the kernel's, or the replicated agents'); None otherwise.
+    pipeline_version: Optional[str] = None
 
 
 def model_name(llms: Optional[list]) -> Optional[str]:
@@ -262,6 +265,7 @@ class AgentPipeline:
             injection_diagnostics=injection_diagnostics,
             written_memories=written_records,
             backend_usage_user_id=trial_data.user_id,
+            pipeline_version=self._kernel_pipeline_version(),
             **cost_fields(
                 assistant_result, [profile_result, task_result],
                 self.assistant_llms,
@@ -347,6 +351,16 @@ class AgentPipeline:
         )
         response.raise_for_status()
         return response.json()
+
+    @classmethod
+    def _kernel_pipeline_version(cls) -> Optional[str]:
+        """The kernel's memory pipeline library version, or None when the
+        kernel does not report one (or cannot be read)."""
+        try:
+            return cls._kernel_memory_config().get("pipeline_version")
+        except (requests.RequestException, OSError, ValueError) as e:
+            logger.warning("Kernel pipeline_version unavailable: %s", e)
+            return None
 
     def _audit_shared_memories(self, user_id: str, query_text: str) -> RetrievalLog:
         """Query the kernel from the harness side to audit shared memories.
@@ -544,8 +558,10 @@ class MethodPipeline:
         self.method = canonical_condition(method)
         self.top_k = top_k
         self.assistant_llms = assistant_llms
-        # Long-lived native agents, built on the first native trial.
+        # Long-lived native and replicated agents, built on the first
+        # trial that needs them.
         self._native_agents: tuple | None = None
+        self._replicated_agents: tuple | None = None
 
     def run_trial(self, trial_data: SyntheticTrialData) -> PipelineResult:
         """Route to the correct execution path based on self.method.
@@ -576,11 +592,18 @@ class MethodPipeline:
             return self._run_native(trial_data, method_user_id, "mem0")
         elif self.method == "native_inhouse":
             return self._run_native(trial_data, method_user_id, "inhouse")
+        elif self.method == "replicated_mem0":
+            return self._run_replicated(trial_data, method_user_id, "mem0")
+        elif self.method == "replicated_inhouse":
+            return self._run_replicated(
+                trial_data, method_user_id, "inhouse"
+            )
         else:
             raise ValueError(
                 f"Unknown method: {self.method!r}. "
                 "Valid methods are: kernel_shared, naive_concat, vanilla_rag, "
-                "kernel_private, native_mem0, native_inhouse."
+                "kernel_private, native_mem0, native_inhouse, "
+                "replicated_mem0, replicated_inhouse."
             )
 
     def _run_kernel_shared(
@@ -829,19 +852,66 @@ class MethodPipeline:
             )
         return self._native_agents
 
+    def _replicated(self, backend: str) -> tuple:
+        """The condition's three agents, each with its own memory
+        pipeline (provider client, barrier, identity resolver), built
+        once and kept across trials like deployed agents."""
+        if self._replicated_agents is None:
+            from cerebrum.example.agents.replicated.agents import (
+                ReplicatedAssistantAgent,
+                ReplicatedMemory,
+                ReplicatedProfileAgent,
+                ReplicatedTaskAgent,
+            )
+
+            kernel_config = AgentPipeline._kernel_memory_config()
+            self._replicated_agents = (
+                ReplicatedProfileAgent(
+                    "profile_agent", ReplicatedMemory(backend, kernel_config)
+                ),
+                ReplicatedTaskAgent(
+                    "task_agent", ReplicatedMemory(backend, kernel_config)
+                ),
+                ReplicatedAssistantAgent(
+                    "assistant_agent",
+                    ReplicatedMemory(backend, kernel_config),
+                ),
+            )
+        return self._replicated_agents
+
     def _run_native(
         self, trial_data: SyntheticTrialData, method_user_id: str,
         backend: str,
     ) -> PipelineResult:
         """Agent-managed memory (docs/NATIVE_USAGE.md in AIOS): the agents
         write and read the backend themselves; the kernel serves only the
-        LLM calls.
+        LLM calls."""
+        return self._run_agent_managed(
+            trial_data, method_user_id, self._native(backend)
+        )
+
+    def _run_replicated(
+        self, trial_data: SyntheticTrialData, method_user_id: str,
+        backend: str,
+    ) -> PipelineResult:
+        """Replicated logic (docs/REPLICATED_LOGIC.md in AIOS): every
+        agent runs the kernel's memory pipeline library itself; the
+        kernel serves only the LLM calls."""
+        return self._run_agent_managed(
+            trial_data, method_user_id, self._replicated(backend)
+        )
+
+    def _run_agent_managed(
+        self, trial_data: SyntheticTrialData, method_user_id: str,
+        agents: tuple,
+    ) -> PipelineResult:
+        """One trial of a condition whose agents manage memory.
 
         Latency is the assistant's retrieval and LLM call. Its conversation
         write after the response is excluded, as the kernel conditions
         write theirs on a background thread.
         """
-        profile_agent, task_agent, assistant_agent = self._native(backend)
+        profile_agent, task_agent, assistant_agent = agents
         for agent in (profile_agent, task_agent, assistant_agent):
             agent.user_id = method_user_id
             agent.llms = self.assistant_llms
@@ -878,6 +948,7 @@ class MethodPipeline:
             injection_diagnostics=diagnostics,
             written_memories=written,
             method=self.method,
+            pipeline_version=assistant_result.get("pipeline_version"),
             backend_llm_tokens=TokenUsage(
                 **backend["backend_llm_tokens"]
             ),

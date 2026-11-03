@@ -218,3 +218,4 @@ cache
 /.mem0
 # Agent-managed memory stores (native conditions)
 /.native_memory
+/.replicated_memory

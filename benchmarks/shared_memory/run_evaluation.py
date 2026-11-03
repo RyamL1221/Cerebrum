@@ -54,8 +54,11 @@ from benchmarks.shared_memory.models import (
 from benchmarks.shared_memory.conditions import (
     CONDITIONS,
     KERNEL_INJECTION_CONDITIONS,
+    AGENT_MANAGED_CONDITIONS,
     NATIVE_CONDITIONS,
+    REPLICATED_CONDITIONS,
     canonical_condition,
+    locus_of,
 )
 from benchmarks.shared_memory.judge import (
     JUDGE_PROMPT_VERSION,
@@ -128,10 +131,11 @@ def read_backend_usage(kernel_url: str, user_id: str) -> dict:
 
 def check_kernel_mode(kernel_url: str, method: str) -> None:
     """Fail unless the kernel's memory mode fits the condition: a native
-    condition needs injection and extraction off, a kernel condition
-    needs injection on. Other conditions are not checked."""
+    or replicated condition (agent-managed memory) needs injection and
+    extraction off, a kernel condition needs injection on. Other
+    conditions are not checked."""
     methods = list(CONDITIONS) if method == "all" else [method]
-    native = [m for m in methods if m in NATIVE_CONDITIONS]
+    native = [m for m in methods if m in AGENT_MANAGED_CONDITIONS]
     kernel = [m for m in methods if m in KERNEL_INJECTION_CONDITIONS]
     if not native and not kernel:
         return
@@ -199,7 +203,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--method",
         type=canonical_condition,
-        choices=[*CONDITIONS, *NATIVE_CONDITIONS, "all"],
+        choices=[
+            *CONDITIONS, *NATIVE_CONDITIONS, *REPLICATED_CONDITIONS, "all",
+        ],
         default="kernel_shared",
         help=(
             "Personalization method to evaluate (default: kernel_shared). "
@@ -520,6 +526,7 @@ class EvaluationOrchestrator:
             token_usage=pipeline_result.token_usage,
             writer_tokens=pipeline_result.writer_tokens,
             latency_breakdown=pipeline_result.latency_breakdown,
+            pipeline_version=pipeline_result.pipeline_version,
             **backend_usage,
         )
 
