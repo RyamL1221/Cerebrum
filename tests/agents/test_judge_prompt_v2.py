@@ -237,4 +237,4 @@ def test_hybrid_evaluate_matches_combine(value):
         scores = hybrid.evaluate("q", "Use vim.", PROFILE, TASK)
     expected = HybridJudge.combine("Use vim.", PROFILE, TASK,
                                    llm_scores(value))
-    assert scores == expected
+    assert scores == expected.model_copy(update={"judge_attempts": 1})

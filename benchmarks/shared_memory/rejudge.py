@@ -20,7 +20,10 @@ from pathlib import Path
 from benchmarks.shared_memory.conditions import canonical_condition
 from benchmarks.shared_memory.judge import (
     JUDGE_PROMPT_VERSION,
+    JUDGE_RETRIES,
+    SCORER,
     HybridJudge,
+    JudgeFailed,
     judge_prompt_sha256,
 )
 from benchmarks.shared_memory.models import (
@@ -33,7 +36,7 @@ from benchmarks.shared_memory.run_evaluation import _parse_model_arg
 
 logger = logging.getLogger(__name__)
 
-RETRIES = 3
+RETRIES = JUDGE_RETRIES
 SCORE_FIELDS = ("profile_usage_score", "task_usage_score", "integration_score")
 
 
@@ -41,29 +44,24 @@ def rejudge_trial(judge: HybridJudge, trial: TrialResult) -> TrialResult:
     """Return a copy of ``trial`` with its scores from ``judge``."""
     if trial.failed:
         return trial
-    for _ in range(RETRIES):
-        llm_scores = judge.llm_judge.evaluate(
+    try:
+        scores = judge.evaluate(
             trial.follow_up_query,
             trial.assistant_response,
             trial.synthetic_profile,
             trial.synthetic_task_context,
         )
-        if all(getattr(llm_scores, f) is not None for f in SCORE_FIELDS):
-            break
-    else:
+    except JudgeFailed as e:
         return trial.model_copy(update={
             **{field: None for field in SCORE_FIELDS},
             "failed": True,
-            "error_message": "re-judge: no LLM judge scores",
+            "error_message": f"re-judge: {e}",
+            "judge_attempts": e.attempts,
         })
-    scores = judge.combine(
-        trial.assistant_response,
-        trial.synthetic_profile,
-        trial.synthetic_task_context,
-        llm_scores,
-    )
     return trial.model_copy(update={
-        field: getattr(scores, field) for field in SCORE_FIELDS
+        **{field: getattr(scores, field) for field in SCORE_FIELDS},
+        "scorer": SCORER,
+        "judge_attempts": scores.judge_attempts,
     })
 
 

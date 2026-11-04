@@ -90,6 +90,8 @@ class JudgeScores(BaseModel):
     profile_usage_reasoning: Optional[str] = None
     task_usage_reasoning: Optional[str] = None
     integration_reasoning: Optional[str] = None
+    # LLM judge calls the scores took (HybridJudge.evaluate).
+    judge_attempts: Optional[int] = None
 
 
 class InjectedMemoryEntry(BaseModel):
@@ -235,6 +237,11 @@ class TrialResult(BaseModel):
     # The memory pipeline library's source hash for kernel and
     # replicated trials (aios.memory.pipeline.PIPELINE_VERSION).
     pipeline_version: Optional[str] = None
+    # How the scores were produced (judge.SCORER) and how many LLM judge
+    # calls they took; a trial whose judge failed every attempt is failed
+    # with no scores (Subtask 4b). None in older files.
+    scorer: Optional[str] = None
+    judge_attempts: Optional[int] = None
     failed: bool = False
     error_message: Optional[str] = None
 

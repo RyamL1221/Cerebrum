@@ -46,7 +46,6 @@ from benchmarks.shared_memory.models import (
     ConditionResults,
     ExperimentMetadata,
     ExperimentResults,
-    JudgeScores,
     MemoryCounts,
     TokenUsage,
     TrialResult,
@@ -62,6 +61,7 @@ from benchmarks.shared_memory.conditions import (
 )
 from benchmarks.shared_memory.judge import (
     JUDGE_PROMPT_VERSION,
+    SCORER,
     HybridJudge,
     judge_prompt_sha256,
 )
@@ -482,8 +482,25 @@ class EvaluationOrchestrator:
                 task_context=trial_data.task_context,
             )
         except Exception as e:
-            logger.warning("Trial %d: judge evaluation failed: %s", trial_index, e)
-            scores = JudgeScores()
+            # No keyword-only fallback (Subtask 4b): the trial fails.
+            logger.error("Trial %d: judge failed: %s", trial_index, e)
+            return TrialResult(
+                trial_index=trial_index,
+                condition=condition,
+                method=effective_method,
+                failed=True,
+                error_message=f"judge: {e}",
+                judge_attempts=getattr(e, "attempts", None),
+                follow_up_query=trial_data.follow_up_query,
+                plausible_actions=trial_data.plausible_actions,
+                assistant_response=pipeline_result.assistant_response or "",
+                synthetic_profile=trial_data.profile,
+                synthetic_task_context=trial_data.task_context,
+                injection_diagnostics=pipeline_result.injection_diagnostics,
+                written_memories=pipeline_result.written_memories,
+                pipeline_version=pipeline_result.pipeline_version,
+            )
+        attempts = getattr(scores, "judge_attempts", None)
 
         # Read after judging, so the kernel's background conversation
         # write (and its embedding call) has finished.
@@ -527,6 +544,8 @@ class EvaluationOrchestrator:
             writer_tokens=pipeline_result.writer_tokens,
             latency_breakdown=pipeline_result.latency_breakdown,
             pipeline_version=pipeline_result.pipeline_version,
+            scorer=SCORER,
+            judge_attempts=attempts if isinstance(attempts, int) else None,
             **backend_usage,
         )
 

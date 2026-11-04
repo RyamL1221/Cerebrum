@@ -417,16 +417,58 @@ def keyword_score(response: str, keywords: list) -> int:
         return 1
 
 
+# How a trial's scores are produced: the keyword score averaged with the
+# LLM judge's, rounded, per dimension. Recorded on every scored trial.
+SCORER = "hybrid_keyword_llm"
+# LLM judge calls per trial before the trial is marked failed.
+JUDGE_RETRIES = 3
+
+
+class JudgeFailed(RuntimeError):
+    """The LLM judge gave no complete scores after ``attempts`` calls."""
+
+    def __init__(self, attempts: int):
+        super().__init__(f"no LLM judge scores after {attempts} attempts")
+        self.attempts = attempts
+
+
+def _complete(scores: JudgeScores) -> bool:
+    return all(getattr(scores, f) is not None for f in _SCORE_FIELDS)
+
+
 class HybridJudge:
     """Combines deterministic keyword matching with LLM-based scoring.
 
     The keyword scores provide a reliable signal for whether the response
     references profile/task attributes. The LLM scores assess quality and
-    integration. The final score is the average of both, rounded.
+    integration. The final score is the average of both, rounded. The LLM
+    half is required: without it after ``JUDGE_RETRIES`` calls the
+    judge raises ``JudgeFailed``; it never scores on keywords alone.
     """
 
     def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
         self.llm_judge = LLMJudge(agent_name=agent_name, llms=llms)
+
+    def llm_scores(
+        self,
+        query: str,
+        response: str,
+        profile: SyntheticProfile,
+        task_context: SyntheticTaskContext,
+    ) -> tuple:
+        """The LLM judge's scores and the number of calls they took.
+        Raises ``JudgeFailed`` after ``JUDGE_RETRIES`` incomplete ones."""
+        for attempt in range(1, JUDGE_RETRIES + 1):
+            scores = self.llm_judge.evaluate(
+                query, response, profile, task_context
+            )
+            if _complete(scores):
+                return scores, attempt
+            logger.warning(
+                "LLM judge attempt %d/%d gave no complete scores",
+                attempt, JUDGE_RETRIES,
+            )
+        raise JudgeFailed(JUDGE_RETRIES)
 
     def evaluate(
         self,
@@ -435,11 +477,13 @@ class HybridJudge:
         profile: SyntheticProfile,
         task_context: SyntheticTaskContext,
     ) -> JudgeScores:
-        """Score using both keyword matching and LLM judge."""
-        llm_scores = self.llm_judge.evaluate(
+        """Score using both keyword matching and LLM judge; the result
+        carries ``judge_attempts``. Raises ``JudgeFailed``."""
+        llm_scores, attempts = self.llm_scores(
             query, response, profile, task_context
         )
-        return self.combine(response, profile, task_context, llm_scores)
+        scores = self.combine(response, profile, task_context, llm_scores)
+        return scores.model_copy(update={"judge_attempts": attempts})
 
     @staticmethod
     def combine(
@@ -448,17 +492,16 @@ class HybridJudge:
         task_context: SyntheticTaskContext,
         llm_scores: JudgeScores,
     ) -> JudgeScores:
-        """Average the keyword scores with the LLM's. A missing LLM score
-        falls back to the keyword score alone."""
+        """Average the keyword scores with the LLM's. Every LLM score
+        must be present (``ValueError`` otherwise)."""
+        if not _complete(llm_scores):
+            raise ValueError("combine needs all three LLM judge scores")
         keywords = _extract_keywords(profile, task_context)
         kw_profile = keyword_score(response, keywords["profile"])
         kw_task = keyword_score(response, keywords["task"])
         kw_integration = min(kw_profile, kw_task)  # both must be present
 
-        # Combine: average keyword and LLM scores
-        def _avg(kw: int, llm_val: int | None) -> int:
-            if llm_val is None:
-                return kw
+        def _avg(kw: int, llm_val: int) -> int:
             return max(1, min(5, round((kw + llm_val) / 2)))
 
         return JudgeScores(
