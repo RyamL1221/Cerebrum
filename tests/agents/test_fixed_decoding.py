@@ -106,7 +106,11 @@ def test_writers_and_assistant_send_the_decoding(tmp_path):
             except Exception:
                 pass  # storing is not under test here
     assert len(sent) == 6  # two writers, three attempts each
-    assert all(entry == llms for entry in sent)
+    # The first attempt has the run's decoding; retries sample at the
+    # retry temperature with seed + n (Subtask 9d follow-up).
+    from cerebrum.example.agents.shared_memory_utils import attempt_llms
+    expected = [attempt_llms(llms, n) for n in range(3)]
+    assert sent == expected + expected
 
     replies = []
 

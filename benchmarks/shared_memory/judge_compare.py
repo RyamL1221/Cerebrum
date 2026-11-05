@@ -7,6 +7,11 @@ score moved by more than one point. Trials are paired by ``trial_index``.
     python -m benchmarks.shared_memory.judge_compare \\
         --old results/revalidation --new results/revalidation_v2 \\
         --csv results/revalidation_v2/judge_comparison.csv
+
+``--pilot`` reads the pilot layout instead
+(``<root>/<phase>/<model>_<method>/results_<method>.json``, every cell
+``pilot_report`` knows), e.g. the sampled against the greedy judge on
+the same stored responses (Subtask 9d follow-up).
 """
 import argparse
 import csv
@@ -57,16 +62,54 @@ def compare(pairs: list) -> dict:
     }
 
 
+def pilot_rows(old_root: Path, new_root: Path) -> list:
+    """One row per pilot cell and dimension, printed as ``main`` does."""
+    import json
+
+    from benchmarks.shared_memory.pilot_report import CELLS, cell_path
+
+    def trials(path):
+        return json.loads(path.read_text())["conditions"][0]["trials"]
+
+    rows = []
+    for model in ("gpt4o", "qwen", "llama"):
+        for (phase, method), (backend, label) in CELLS.items():
+            old_path = cell_path(old_root, phase, method, model)
+            new_path = cell_path(new_root, phase, method, model)
+            if not (old_path.exists() and new_path.exists()):
+                continue
+            old, new = trials(old_path), trials(new_path)
+            for name, field in DIMENSIONS.items():
+                row = {"method": f"{backend}/{label}", "model": model,
+                       "dimension": name,
+                       **compare(paired(old, new, field))}
+                rows.append(row)
+                rho = "n/a" if row["rho"] is None else f"{row['rho']:.3f}"
+                print(
+                    f"{row['method']:22} {model:6} {name:11} n={row['n']} "
+                    f"old {row['old_mean']:.3f} new {row['new_mean']:.3f} "
+                    f"diff {row['diff']:+.3f} rho {rho} "
+                    f">1pt {row['changed_over_1']:.1%} "
+                    f"same {row['exact_agreement']:.1%}"
+                    f"{' SHIFT>0.25' if abs(row['diff']) > MAX_SHIFT else ''}"
+                )
+    return rows
+
+
 def main() -> None:
     """Print the comparison and optionally write it as CSV."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--old", type=Path, required=True)
     parser.add_argument("--new", type=Path, required=True)
     parser.add_argument("--csv", type=Path)
+    parser.add_argument("--pilot", action="store_true",
+                        help="read the pilot_report layout")
     args = parser.parse_args()
 
     rows = []
-    for method in METHODS:
+    if args.pilot:
+        rows = pilot_rows(args.old, args.new)
+    for method in ([] if args.pilot else METHODS):
         for model in MODELS:
             old = load_trials(args.old, model, method)
             new = load_trials(args.new, model, method)

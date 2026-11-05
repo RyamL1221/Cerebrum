@@ -538,6 +538,7 @@ class EvaluationOrchestrator:
 
         common = {
             "writer_retries": pipeline_result.writer_retries,
+            "writer_attempt_settings": pipeline_result.writer_attempt_settings,
             "backend_extraction": pipeline_result.backend_extraction,
             "decoding": pipeline_result.decoding,
             "dataset": self.dataset_name,
@@ -738,6 +739,8 @@ class EvaluationOrchestrator:
             conditions_run=conditions,
             dataset=self.dataset.describe() if self.dataset else None,
             decoding=self.decoding,
+            judge_temperature=self.judge.temperature,
+            judge_seed=self.judge.seed,
         )
 
         experiment = ExperimentResults(
@@ -834,6 +837,8 @@ class EvaluationOrchestrator:
             methods_run=methods_to_run,
             dataset=self.dataset.describe() if self.dataset else None,
             decoding=self.decoding,
+            judge_temperature=self.judge.temperature,
+            judge_seed=self.judge.seed,
         )
 
         experiment = ExperimentResults(

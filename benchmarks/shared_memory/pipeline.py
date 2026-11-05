@@ -81,6 +81,10 @@ class PipelineResult:
     # trial is not scored), and each writer's retries (Subtask 9).
     writer_failed: List[str] = field(default_factory=list)
     writer_retries: Dict[str, int] = field(default_factory=dict)
+    # Each writer's extraction attempts: {attempt, temperature, seed}.
+    writer_attempt_settings: Dict[str, List[dict]] = field(
+        default_factory=dict
+    )
     # Whether the memory backend ran its own extraction on the writes
     # (Mem0 with infer=True); None for conditions without a backend.
     backend_extraction: Optional[bool] = None
@@ -90,15 +94,18 @@ class PipelineResult:
 
 
 def writer_report(*writer_results: dict) -> tuple:
-    """``(writer_failed, writer_retries)`` from the writers' results."""
-    failed, retries = [], {}
+    """``(writer_failed, writer_retries, writer_attempt_settings)`` from
+    the writers' results."""
+    failed, retries, settings = [], {}, {}
     for result in writer_results:
         name = result.get("agent_name", "")
         if "writer_retries" in result:
             retries[name] = result["writer_retries"]
+        if "writer_attempt_settings" in result:
+            settings[name] = result["writer_attempt_settings"]
         if result.get("writer_failed"):
             failed.append(name)
-    return failed, retries
+    return failed, retries, settings
 
 
 def model_name(llms: Optional[list]) -> Optional[str]:
@@ -246,7 +253,9 @@ class AgentPipeline:
             task_result = task_agent.run(
                 json.dumps(trial_data.task_context.model_dump())
             )
-            failed, retries = writer_report(profile_result, task_result)
+            failed, retries, attempts = writer_report(
+            profile_result, task_result
+        )
             if failed:
                 return self._writer_failure(
                     profile_result, task_result, written_records,
@@ -299,6 +308,7 @@ class AgentPipeline:
             backend_usage_user_id=trial_data.user_id,
             pipeline_version=self._kernel_pipeline_version(),
             writer_retries=retries,
+            writer_attempt_settings=attempts,
             backend_extraction=self._kernel_backend_extraction(),
             **cost_fields(
                 assistant_result, [profile_result, task_result],
@@ -312,7 +322,9 @@ class AgentPipeline:
     ) -> PipelineResult:
         """The trial ends after the writers: one stored nothing, so the
         assistant is not run and the trial is not scored."""
-        failed, retries = writer_report(profile_result, task_result)
+        failed, retries, attempts = writer_report(
+            profile_result, task_result
+        )
         return PipelineResult(
             profile_result=profile_result,
             task_result=task_result,
@@ -324,6 +336,7 @@ class AgentPipeline:
             pipeline_version=self._kernel_pipeline_version(),
             writer_failed=failed,
             writer_retries=retries,
+            writer_attempt_settings=attempts,
             backend_extraction=self._kernel_backend_extraction(),
             **cost_fields({}, [profile_result, task_result],
                           self.assistant_llms),
@@ -994,7 +1007,9 @@ class MethodPipeline:
             for meta in (profile_result["written"], task_result["written"])
             if meta
         ]
-        failed, retries = writer_report(profile_result, task_result)
+        failed, retries, attempts = writer_report(
+            profile_result, task_result
+        )
         backend_extraction = assistant_agent.memory.backend_extraction
         if failed:
             return PipelineResult(
@@ -1007,6 +1022,7 @@ class MethodPipeline:
                 method=self.method,
                 writer_failed=failed,
                 writer_retries=retries,
+                writer_attempt_settings=attempts,
                 backend_extraction=backend_extraction,
                 backend_llm_tokens=TokenUsage(),
                 embedding_tokens=TokenUsage(),
@@ -1033,6 +1049,7 @@ class MethodPipeline:
             method=self.method,
             pipeline_version=assistant_result.get("pipeline_version"),
             writer_retries=retries,
+            writer_attempt_settings=attempts,
             backend_extraction=backend_extraction,
             backend_llm_tokens=TokenUsage(
                 **backend["backend_llm_tokens"]

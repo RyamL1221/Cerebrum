@@ -87,7 +87,7 @@ def test_render_is_the_native_text():
 def test_extract_validated_retries_then_fails():
     calls = []
 
-    def once():
+    def once(_llms):
         calls.append(1)
         return STATUS
 
@@ -101,7 +101,7 @@ def test_extract_validated_retries_then_fails():
 def test_extract_validated_counts_retries_and_exceptions():
     answers = iter([ValueError("not JSON"), STATUS, TASK])
 
-    def once():
+    def once(_llms):
         answer = next(answers)
         if isinstance(answer, Exception):
             raise answer

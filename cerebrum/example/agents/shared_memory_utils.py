@@ -125,6 +125,10 @@ import json as _json
 from dataclasses import dataclass as _dataclass, field as _field
 
 WRITER_RETRIES = 2
+# A retry under greedy decoding repeats the first answer, so retries
+# sample (Subtask 9d follow-up): attempt n > 0 uses this temperature and
+# the request's seed + n; the first attempt keeps the request's decoding.
+RETRY_TEMPERATURE = 0.3
 FIELD_STRUCTURED = "structured"
 
 # Canonical field -> (accepted keys, kind). "list" fields take a list of
@@ -234,6 +238,7 @@ class Extraction:
     retries: int = 0
     problems: List[str] = _field(default_factory=list)
     token_usages: List[Optional[dict]] = _field(default_factory=list)
+    attempt_settings: List[Optional[dict]] = _field(default_factory=list)
 
     @property
     def failed(self) -> bool:
@@ -250,21 +255,49 @@ class Extraction:
             "writer_retries": self.retries,
             "writer_problems": self.problems,
             "token_usages": self.token_usages,
+            "writer_attempt_settings": self.attempt_settings,
         }
+
+
+def attempt_llms(llms: Optional[list], attempt: int) -> Optional[list]:
+    """The ``llms`` entries for extraction attempt ``attempt``: attempt 0
+    unchanged; a retry at ``RETRY_TEMPERATURE`` with the entry's seed +
+    ``attempt`` (no seed when the entry has none). ``None`` stays
+    ``None`` (the kernel's default decoding)."""
+    if not llms or attempt == 0:
+        return llms
+    out = []
+    for entry in llms:
+        entry = dict(entry, temperature=RETRY_TEMPERATURE)
+        if entry.get("seed") is not None:
+            entry["seed"] = int(entry["seed"]) + attempt
+        out.append(entry)
+    return out
+
+
+def attempt_setting(llms: Optional[list], attempt: int) -> Dict[str, Any]:
+    """``{"attempt", "temperature", "seed"}`` an attempt requested (the
+    first entry's; ``None`` for what the kernel's default decides)."""
+    entry = (llms or [{}])[0]
+    return {"attempt": attempt, "temperature": entry.get("temperature"),
+            "seed": entry.get("seed")}
 
 
 def extract_validated(
     memory_type: str, extract_once, usage_of=lambda: None,
-    retries: int = WRITER_RETRIES,
+    retries: int = WRITER_RETRIES, llms: Optional[list] = None,
 ) -> Extraction:
-    """Call ``extract_once()`` until its result validates, at most
-    ``1 + retries`` times. ``usage_of()`` returns the last call's token
-    usage. An exception counts as an invalid attempt."""
+    """Call ``extract_once(attempt_llms)`` until its result validates, at
+    most ``1 + retries`` times; attempt n gets ``attempt_llms(llms, n)``
+    and its settings are recorded. ``usage_of()`` returns the last
+    call's token usage. An exception counts as an invalid attempt."""
     result = Extraction(memory_type)
     for attempt in range(retries + 1):
         result.retries = attempt
+        these = attempt_llms(llms, attempt)
+        result.attempt_settings.append(attempt_setting(these, attempt))
         try:
-            data = extract_once()
+            data = extract_once(these)
             fields, problems = validate_extraction(memory_type, data)
         except Exception as e:  # unparseable reply, transport error
             fields, problems = None, [f"{type(e).__name__}: {e}"[:200]]

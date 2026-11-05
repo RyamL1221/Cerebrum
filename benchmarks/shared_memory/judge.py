@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 # do not store and so a re-judge could not reproduce. The rubric is
 # unchanged from version 1.
 JUDGE_PROMPT_VERSION = 2
+# The judge's decoding (Subtask 9d follow-up): greedy with a fixed seed,
+# on the judge's llms entry (the kernel applies it to the call). The
+# prompt is unchanged, so this is still judge v2, with decoding recorded.
+JUDGE_TEMPERATURE = 0.0
+JUDGE_SEED = 20261105
 
 SYSTEM_PROMPT = (
     "You are an expert evaluator. You MUST respond with ONLY a valid JSON "
@@ -196,10 +201,23 @@ def _extract_json_from_text(text: str) -> dict | None:
 class LLMJudge:
     """Evaluates assistant responses using a 3-score rubric."""
 
-    def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
+    def __init__(
+        self, agent_name: str = "eval_judge", llms: list | None = None,
+        temperature: float | None = JUDGE_TEMPERATURE,
+        seed: int | None = JUDGE_SEED,
+    ):
         self.agent_name = agent_name
         self.kernel_url = config.get_kernel_url()
-        self.llms = llms  # Optional model override, e.g. [{"name": "gpt-4.5", "backend": "openai"}]
+        # The decoding rides on the llms entries; without llms (the
+        # kernel's default model) none applies and none is recorded.
+        if llms:
+            self.temperature, self.seed = temperature, seed
+            extra = {k: v for k, v in (("temperature", temperature),
+                                       ("seed", seed)) if v is not None}
+            llms = [dict(entry, **extra) for entry in llms]
+        else:
+            self.temperature = self.seed = None
+        self.llms = llms
 
     def _build_judge_prompt(
         self,
@@ -446,8 +464,23 @@ class HybridJudge:
     judge raises ``JudgeFailed``; it never scores on keywords alone.
     """
 
-    def __init__(self, agent_name: str = "eval_judge", llms: list | None = None):
-        self.llm_judge = LLMJudge(agent_name=agent_name, llms=llms)
+    def __init__(
+        self, agent_name: str = "eval_judge", llms: list | None = None,
+        temperature: float | None = JUDGE_TEMPERATURE,
+        seed: int | None = JUDGE_SEED,
+    ):
+        self.llm_judge = LLMJudge(
+            agent_name=agent_name, llms=llms,
+            temperature=temperature, seed=seed,
+        )
+
+    @property
+    def temperature(self) -> float | None:
+        return self.llm_judge.temperature
+
+    @property
+    def seed(self) -> int | None:
+        return self.llm_judge.seed
 
     def llm_scores(
         self,

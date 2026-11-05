@@ -252,6 +252,9 @@ class TrialResult(BaseModel):
     # with infer=True); None without a memory backend.
     writer_failed: List[str] = []
     writer_retries: Dict[str, int] = {}
+    # Each writer's extraction attempts, ``{attempt, temperature, seed}``
+    # (Subtask 9d follow-up: retries sample at RETRY_TEMPERATURE, seed+n).
+    writer_attempt_settings: Dict[str, List[dict]] = {}
     backend_extraction: Optional[bool] = None
     # The temperature and seed the kernel applied to the assistant's
     # call (Subtask 9d); None in older files or without a kernel reply.
@@ -358,6 +361,10 @@ class ExperimentMetadata(BaseModel):
     # (``{"temperature": 0.0, "seed": ...}``, Subtask 9d); None when the
     # run used the kernel's default sampling.
     decoding: Optional[dict] = None
+    # The judge's decoding (Subtask 9d follow-up); None in files judged
+    # before it, which sampled at the kernel default 1.0 with no seed.
+    judge_temperature: Optional[float] = None
+    judge_seed: Optional[int] = None
     git_commit: Optional[str] = Field(default_factory=_harness_commit)
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
     config_snapshot: dict = Field(default_factory=_config_snapshot)

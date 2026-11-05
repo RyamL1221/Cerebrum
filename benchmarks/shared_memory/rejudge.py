@@ -98,9 +98,14 @@ def rejudge_experiment(
         "methods_run": [canonical_condition(m) for m in old.methods_run],
         "judge_prompt_version": JUDGE_PROMPT_VERSION,
         "judge_prompt_sha256": judge_prompt_sha256(),
+        "judge_temperature": judge.temperature,
+        "judge_seed": judge.seed,
         "rejudge": {
             "source": source,
             "source_judge_prompt_version": old.judge_prompt_version or 1,
+            # None: the source judge sampled (kernel default 1.0).
+            "source_judge_temperature": old.judge_temperature,
+            "source_judge_seed": old.judge_seed,
             "judge_model": judge_model,
             "harness_commit": _harness_commit(),
             "timestamp": datetime.now().isoformat(),

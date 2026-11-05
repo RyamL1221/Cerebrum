@@ -1,3 +1,4 @@
+from typing import Optional
 import os
 import json
 import logging
@@ -55,8 +56,9 @@ class ProfileAgent:
         retries (``shared_memory_utils.extract_validated``)."""
         return extract_validated(
             MEMORY_TYPE_PROFILE,
-            lambda: self._extract_profile(task_input),
+            lambda llms: self._extract_profile(task_input, llms),
             lambda: self.token_usage,
+            llms=getattr(self, "llms", None),
         )
 
     def run(self, task_input: str) -> dict:
@@ -130,7 +132,9 @@ class ProfileAgent:
                 **(extraction.report() if extraction else {}),
             }
 
-    def _extract_profile(self, task_input: str) -> dict:
+    def _extract_profile(
+        self, task_input: str, llms: Optional[list] = None
+    ) -> dict:
         """Use llm_chat_with_json_output to extract structured profile.
 
         Args:
@@ -178,7 +182,7 @@ class ProfileAgent:
             agent_name=self.agent_name,
             messages=self.messages,
             base_url=aios_kernel_url,
-            llms=getattr(self, 'llms', None),
+            llms=llms if llms is not None else getattr(self, "llms", None),
             response_format=response_format,
         )
 
