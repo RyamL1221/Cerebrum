@@ -7,7 +7,7 @@ aggregation output. No business logic — just data and validation.
 
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from pydantic import BaseModel, Field, model_validator
@@ -120,6 +120,10 @@ class InjectionDiagnostics(BaseModel):
     top_k_used: Dict[str, int] = {}
     after_budget: int = 0
     tokens_estimated: int = 0
+    # The block's format (Subtask 9d): the library's "compact" or
+    # "legacy"; "native" for the native agents' own renderer.
+    block_format: Optional[str] = None
+    block_recency: Optional[bool] = None
 
 
 class WrittenMemoryRecord(BaseModel):
@@ -249,6 +253,9 @@ class TrialResult(BaseModel):
     writer_failed: List[str] = []
     writer_retries: Dict[str, int] = {}
     backend_extraction: Optional[bool] = None
+    # The temperature and seed the kernel applied to the assistant's
+    # call (Subtask 9d); None in older files or without a kernel reply.
+    decoding: Optional[Dict[str, Any]] = None
     # The dataset the trial's user came from (``users_v1``, ...;
     # ``random`` when generated per trial) and a hash of the trial's
     # inputs (writer inputs and query), equal across cells for one user.
@@ -347,6 +354,10 @@ class ExperimentMetadata(BaseModel):
     # The fixed dataset the users came from (dataset.Dataset.describe);
     # None when users were generated per trial.
     dataset: Optional[dict] = None
+    # The decoding requested for every assistant and writer call
+    # (``{"temperature": 0.0, "seed": ...}``, Subtask 9d); None when the
+    # run used the kernel's default sampling.
+    decoding: Optional[dict] = None
     git_commit: Optional[str] = Field(default_factory=_harness_commit)
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
     config_snapshot: dict = Field(default_factory=_config_snapshot)

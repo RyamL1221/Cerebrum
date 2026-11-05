@@ -121,9 +121,12 @@ def test_replicated_trial_makes_no_kernel_memory_calls(harness, method):
         row.metadata["memory_type"] for row in store.list(user, 100)
     )
     assert types == ["conversation", "profile", "task_context"]
-    # The assistant sent the kernel's block, built by the library.
+    # The assistant sent the kernel's block, built by the library: the
+    # compact format by default (Subtask 9d).
     block = chat.call_args.kwargs["messages"][0]["content"]
-    assert block.startswith("===== MEMORY CONTEXT =====")
+    assert block.startswith("Known about this user:\n- My name is")
+    assert "MEMORY CONTEXT" not in block
+    assert result.injection_diagnostics.block_format == "compact"
     # The writers store the shared rendering (Subtask 9), profile first.
     assert block.index("My name is") < block.index("I'm working on")
     diagnostics = result.injection_diagnostics
@@ -272,3 +275,17 @@ def test_replicated_mem0_follows_the_kernels_extraction_and_counts_it():
         assert not replicated.ReplicatedMemory(
             "inhouse", config
         ).backend_extraction
+
+
+def test_replicated_follows_the_kernels_block_format(harness):
+    """A replicated agent formats its block as the kernel reports it at
+    /memory/config: here the legacy format behind memory.block_format."""
+    _, _, chat = harness
+    legacy = dict(KERNEL_CONFIG, pipeline=dict(
+        KERNEL_CONFIG["pipeline"], block_format="legacy",
+    ))
+    with patch.object(AgentPipeline, "_kernel_memory_config",
+                      staticmethod(lambda: legacy)):
+        MethodPipeline(method="replicated_inhouse").run_trial(TRIAL)
+    block = chat.call_args.kwargs["messages"][0]["content"]
+    assert block.startswith("===== MEMORY CONTEXT =====")

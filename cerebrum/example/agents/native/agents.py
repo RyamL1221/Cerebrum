@@ -288,6 +288,7 @@ class NativeAssistantAgent:
             "injection_diagnostics": diagnostics,
             "token_usage": (response or {}).get("token_usage"),
             "llm_timing": llm_timing,
+            "decoding": (response or {}).get("decoding"),
             "backend_usage": {
                 "backend_llm_tokens": usage.summarize(
                     records, usage.BACKEND_EXTRACTION
@@ -321,6 +322,8 @@ class NativeAssistantAgent:
             "after_budget": len(kept),
             "injected_count": len(kept),
             "tokens_estimated": int(len(block.split()) * 1.3),
+            "block_format": "native",  # its own renderer (NATIVE_USAGE.md)
+            "block_recency": False,
             "injected_memories": [
                 {
                     "memory_id": r["memory_id"],

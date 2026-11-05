@@ -29,6 +29,17 @@ Wilcoxon, 95% CI, TOST ±0.25); the pilot table comes from
 `python -m benchmarks.shared_memory.pilot_report results/pilot_v1`.
 Never edit a dataset file; make a new version (`dataset.py generate`).
 
+**Fixed decoding (Subtask 9d).** Every assistant and writer call runs at
+`--temperature 0.0` with `--seed 20261105` by default (`--seed none` for
+no seed; `--sampled` for the kernel's old default, temperature 1.0 and no
+seed, only to compare with earlier runs). The settings ride on the model
+entry (`--assistant-model` is required) because the kernel's `/query`
+handler drops `LLMQuery.temperature`; the judge keeps its own settings.
+Results record the requested decoding in `experiment_metadata.decoding`
+and the applied one per trial in `decoding`. Ollama models are then
+deterministic; Azure GPT-4o treats the seed as best effort and still
+varies.
+
 Writers validate their extraction against the profile / task schema and
 retry twice; a writer that still fails stores nothing, and its trial is
 recorded with `writer_failed` and not scored. The judge retries three

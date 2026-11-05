@@ -81,6 +81,20 @@ logger = logging.getLogger(__name__)
 _ALL_METHODS = list(CONDITIONS)
 
 
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_SEED = 20261105
+
+
+def with_decoding(llms: list | None, decoding: dict | None) -> list | None:
+    """``llms`` with the decoding settings on every entry (Subtask 9d):
+    the kernel applies an entry's ``temperature`` and ``seed`` to the
+    call for that model. A ``None`` seed is left out."""
+    if not llms or not decoding:
+        return llms
+    extra = {k: v for k, v in decoding.items() if v is not None}
+    return [dict(entry, **extra) for entry in llms]
+
+
 def _parse_model_arg(model_str: str | None) -> list | None:
     """Parse a 'name:backend' model string into an llms list.
 
@@ -283,6 +297,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=DEFAULT_TEMPERATURE,
+        help=(
+            "Temperature for every assistant and writer call (default "
+            f"{DEFAULT_TEMPERATURE}). The judge keeps its own settings."
+        ),
+    )
+    parser.add_argument(
+        "--seed",
+        type=str,
+        default=str(DEFAULT_SEED),
+        help=(
+            "Seed for every assistant and writer call where the backend "
+            f"accepts one (default {DEFAULT_SEED}; 'none' for no seed)."
+        ),
+    )
+    parser.add_argument(
+        "--sampled",
+        action="store_true",
+        help=(
+            "Use the kernel's default sampling (temperature 1.0, no "
+            "seed) instead of fixed decoding; for comparison with runs "
+            "before Subtask 9d only."
+        ),
+    )
+    parser.add_argument(
         "--kernel-logs",
         type=str,
         default=None,
@@ -323,6 +364,7 @@ class EvaluationOrchestrator:
         run_id: str | None = None,
         kernel_logs_path: str | None = None,
         dataset: str = RANDOM,
+        decoding: dict | None = None,
     ):
         self.dataset = load_dataset(dataset)
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
@@ -338,8 +380,18 @@ class EvaluationOrchestrator:
         self.write_csv = write_csv
         self.condition = condition
         self.method = canonical_condition(method)
-        self.assistant_llms = assistant_llms  # passed to AssistantAgent and SyntheticDataGenerator
-        self.judge_llms = judge_llms or assistant_llms  # falls back to assistant model if not set
+        # The judge falls back to the assistant model, without the
+        # assistant's decoding: it keeps its own settings.
+        self.judge_llms = judge_llms or assistant_llms
+        # Fixed decoding for every assistant and writer call (Subtask
+        # 9d) rides on the llms entries; the agents all take this list.
+        if decoding and not assistant_llms:
+            raise ValueError(
+                "fixed decoding needs --assistant-model: the decoding "
+                "rides on the model entry (or pass --sampled)"
+            )
+        self.decoding = decoding
+        self.assistant_llms = with_decoding(assistant_llms, decoding)
         self.run_id = run_id  # None → SyntheticDataGenerator auto-generates UUID
 
         # Resolve kernel URL: CLI arg > config default
@@ -487,6 +539,7 @@ class EvaluationOrchestrator:
         common = {
             "writer_retries": pipeline_result.writer_retries,
             "backend_extraction": pipeline_result.backend_extraction,
+            "decoding": pipeline_result.decoding,
             "dataset": self.dataset_name,
             "input_sha256": trial_input_sha256(trial_data),
         }
@@ -684,6 +737,7 @@ class EvaluationOrchestrator:
             judge_prompt_sha256=judge_prompt_sha256(),
             conditions_run=conditions,
             dataset=self.dataset.describe() if self.dataset else None,
+            decoding=self.decoding,
         )
 
         experiment = ExperimentResults(
@@ -779,6 +833,7 @@ class EvaluationOrchestrator:
             conditions_run=methods_to_run,
             methods_run=methods_to_run,
             dataset=self.dataset.describe() if self.dataset else None,
+            decoding=self.decoding,
         )
 
         experiment = ExperimentResults(
@@ -797,6 +852,14 @@ class EvaluationOrchestrator:
         self.writer.print_summary(experiment)
 
         return experiment
+
+
+def decoding_from_args(args) -> dict | None:
+    """``{"temperature", "seed"}`` from the CLI; None with --sampled."""
+    if args.sampled:
+        return None
+    seed = None if str(args.seed).lower() == "none" else int(args.seed)
+    return {"temperature": args.temperature, "seed": seed}
 
 
 def main():
@@ -826,6 +889,7 @@ def main():
         run_id=args.run_id,
         kernel_logs_path=args.kernel_logs,
         dataset=args.dataset,
+        decoding=decoding_from_args(args),
     )
 
     experiment = orchestrator.run()

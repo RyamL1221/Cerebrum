@@ -71,7 +71,7 @@ class AssistantAgent:
             if diagnostics is not None:
                 result["injection_diagnostics"] = diagnostics
             # The kernel's token usage and model-call timing of this call.
-            for key in ("token_usage", "llm_timing"):
+            for key in ("token_usage", "llm_timing", "decoding"):
                 if response and response.get(key) is not None:
                     result[key] = response[key]
             return result

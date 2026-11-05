@@ -288,6 +288,7 @@ class ReplicatedAssistantAgent:
             "injection_diagnostics": diagnostics,
             "token_usage": (response or {}).get("token_usage"),
             "llm_timing": llm_timing,
+            "decoding": (response or {}).get("decoding"),
             "pipeline_version": self.memory.version,
             "backend_usage": {
                 "backend_llm_tokens": usage.summarize(

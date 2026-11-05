@@ -14,7 +14,7 @@ import logging
 import time
 import json
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 import requests
@@ -84,6 +84,9 @@ class PipelineResult:
     # Whether the memory backend ran its own extraction on the writes
     # (Mem0 with infer=True); None for conditions without a backend.
     backend_extraction: Optional[bool] = None
+    # The temperature and seed the kernel applied to the assistant's
+    # model call (its /query reply's ``decoding``; Subtask 9d).
+    decoding: Optional[Dict[str, Any]] = None
 
 
 def writer_report(*writer_results: dict) -> tuple:
@@ -138,6 +141,7 @@ def cost_fields(
     if not isinstance(source, dict) or "llm_ms" not in source:
         source = assistant_result.get("llm_timing") or {}
     return {
+        "decoding": assistant_result.get("decoding"),
         "token_usage": usage([assistant_result]),
         "writer_tokens": usage(writer_results),
         "latency_breakdown": LatencyBreakdown(**{
