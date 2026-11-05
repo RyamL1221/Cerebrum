@@ -242,6 +242,18 @@ class TrialResult(BaseModel):
     # with no scores (Subtask 4b). None in older files.
     scorer: Optional[str] = None
     judge_attempts: Optional[int] = None
+    # Writers whose extraction never validated (Subtask 9): they stored
+    # nothing, and the trial is failed and not scored. Each writer's
+    # retries. Whether the memory backend extracted facts itself (Mem0
+    # with infer=True); None without a memory backend.
+    writer_failed: List[str] = []
+    writer_retries: Dict[str, int] = {}
+    backend_extraction: Optional[bool] = None
+    # The dataset the trial's user came from (``users_v1``, ...;
+    # ``random`` when generated per trial) and a hash of the trial's
+    # inputs (writer inputs and query), equal across cells for one user.
+    dataset: Optional[str] = None
+    input_sha256: Optional[str] = None
     failed: bool = False
     error_message: Optional[str] = None
 
@@ -332,6 +344,9 @@ class ExperimentMetadata(BaseModel):
     judge_prompt_sha256: Optional[str] = None
     # Set by rejudge.py: the source file and how it was re-scored.
     rejudge: Optional[dict] = None
+    # The fixed dataset the users came from (dataset.Dataset.describe);
+    # None when users were generated per trial.
+    dataset: Optional[dict] = None
     git_commit: Optional[str] = Field(default_factory=_harness_commit)
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
     config_snapshot: dict = Field(default_factory=_config_snapshot)

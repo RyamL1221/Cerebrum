@@ -7,6 +7,10 @@ from cerebrum.memory.apis import create_memory, update_memory, search_memories
 from cerebrum.config.config_manager import config
 
 from cerebrum.example.agents.shared_memory_utils import (
+    Extraction,
+    FIELD_STRUCTURED,
+    extract_validated,
+    structured,
     build_memory_metadata,
     FIELD_SHARING_POLICY,
     MEMORY_TYPE_PROFILE,
@@ -46,54 +50,75 @@ class ProfileAgent:
             config = json.load(f)
         return config
 
+    def extract(self, task_input: str) -> Extraction:
+        """The validated extraction, after up to ``WRITER_RETRIES``
+        retries (``shared_memory_utils.extract_validated``)."""
+        return extract_validated(
+            MEMORY_TYPE_PROFILE,
+            lambda: self._extract_profile(task_input),
+            lambda: self.token_usage,
+        )
+
     def run(self, task_input: str) -> dict:
-        """Extract and store user profile attributes from input.
+        """Extract, validate, and store the profile from input.
+
+        A writer whose extraction does not validate after its retries
+        stores nothing and returns ``writer_failed`` True.
 
         Args:
-            task_input: User input text to extract profile from.
+            task_input: User input text to extract the profile from.
 
         Returns:
-            Dict with agent_name, result, and rounds.
+            Dict with agent_name, result, rounds, the token usage of
+            each extraction call, and the extraction report
+            (``writer_failed``, ``writer_retries``, ``writer_problems``).
         """
+        extraction = None
         try:
-            # Extract structured profile from input
-            profile_data = self._extract_profile(task_input)
+            extraction = self.extract(task_input)
             self.rounds += 1
-
-            # Upsert profile memory using explicit request-scoped user_id only
-            user_id = getattr(self, 'user_id', None)
-            if not user_id or not str(user_id).strip():
+            report = extraction.report()
+            if extraction.failed:
                 logger.warning(
-                    "Skipping memory write: no explicit user_id provided to ProfileAgent"
-                )
-                result_summary = (
-                    f"Extracted profile (memory write skipped — no user_id): "
-                    f"tools={profile_data.get('preferred_tools', [])}, "
-                    f"language={profile_data.get('preferred_language', '')}, "
-                    f"style={profile_data.get('response_style', '')}"
+                    "ProfileAgent: extraction failed after %d retries: %s",
+                    extraction.retries, extraction.problems,
                 )
                 return {
                     "agent_name": self.agent_name,
-                    "result": result_summary,
+                    "result": f"Writer failed: {extraction.problems}",
                     "rounds": self.rounds,
                     "token_usage": self.token_usage,
+                    **report,
+                }
+
+            # Upsert using the explicit request-scoped user_id only
+            user_id = getattr(self, 'user_id', None)
+            if not user_id or not str(user_id).strip():
+                logger.warning(
+                    "Skipping memory write: no explicit user_id provided "
+                    "to ProfileAgent"
+                )
+                return {
+                    "agent_name": self.agent_name,
+                    "result": (
+                        "Extracted profile (memory write skipped — no "
+                        f"user_id): {extraction.text}"
+                    ),
+                    "rounds": self.rounds,
+                    "token_usage": self.token_usage,
+                    **report,
                 }
             user_id = str(user_id).strip()
-            memory_ids = self._upsert_profile_memory(user_id, profile_data)
-
-            result_summary = (
-                f"Extracted profile for {user_id}: "
-                f"tools={profile_data.get('preferred_tools', [])}, "
-                f"language={profile_data.get('preferred_language', '')}, "
-                f"style={profile_data.get('response_style', '')}. "
-                f"Memory IDs: {memory_ids}"
-            )
-
+            memory_ids = self._upsert_profile_memory(user_id, extraction)
             return {
                 "agent_name": self.agent_name,
-                "result": result_summary,
+                "result": (
+                    f"Stored profile for {user_id}: {extraction.text} "
+                    f"Memory IDs: {memory_ids}"
+                ),
                 "rounds": self.rounds,
                 "token_usage": self.token_usage,
+                **report,
             }
 
         except Exception as e:
@@ -102,6 +127,7 @@ class ProfileAgent:
                 "result": f"Error: {e}",
                 "rounds": self.rounds,
                 "token_usage": self.token_usage,
+                **(extraction.report() if extraction else {}),
             }
 
     def _extract_profile(self, task_input: str) -> dict:
@@ -114,6 +140,7 @@ class ProfileAgent:
             Dict with keys: user_name, preferred_tools,
             preferred_language, response_style.
         """
+        self.token_usage = None
         system_instruction = "".join(self.config.get("description", []))
         self.messages = [
             {"role": "system", "content": system_instruction},
@@ -158,18 +185,21 @@ class ProfileAgent:
         self.token_usage = response.get("token_usage")
         return parse_json_reply(response["response"]["response_message"])
 
-    def _upsert_profile_memory(self, user_id: str, profile_data: dict) -> list:
+    def _upsert_profile_memory(self, user_id: str, extraction: Extraction) -> list:
         """Search for existing profile memories, update or create.
 
         Args:
             user_id: Identifier for the user this memory pertains to.
-            profile_data: Extracted profile dict to store.
+            extraction: The validated extraction to store.
 
         Returns:
             List of memory IDs that were created or updated.
         """
         memory_ids = []
-        content = json.dumps(profile_data)
+        if isinstance(extraction, dict):  # already-validated fields
+            extraction = Extraction(MEMORY_TYPE_PROFILE, fields=extraction)
+        content = extraction.text
+        fields_json = structured(extraction.fields)
 
         # Search for existing profile memories
         search_response = search_memories(
@@ -200,7 +230,10 @@ class ProfileAgent:
                         agent_name=self.agent_name,
                         memory_id=memory_id,
                         content=content,
-                        metadata={"user_id": user_id},
+                        metadata={
+                            "user_id": user_id,
+                            FIELD_STRUCTURED: fields_json,
+                        },
                         base_url=aios_kernel_url,
                     )
                     memory_ids.append(memory_id)
@@ -211,6 +244,7 @@ class ProfileAgent:
                 user_id=user_id,
                 memory_type=MEMORY_TYPE_PROFILE,
                 sharing_policy=POLICY_SHARED if getattr(self, 'share_memory', False) else POLICY_PRIVATE,
+                **{FIELD_STRUCTURED: fields_json},
             )
             create_response = create_memory(
                 agent_name=self.agent_name,

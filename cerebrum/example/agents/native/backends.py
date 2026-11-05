@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 from cerebrum.utils.usage import (
     count_embeddings,
     install_litellm_logger,
-    litellm_model_name,
+    mem0_llm_config,
 )
 
 # Mem0 reports usage to its telemetry service unless told not to.
@@ -47,23 +47,10 @@ def store_dir(condition: str) -> str:
 
 
 def mem0_llm(backend_llm: Dict[str, Any]) -> Dict[str, Any]:
-    """Mem0's ``llm`` config for the pinned internal LLM: Mem0's
-    ``litellm`` provider, so each call reaches LiteLLM's callbacks and is
-    counted per trial (``cerebrum.utils.usage``). LiteLLM reads the
-    credentials from the environment (``AZURE_API_KEY``,
-    ``AZURE_API_BASE``, ``AZURE_API_VERSION``), the same variables the
-    kernel's LiteLLM calls read. Ollama is reached at LiteLLM's default
-    address."""
-    provider = backend_llm.get("provider")
-    model = backend_llm.get("model")
-    if not provider or not model:
-        raise ValueError("memory.backend_llm needs a provider and a model")
-    if provider not in ("azure_openai", "ollama"):
-        raise ValueError(f"unsupported backend_llm provider {provider!r}")
-    return {"provider": "litellm", "config": {
-        "model": litellm_model_name(provider, model),
-        "temperature": backend_llm.get("temperature", 0.1),
-    }}
+    """Mem0's ``llm`` config for the pinned internal LLM
+    (``cerebrum.utils.usage.mem0_llm_config``, which the kernel uses
+    too)."""
+    return mem0_llm_config(backend_llm)
 
 
 def mem0_client(settings: NativeSettings):

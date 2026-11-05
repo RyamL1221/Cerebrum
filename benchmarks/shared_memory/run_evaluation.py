@@ -65,6 +65,11 @@ from benchmarks.shared_memory.judge import (
     HybridJudge,
     judge_prompt_sha256,
 )
+from benchmarks.shared_memory.dataset import (
+    RANDOM,
+    load as load_dataset,
+    trial_input_sha256,
+)
 from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
 from benchmarks.shared_memory.results import ResultsWriter
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
@@ -176,8 +181,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trials",
         type=int,
-        default=10,
-        help="Number of trials per condition (default: 10).",
+        default=None,
+        help=(
+            "Number of trials per condition (default: every user of "
+            "--dataset; 10 with --dataset random)."
+        ),
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=RANDOM,
+        help=(
+            "Fixed users: 'users_v1' (150), 'pilot_v1' (its first 30) or "
+            "a dataset file. Trial i scores user i, so cells pair by "
+            "trial index. 'random' (default) generates each trial's user "
+            "with the assistant model; never use it for reported results."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -303,7 +322,17 @@ class EvaluationOrchestrator:
         kernel_url: str | None = None,
         run_id: str | None = None,
         kernel_logs_path: str | None = None,
+        dataset: str = RANDOM,
     ):
+        self.dataset = load_dataset(dataset)
+        self.dataset_name = self.dataset.name if self.dataset else RANDOM
+        if trials is None:
+            trials = len(self.dataset) if self.dataset else 10
+        if self.dataset and trials > len(self.dataset):
+            raise ValueError(
+                f"--trials {trials}: {self.dataset_name} has "
+                f"{len(self.dataset)} users"
+            )
         self.trials = trials
         self.output_dir = output_dir
         self.write_csv = write_csv
@@ -393,6 +422,13 @@ class EvaluationOrchestrator:
                     trial.trial_index, kernel_count, audit_count, profile_name,
                 )
 
+    def trial_data(self, trial_index: int):
+        """Trial ``trial_index``'s user: the dataset's user of that
+        index, or a freshly generated one with ``--dataset random``."""
+        if self.dataset is not None:
+            return self.dataset.trial_data(trial_index, self.generator.run_id)
+        return self.generator.generate_trial_data(trial_index)
+
     def run_single_trial(
         self,
         trial_index: int,
@@ -421,7 +457,7 @@ class EvaluationOrchestrator:
         # Step 1: Generate (or reuse) synthetic data
         if trial_data is None:
             try:
-                trial_data = self.generator.generate_trial_data(trial_index)
+                trial_data = self.trial_data(trial_index)
             except Exception as e:
                 logger.error("Trial %d: synthetic data generation failed: %s", trial_index, e)
                 return TrialResult(
@@ -446,6 +482,38 @@ class EvaluationOrchestrator:
                 synthetic_profile=trial_data.profile,
                 synthetic_task_context=trial_data.task_context,
                 follow_up_query=trial_data.follow_up_query,
+            )
+
+        common = {
+            "writer_retries": pipeline_result.writer_retries,
+            "backend_extraction": pipeline_result.backend_extraction,
+            "dataset": self.dataset_name,
+            "input_sha256": trial_input_sha256(trial_data),
+        }
+        if pipeline_result.writer_failed:
+            # A writer stored nothing (Subtask 9): counted, not scored.
+            logger.warning(
+                "Trial %d: writer failed: %s", trial_index,
+                pipeline_result.writer_failed,
+            )
+            return TrialResult(
+                trial_index=trial_index,
+                condition=condition,
+                method=effective_method,
+                failed=True,
+                error_message=(
+                    "writer_failed: "
+                    + ", ".join(pipeline_result.writer_failed)
+                ),
+                writer_failed=pipeline_result.writer_failed,
+                follow_up_query=trial_data.follow_up_query,
+                plausible_actions=trial_data.plausible_actions,
+                synthetic_profile=trial_data.profile,
+                synthetic_task_context=trial_data.task_context,
+                written_memories=pipeline_result.written_memories,
+                writer_tokens=pipeline_result.writer_tokens,
+                pipeline_version=pipeline_result.pipeline_version,
+                **common,
             )
 
         # Extract retrieval log from pipeline result
@@ -499,6 +567,7 @@ class EvaluationOrchestrator:
                 injection_diagnostics=pipeline_result.injection_diagnostics,
                 written_memories=pipeline_result.written_memories,
                 pipeline_version=pipeline_result.pipeline_version,
+                **common,
             )
         attempts = getattr(scores, "judge_attempts", None)
 
@@ -546,6 +615,7 @@ class EvaluationOrchestrator:
             pipeline_version=pipeline_result.pipeline_version,
             scorer=SCORER,
             judge_attempts=attempts if isinstance(attempts, int) else None,
+            **common,
             **backend_usage,
         )
 
@@ -613,6 +683,7 @@ class EvaluationOrchestrator:
             judge_prompt_version=JUDGE_PROMPT_VERSION,
             judge_prompt_sha256=judge_prompt_sha256(),
             conditions_run=conditions,
+            dataset=self.dataset.describe() if self.dataset else None,
         )
 
         experiment = ExperimentResults(
@@ -656,7 +727,7 @@ class EvaluationOrchestrator:
                 for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
                     if i not in self._trial_data_cache:
                         try:
-                            self._trial_data_cache[i] = self.generator.generate_trial_data(i)
+                            self._trial_data_cache[i] = self.trial_data(i)
                         except Exception as e:
                             logger.error("Trial %d: synthetic data generation failed: %s", i, e)
                             trials.append(TrialResult(
@@ -707,6 +778,7 @@ class EvaluationOrchestrator:
             judge_prompt_sha256=judge_prompt_sha256(),
             conditions_run=methods_to_run,
             methods_run=methods_to_run,
+            dataset=self.dataset.describe() if self.dataset else None,
         )
 
         experiment = ExperimentResults(
@@ -753,6 +825,7 @@ def main():
         judge_llms=_parse_model_arg(args.judge_model),
         run_id=args.run_id,
         kernel_logs_path=args.kernel_logs,
+        dataset=args.dataset,
     )
 
     experiment = orchestrator.run()

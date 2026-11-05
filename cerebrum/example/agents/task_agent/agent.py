@@ -7,6 +7,10 @@ from cerebrum.memory.apis import create_memory, update_memory, search_memories
 from cerebrum.config.config_manager import config
 
 from cerebrum.example.agents.shared_memory_utils import (
+    Extraction,
+    FIELD_STRUCTURED,
+    extract_validated,
+    structured,
     build_memory_metadata,
     FIELD_SHARING_POLICY,
     MEMORY_TYPE_TASK_CONTEXT,
@@ -46,58 +50,75 @@ class TaskAgent:
             config = json.load(f)
         return config
 
+    def extract(self, task_input: str) -> Extraction:
+        """The validated extraction, after up to ``WRITER_RETRIES``
+        retries (``shared_memory_utils.extract_validated``)."""
+        return extract_validated(
+            MEMORY_TYPE_TASK_CONTEXT,
+            lambda: self._extract_task_context(task_input),
+            lambda: self.token_usage,
+        )
+
     def run(self, task_input: str) -> dict:
-        """Extract and store working context from input.
+        """Extract, validate, and store the task context from input.
+
+        A writer whose extraction does not validate after its retries
+        stores nothing and returns ``writer_failed`` True.
 
         Args:
-            task_input: User input text to extract task context from.
+            task_input: User input text to extract the task context from.
 
         Returns:
-            Dict with agent_name, result, and rounds.
+            Dict with agent_name, result, rounds, the token usage of
+            each extraction call, and the extraction report
+            (``writer_failed``, ``writer_retries``, ``writer_problems``).
         """
+        extraction = None
         try:
-            # Extract structured task context from input
-            context_data = self._extract_task_context(task_input)
+            extraction = self.extract(task_input)
             self.rounds += 1
-
-            # Upsert task context memory using explicit request-scoped user_id only
-            user_id = getattr(self, 'user_id', None)
-            if not user_id or not str(user_id).strip():
+            report = extraction.report()
+            if extraction.failed:
                 logger.warning(
-                    "Skipping memory write: no explicit user_id provided to TaskAgent"
-                )
-                result_summary = (
-                    f"Extracted task context (memory write skipped — no user_id): "
-                    f"project={context_data.get('current_project', '')}, "
-                    f"experiment={context_data.get('active_experiment', '')}, "
-                    f"goals={context_data.get('goals', [])}, "
-                    f"blockers={context_data.get('blockers', [])}, "
-                    f"next_steps={context_data.get('next_steps', [])}"
+                    "TaskAgent: extraction failed after %d retries: %s",
+                    extraction.retries, extraction.problems,
                 )
                 return {
                     "agent_name": self.agent_name,
-                    "result": result_summary,
+                    "result": f"Writer failed: {extraction.problems}",
                     "rounds": self.rounds,
                     "token_usage": self.token_usage,
+                    **report,
+                }
+
+            # Upsert using the explicit request-scoped user_id only
+            user_id = getattr(self, 'user_id', None)
+            if not user_id or not str(user_id).strip():
+                logger.warning(
+                    "Skipping memory write: no explicit user_id provided "
+                    "to TaskAgent"
+                )
+                return {
+                    "agent_name": self.agent_name,
+                    "result": (
+                        "Extracted task context (memory write skipped — no "
+                        f"user_id): {extraction.text}"
+                    ),
+                    "rounds": self.rounds,
+                    "token_usage": self.token_usage,
+                    **report,
                 }
             user_id = str(user_id).strip()
-            memory_ids = self._upsert_task_memory(user_id, context_data)
-
-            result_summary = (
-                f"Extracted task context: "
-                f"project={context_data.get('current_project', '')}, "
-                f"experiment={context_data.get('active_experiment', '')}, "
-                f"goals={context_data.get('goals', [])}, "
-                f"blockers={context_data.get('blockers', [])}, "
-                f"next_steps={context_data.get('next_steps', [])}. "
-                f"Memory IDs: {memory_ids}"
-            )
-
+            memory_ids = self._upsert_task_memory(user_id, extraction)
             return {
                 "agent_name": self.agent_name,
-                "result": result_summary,
+                "result": (
+                    f"Stored task context for {user_id}: {extraction.text} "
+                    f"Memory IDs: {memory_ids}"
+                ),
                 "rounds": self.rounds,
                 "token_usage": self.token_usage,
+                **report,
             }
 
         except Exception as e:
@@ -106,6 +127,7 @@ class TaskAgent:
                 "result": f"Error: {e}",
                 "rounds": self.rounds,
                 "token_usage": self.token_usage,
+                **(extraction.report() if extraction else {}),
             }
 
     def _extract_task_context(self, task_input: str) -> dict:
@@ -118,6 +140,7 @@ class TaskAgent:
             Dict with keys: current_project, active_experiment,
             goals, blockers, next_steps.
         """
+        self.token_usage = None
         system_instruction = "".join(self.config.get("description", []))
         self.messages = [
             {"role": "system", "content": system_instruction},
@@ -170,18 +193,21 @@ class TaskAgent:
         self.token_usage = response.get("token_usage")
         return parse_json_reply(response["response"]["response_message"])
 
-    def _upsert_task_memory(self, user_id: str, context_data: dict) -> list:
+    def _upsert_task_memory(self, user_id: str, extraction: Extraction) -> list:
         """Search for existing task context memories, update or create.
 
         Args:
             user_id: Identifier for the user this memory pertains to.
-            context_data: Extracted task context dict to store.
+            extraction: The validated extraction to store.
 
         Returns:
             List of memory IDs that were created or updated.
         """
         memory_ids = []
-        content = json.dumps(context_data)
+        if isinstance(extraction, dict):  # already-validated fields
+            extraction = Extraction(MEMORY_TYPE_TASK_CONTEXT, fields=extraction)
+        content = extraction.text
+        fields_json = structured(extraction.fields)
 
         # Search for existing task context memories
         search_response = search_memories(
@@ -212,7 +238,10 @@ class TaskAgent:
                         agent_name=self.agent_name,
                         memory_id=memory_id,
                         content=content,
-                        metadata={"user_id": user_id},
+                        metadata={
+                            "user_id": user_id,
+                            FIELD_STRUCTURED: fields_json,
+                        },
                         base_url=aios_kernel_url,
                     )
                     memory_ids.append(memory_id)
@@ -223,6 +252,7 @@ class TaskAgent:
                 user_id=user_id,
                 memory_type=MEMORY_TYPE_TASK_CONTEXT,
                 sharing_policy=POLICY_SHARED if getattr(self, 'share_memory', False) else POLICY_PRIVATE,
+                **{FIELD_STRUCTURED: fields_json},
             )
             create_response = create_memory(
                 agent_name=self.agent_name,

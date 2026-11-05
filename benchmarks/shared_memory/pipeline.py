@@ -14,7 +14,7 @@ import logging
 import time
 import json
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
 import requests
@@ -77,6 +77,25 @@ class PipelineResult:
     # The memory pipeline library's version that ran the trial's memory
     # logic (the kernel's, or the replicated agents'); None otherwise.
     pipeline_version: Optional[str] = None
+    # Writers whose extraction never validated (they stored nothing; the
+    # trial is not scored), and each writer's retries (Subtask 9).
+    writer_failed: List[str] = field(default_factory=list)
+    writer_retries: Dict[str, int] = field(default_factory=dict)
+    # Whether the memory backend ran its own extraction on the writes
+    # (Mem0 with infer=True); None for conditions without a backend.
+    backend_extraction: Optional[bool] = None
+
+
+def writer_report(*writer_results: dict) -> tuple:
+    """``(writer_failed, writer_retries)`` from the writers' results."""
+    failed, retries = [], {}
+    for result in writer_results:
+        name = result.get("agent_name", "")
+        if "writer_retries" in result:
+            retries[name] = result["writer_retries"]
+        if result.get("writer_failed"):
+            failed.append(name)
+    return failed, retries
 
 
 def model_name(llms: Optional[list]) -> Optional[str]:
@@ -107,10 +126,13 @@ def cost_fields(
     model = model_name(llms)
 
     def usage(results: List[dict]) -> TokenUsage:
-        return TokenUsage.of_calls(
-            [r.get("token_usage") for r in results if "token_usage" in r],
-            model,
-        )
+        calls = []
+        for r in results:
+            if "token_usages" in r:  # a writer's extraction attempts
+                calls += r["token_usages"]
+            elif "token_usage" in r:
+                calls.append(r["token_usage"])
+        return TokenUsage.of_calls(calls, model)
 
     source = assistant_result.get("injection_diagnostics")
     if not isinstance(source, dict) or "llm_ms" not in source:
@@ -220,6 +242,12 @@ class AgentPipeline:
             task_result = task_agent.run(
                 json.dumps(trial_data.task_context.model_dump())
             )
+            failed, retries = writer_report(profile_result, task_result)
+            if failed:
+                return self._writer_failure(
+                    profile_result, task_result, written_records,
+                    trial_data.user_id,
+                )
 
             # Step 3: Run AssistantAgent with follow-up query, measuring latency
             assistant_agent = AssistantAgent("assistant_agent")
@@ -266,11 +294,42 @@ class AgentPipeline:
             written_memories=written_records,
             backend_usage_user_id=trial_data.user_id,
             pipeline_version=self._kernel_pipeline_version(),
+            writer_retries=retries,
+            backend_extraction=self._kernel_backend_extraction(),
             **cost_fields(
                 assistant_result, [profile_result, task_result],
                 self.assistant_llms,
             ),
         )
+
+    def _writer_failure(
+        self, profile_result: dict, task_result: dict,
+        written: List[WrittenMemoryRecord], user_id: str,
+    ) -> PipelineResult:
+        """The trial ends after the writers: one stored nothing, so the
+        assistant is not run and the trial is not scored."""
+        failed, retries = writer_report(profile_result, task_result)
+        return PipelineResult(
+            profile_result=profile_result,
+            task_result=task_result,
+            assistant_result={},
+            assistant_response="",
+            latency_seconds=0.0,
+            written_memories=written,
+            backend_usage_user_id=user_id,
+            pipeline_version=self._kernel_pipeline_version(),
+            writer_failed=failed,
+            writer_retries=retries,
+            backend_extraction=self._kernel_backend_extraction(),
+            **cost_fields({}, [profile_result, task_result],
+                          self.assistant_llms),
+        )
+
+    @classmethod
+    def _kernel_backend_extraction(cls) -> Optional[bool]:
+        """Whether the kernel's memory backend extracts facts itself
+        (``/memory/config`` ``backend_extraction``)."""
+        return cls._kernel_memory_config().get("backend_extraction")
 
     def _extract_injection_diagnostics(
         self, assistant_result: dict
@@ -921,14 +980,6 @@ class MethodPipeline:
         task_result = task_agent.run(
             json.dumps(trial_data.task_context.model_dump())
         )
-        assistant_result = assistant_agent.run(trial_data.follow_up_query)
-        timing = assistant_result["timing"]
-        backend = assistant_result["backend_usage"]
-
-        reader = AgentPipeline(share_memory=True)
-        diagnostics = reader._extract_injection_diagnostics(assistant_result)
-        retrieval_log = reader._retrieval_log_from_diagnostics(diagnostics)
-        retrieval_log.injection_status = "agent_reported"
         written = [
             WrittenMemoryRecord(
                 agent_name=meta["owner_agent"],
@@ -937,7 +988,35 @@ class MethodPipeline:
                 user_id=meta["user_id"],
             )
             for meta in (profile_result["written"], task_result["written"])
+            if meta
         ]
+        failed, retries = writer_report(profile_result, task_result)
+        backend_extraction = assistant_agent.memory.backend_extraction
+        if failed:
+            return PipelineResult(
+                profile_result=profile_result,
+                task_result=task_result,
+                assistant_result={},
+                assistant_response="",
+                latency_seconds=0.0,
+                written_memories=written,
+                method=self.method,
+                writer_failed=failed,
+                writer_retries=retries,
+                backend_extraction=backend_extraction,
+                backend_llm_tokens=TokenUsage(),
+                embedding_tokens=TokenUsage(),
+                **cost_fields({}, [profile_result, task_result],
+                              self.assistant_llms),
+            )
+        assistant_result = assistant_agent.run(trial_data.follow_up_query)
+        timing = assistant_result["timing"]
+        backend = assistant_result["backend_usage"]
+
+        reader = AgentPipeline(share_memory=True)
+        diagnostics = reader._extract_injection_diagnostics(assistant_result)
+        retrieval_log = reader._retrieval_log_from_diagnostics(diagnostics)
+        retrieval_log.injection_status = "agent_reported"
         return PipelineResult(
             profile_result=profile_result,
             task_result=task_result,
@@ -949,6 +1028,8 @@ class MethodPipeline:
             written_memories=written,
             method=self.method,
             pipeline_version=assistant_result.get("pipeline_version"),
+            writer_retries=retries,
+            backend_extraction=backend_extraction,
             backend_llm_tokens=TokenUsage(
                 **backend["backend_llm_tokens"]
             ),

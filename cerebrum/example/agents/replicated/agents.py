@@ -18,11 +18,13 @@ from cerebrum.config.config_manager import config
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
 from cerebrum.example.agents.replicated import library
 from cerebrum.example.agents.shared_memory_utils import (
+    FIELD_STRUCTURED,
     MEMORY_TYPE_PROFILE,
     MEMORY_TYPE_TASK_CONTEXT,
     POLICY_PRIVATE,
     POLICY_SHARED,
     build_memory_metadata,
+    structured,
 )
 from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.llm.apis import llm_chat
@@ -38,14 +40,16 @@ WRITER_SEARCH_K = 5
 
 def store_config(
     backend: str, embedding: Dict[str, Any], backend_llm: Dict[str, Any],
+    backend_extraction: bool = False,
 ) -> Dict[str, Any]:
     """The ``memory:`` sections a provider is configured from, with the
     condition's own store in place of the kernel's.
 
-    Mem0 needs an LLM to construct (``mem0ai`` 2.0.2 builds its default
-    OpenAI client at once and wants a key). Writes are verbatim
-    (``infer=False``), so it is never called; it is the pinned
-    ``memory.backend_llm`` through LiteLLM, as for the native agents.
+    ``backend_extraction`` is the kernel's (``/memory/config``): with it
+    Mem0 writes with ``infer=True`` and the pinned ``memory.backend_llm``,
+    as the kernel's Mem0 does. Without it Mem0 still needs an LLM to
+    construct (``mem0ai`` 2.0.2 builds its default OpenAI client at once
+    and wants a key), so it gets the same one, never called.
     """
     root = os.path.abspath(os.path.join(STORE_ROOT, backend))
     os.makedirs(root, exist_ok=True)
@@ -53,14 +57,13 @@ def store_config(
         "collection_name": "mem0_memories",
         "path": os.path.join(root, "chroma"),
     }}}
+    if backend_extraction:
+        mem0["infer"] = True
     if backend_llm.get("provider") and backend_llm.get("model"):
-        mem0["llm"] = {"provider": "litellm", "config": {
-            "model": usage.litellm_model_name(
-                backend_llm["provider"], backend_llm["model"]
-            ),
-        }}
+        mem0["llm"] = usage.mem0_llm_config(backend_llm)
     return {
         "embedding": embedding,
+        "backend_llm": backend_llm,
         "mem0": mem0,
         "chroma_inhouse": {"path": os.path.join(root, "chroma")},
     }
@@ -85,6 +88,10 @@ class ReplicatedMemory:
 
         provider_type = BACKENDS[backend]
         self.backend = backend
+        if backend == "mem0":
+            # Mem0's extraction calls go through LiteLLM; count them per
+            # trial, as the native agents and the kernel do.
+            usage.install_litellm_logger()
         self.provider = provider or ProviderFactory.create(
             provider_type,
             provider_config(
@@ -92,6 +99,8 @@ class ReplicatedMemory:
                 store_config(
                     backend, kernel_config["embedding"],
                     kernel_config.get("backend_llm") or {},
+                    bool(kernel_config.get("backend_extraction"))
+                    and backend == "mem0",
                 ),
             ),
         )
@@ -102,6 +111,9 @@ class ReplicatedMemory:
         self.pipeline = pipeline.MemoryPipeline(self.provider, self.settings)
         self.version = pipeline.PIPELINE_VERSION
         self.library = pipeline
+        self.backend_extraction = bool(
+            getattr(self.provider, "backend_extraction", False)
+        )
 
 
 class _ReplicatedWriter:
@@ -121,10 +133,9 @@ class _ReplicatedWriter:
         self.llms: Optional[list] = None
         self.share_memory = True
 
-    def _extract(self, task_input: str) -> dict:
-        raise NotImplementedError
-
-    def _upsert(self, user_id: str, content: str) -> Dict[str, Any]:
+    def _upsert(
+        self, user_id: str, content: str, fields_json: str,
+    ) -> Dict[str, Any]:
         pipeline = self.memory.pipeline
         rows, _ = pipeline.retrieve(
             self.agent_name, user_id, f"{self.query_prefix} {user_id}",
@@ -139,7 +150,8 @@ class _ReplicatedWriter:
             for row in matching:
                 pipeline.update(
                     self.agent_name, user_id, row["memory_id"],
-                    content, {"user_id": user_id},
+                    content,
+                    {"user_id": user_id, FIELD_STRUCTURED: fields_json},
                 )
             return dict(matching[0]["metadata"])
         metadata = build_memory_metadata(
@@ -149,6 +161,7 @@ class _ReplicatedWriter:
             sharing_policy=(
                 POLICY_SHARED if self.share_memory else POLICY_PRIVATE
             ),
+            **{FIELD_STRUCTURED: fields_json},
         )
         note = self.memory.library.note_from_request(
             {"content": content, "metadata": metadata}
@@ -157,15 +170,30 @@ class _ReplicatedWriter:
         return dict(note.metadata)
 
     def run(self, task_input: str) -> dict:
+        """Extract and validate like the kernel writer (the same
+        ``extract``), then upsert the shared rendering; store nothing
+        when the extraction fails."""
         self.extractor.llms = self.llms
-        data = self._extract(task_input)
-        content = json.dumps(data)
-        written = self._upsert(self.user_id, content)
+        extraction = self.extractor.extract(task_input)
+        report = extraction.report()
+        if extraction.failed:
+            return {
+                "agent_name": self.agent_name,
+                "result": f"Writer failed: {extraction.problems}",
+                "written": None,
+                "token_usage": self.extractor.token_usage,
+                **report,
+            }
+        content = extraction.text
+        written = self._upsert(
+            self.user_id, content, structured(extraction.fields)
+        )
         return {
             "agent_name": self.agent_name,
             "result": content,
             "written": written,
             "token_usage": self.extractor.token_usage,
+            **report,
         }
 
 
@@ -174,17 +202,11 @@ class ReplicatedProfileAgent(_ReplicatedWriter):
     query_prefix = "profile"
     extractor_class = ProfileAgent
 
-    def _extract(self, task_input: str) -> dict:
-        return self.extractor._extract_profile(task_input)
-
 
 class ReplicatedTaskAgent(_ReplicatedWriter):
     memory_type = MEMORY_TYPE_TASK_CONTEXT
     query_prefix = "task context"
     extractor_class = TaskAgent
-
-    def _extract(self, task_input: str) -> dict:
-        return self.extractor._extract_task_context(task_input)
 
 
 def _load_assistant_prompt() -> str:

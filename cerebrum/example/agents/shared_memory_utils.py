@@ -108,3 +108,169 @@ def filter_shared_memories(
             continue
         filtered.append(mem)
     return filtered
+
+
+# ---------------------------------------------------------------------------
+# Writer output: validation and the one shared rendering (Subtask 9)
+# ---------------------------------------------------------------------------
+#
+# Every writer (kernel, replicated and native) validates its extraction
+# against the schema below, retries up to WRITER_RETRIES times, and on
+# success stores ``render(memory_type, fields)`` as the memory text with
+# the fields themselves as JSON in ``metadata["structured"]``. A writer
+# whose extraction never validates stores nothing and reports
+# ``writer_failed``.
+
+import json as _json
+from dataclasses import dataclass as _dataclass, field as _field
+
+WRITER_RETRIES = 2
+FIELD_STRUCTURED = "structured"
+
+# Canonical field -> (accepted keys, kind). "list" fields take a list of
+# non-empty strings (a non-empty string is one item); "list0" may be
+# empty. Aliases cover keys real extractions use (Subtask 6).
+SCHEMA = {
+    MEMORY_TYPE_PROFILE: {
+        "user_name": (("user_name", "username", "name"), "str"),
+        "preferred_tools": (("preferred_tools", "tools"), "list"),
+        "preferred_language": (
+            ("preferred_language", "language"), "str"),
+        "response_style": (
+            ("response_style", "response_type", "style"), "str"),
+    },
+    MEMORY_TYPE_TASK_CONTEXT: {
+        "current_project": (
+            ("current_project", "project_name", "project"), "str"),
+        "active_experiment": (
+            ("active_experiment", "experiment_name", "experiment"), "str"),
+        "goals": (("goals",), "list"),
+        "blockers": (("blockers",), "list0"),
+        "next_steps": (("next_steps", "next_actions"), "list"),
+    },
+}
+
+TEMPLATES = {
+    MEMORY_TYPE_PROFILE: [
+        ("user_name", "My name is {}."),
+        ("preferred_tools", "I prefer to use {}."),
+        ("preferred_language", "My preferred programming language is {}."),
+        ("response_style", "I like {} responses."),
+    ],
+    MEMORY_TYPE_TASK_CONTEXT: [
+        ("current_project", "I'm working on {}."),
+        ("active_experiment", "My current experiment is {}."),
+        ("goals", "My goals are: {}."),
+        ("blockers", "My blockers are: {}."),
+        ("next_steps", "My next steps are: {}."),
+    ],
+}
+
+
+def _coerce(value: Any, kind: str) -> Any:
+    """The value as its kind, or None if it does not fit."""
+    if kind == "str":
+        if isinstance(value, (str, int, float)) and str(value).strip():
+            return str(value).strip()
+        return None
+    if isinstance(value, str):
+        value = [value] if value.strip() else []
+    if not isinstance(value, list):
+        return None
+    items = [str(v).strip() for v in value
+             if isinstance(v, (str, int, float))]
+    if len(items) != len(value) or any(not i for i in items):
+        return None
+    if kind == "list" and not items:
+        return None
+    return items
+
+
+def validate_extraction(memory_type: str, data: Any) -> tuple:
+    """``(fields, problems)``: the schema's fields from a writer's
+    extraction, or ``None`` and what is wrong. A single key holding an
+    object is unwrapped first; aliases are mapped; other keys are
+    ignored."""
+    if not isinstance(data, dict):
+        return None, [f"not a JSON object: {type(data).__name__}"]
+    if len(data) == 1 and isinstance(next(iter(data.values())), dict):
+        data = next(iter(data.values()))
+    fields, problems = {}, []
+    for name, (keys, kind) in SCHEMA[memory_type].items():
+        key = next((k for k in keys if k in data), None)
+        if key is None:
+            problems.append(f"missing {name}")
+            continue
+        value = _coerce(data[key], kind)
+        if value is None:
+            problems.append(f"bad {name}: {data[key]!r}"[:120])
+        else:
+            fields[name] = value
+    return (None, problems) if problems else (fields, [])
+
+
+def render(memory_type: str, fields: Dict[str, Any]) -> str:
+    """The memory text every writer stores for validated ``fields``."""
+    def text(value):
+        return "; ".join(value) if isinstance(value, list) else value
+    return " ".join(
+        template.format(text(fields[name]))
+        for name, template in TEMPLATES[memory_type]
+        if fields.get(name) not in (None, [])
+    )
+
+
+def structured(fields: Dict[str, Any]) -> str:
+    """The fields as the JSON string kept in the memory's metadata."""
+    return _json.dumps(fields, sort_keys=True)
+
+
+@_dataclass
+class Extraction:
+    """A writer's validated extraction, after its retries."""
+
+    memory_type: str
+    fields: Optional[Dict[str, Any]] = None
+    retries: int = 0
+    problems: List[str] = _field(default_factory=list)
+    token_usages: List[Optional[dict]] = _field(default_factory=list)
+
+    @property
+    def failed(self) -> bool:
+        return self.fields is None
+
+    @property
+    def text(self) -> str:
+        return render(self.memory_type, self.fields) if self.fields else ""
+
+    def report(self) -> Dict[str, Any]:
+        """The keys a writer's result carries about its extraction."""
+        return {
+            "writer_failed": self.failed,
+            "writer_retries": self.retries,
+            "writer_problems": self.problems,
+            "token_usages": self.token_usages,
+        }
+
+
+def extract_validated(
+    memory_type: str, extract_once, usage_of=lambda: None,
+    retries: int = WRITER_RETRIES,
+) -> Extraction:
+    """Call ``extract_once()`` until its result validates, at most
+    ``1 + retries`` times. ``usage_of()`` returns the last call's token
+    usage. An exception counts as an invalid attempt."""
+    result = Extraction(memory_type)
+    for attempt in range(retries + 1):
+        result.retries = attempt
+        try:
+            data = extract_once()
+            fields, problems = validate_extraction(memory_type, data)
+        except Exception as e:  # unparseable reply, transport error
+            fields, problems = None, [f"{type(e).__name__}: {e}"[:200]]
+        result.token_usages.append(usage_of())
+        if fields is not None:
+            result.fields, result.problems = fields, []
+            return result
+        result.problems = problems
+    return result

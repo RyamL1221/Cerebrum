@@ -173,6 +173,25 @@ def litellm_model_name(provider: str, model: str) -> str:
     return f"{prefixes[provider]}/{model}"
 
 
+def mem0_llm_config(backend_llm: dict) -> dict:
+    """Mem0's ``llm`` config for the pinned internal LLM
+    (``memory.backend_llm``): Mem0's ``litellm`` provider, so each call
+    reaches LiteLLM's callbacks and is counted per trial. LiteLLM reads
+    the credentials from the environment (``AZURE_API_*``). The kernel's
+    Mem0 provider (with ``infer``), the replicated and the native agents
+    all configure Mem0 with this."""
+    provider = backend_llm.get("provider")
+    model = backend_llm.get("model")
+    if not provider or not model:
+        raise ValueError("memory.backend_llm needs a provider and a model")
+    if provider not in ("azure_openai", "ollama"):
+        raise ValueError(f"unsupported backend_llm provider {provider!r}")
+    return {"provider": "litellm", "config": {
+        "model": litellm_model_name(provider, model),
+        "temperature": backend_llm.get("temperature", 0.1),
+    }}
+
+
 def count_embeddings(client: Any, model: str,
                      accumulator: UsageAccumulator = ACCUMULATOR) -> Any:
     """Wrap an Ollama ``Client``'s ``embed`` so each call made under a

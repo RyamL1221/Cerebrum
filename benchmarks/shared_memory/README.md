@@ -15,6 +15,25 @@ the judge.
 | 3 | kernel_private | The kernel pipeline of method 4 with sharing off: the agents write private memories, so the assistant sees none | auto_inject: true, auto_extract: true |
 | 4 | kernel_shared | AIOS kernel shared memory (auto_inject) | auto_inject: true, auto_extract: true |
 
+## Fixed users and paired comparisons (NeurIPS Subtask 9)
+
+Reported results use the fixed dataset `data/users_v1.jsonl` (150 users
+generated once with `synth.py`'s prompts, GPT-4o, seed 20261104; the
+header record holds the generation details). `--dataset users_v1` runs
+all 150, `--dataset pilot_v1` the first 30; trial `i` is user `i`, so
+every cell scores the same users and two cells pair by trial index.
+`--dataset random` (the default) generates each trial's user and is
+never used for reported results. Compare two cells with
+`python -m benchmarks.shared_memory.compare <a> <b>` (paired t,
+Wilcoxon, 95% CI, TOST ±0.25); the pilot table comes from
+`python -m benchmarks.shared_memory.pilot_report results/pilot_v1`.
+Never edit a dataset file; make a new version (`dataset.py generate`).
+
+Writers validate their extraction against the profile / task schema and
+retry twice; a writer that still fails stores nothing, and its trial is
+recorded with `writer_failed` and not scored. The judge retries three
+times, then fails the trial (no keyword-only scores).
+
 ## Run Commands
 
 Run sequentially in this order. Restart the kernel between each method to

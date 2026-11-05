@@ -42,6 +42,31 @@ def _make_trial_data():
     )
 
 
+def _valid_writers(error):
+    """Since Subtask 9 a writer whose extraction fails stores nothing and
+    ends the trial, so the writers here extract validly and their memory
+    calls raise ``error``: a storage failure must not stop the trial."""
+    import contextlib
+    import json
+
+    from cerebrum.example.agents.profile_agent import agent as profile_module
+    from cerebrum.example.agents.task_agent import agent as task_module
+
+    data = _make_trial_data()
+    stack = contextlib.ExitStack()
+    for module, payload in ((profile_module, data.profile),
+                            (task_module, data.task_context)):
+        stack.enter_context(patch.object(
+            module, "llm_chat_with_json_output",
+            return_value={"response": {
+                "response_message": json.dumps(payload.model_dump())}},
+        ))
+        stack.enter_context(patch.object(
+            module, "search_memories", side_effect=error,
+        ))
+    return stack
+
+
 def _mock_assistant_result():
     return {"agent_name": "assistant_agent", "result": "mocked response", "rounds": 1}
 
@@ -225,7 +250,8 @@ def test_exception_does_not_fail_trial():
     with patch(
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         return_value=_mock_assistant_result(),
-    ), patch("mem0.Memory", return_value=mock_memory):
+    ), patch("mem0.Memory", return_value=mock_memory), \
+            _valid_writers(ValueError("Mem0 add error")):
         # Must not raise — result must be returned
         result = pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
@@ -256,7 +282,8 @@ def test_exception_does_not_prevent_assistant_run():
     with patch(
         "benchmarks.shared_memory.pipeline.AssistantAgent.run",
         counting_run,
-    ), patch("mem0.Memory", return_value=mock_memory):
+    ), patch("mem0.Memory", return_value=mock_memory), \
+            _valid_writers(TimeoutError("Mem0 timeout")):
         pipeline._run_kernel_private(trial_data, "eve_davis__kernel_private")
 
     assert len(assistant_calls) == 1, (

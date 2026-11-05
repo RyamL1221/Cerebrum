@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 
 from cerebrum.config.config_manager import config
 from cerebrum.example.agents.native import backends
-from cerebrum.example.agents.native.render import render
 from cerebrum.example.agents.native.sharing import (
     PRIVATE,
     SHARED,
@@ -22,6 +21,10 @@ from cerebrum.example.agents.native.sharing import (
     visible,
 )
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
+from cerebrum.example.agents.shared_memory_utils import (
+    FIELD_STRUCTURED,
+    structured,
+)
 from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.llm.apis import llm_chat
 from cerebrum.utils import usage
@@ -38,6 +41,8 @@ class NativeMemory:
             raise ValueError(f"unknown native backend {backend!r}")
         self.backend = backend
         self.settings = settings
+        # Mem0 extracts facts from every write (infer=True).
+        self.backend_extraction = backend == "mem0"
         if backend == "mem0":
             self.mem0 = backends.mem0_client(settings)
         else:
@@ -138,17 +143,27 @@ class _NativeWriter:
         self.llms: Optional[list] = None
         self.share_memory = True
 
-    def _extract(self, task_input: str) -> dict:
-        raise NotImplementedError
-
     def run(self, task_input: str) -> dict:
+        """Extract and validate like the kernel writer (the same
+        ``extract``), store the shared rendering, keep the fields as
+        JSON in the metadata; store nothing when the extraction fails."""
         self.extractor.llms = self.llms
-        data = self._extract(task_input)
-        text = render(self.memory_type, data)
+        extraction = self.extractor.extract(task_input)
+        report = extraction.report()
+        if extraction.failed:
+            return {
+                "agent_name": self.agent_name,
+                "result": f"Writer failed: {extraction.problems}",
+                "written": None,
+                "token_usage": self.extractor.token_usage,
+                **report,
+            }
+        text = extraction.text
         metadata = memory_metadata(
             self.agent_name, self.user_id, self.memory_type,
             SHARED if self.share_memory else PRIVATE,
         )
+        metadata[FIELD_STRUCTURED] = structured(extraction.fields)
         self.memory.write(
             [{"role": "user", "content": text}], text,
             self.agent_name, metadata,
@@ -158,6 +173,7 @@ class _NativeWriter:
             "result": text,
             "written": metadata,
             "token_usage": self.extractor.token_usage,
+            **report,
         }
 
 
@@ -165,16 +181,10 @@ class NativeProfileAgent(_NativeWriter):
     memory_type = "profile"
     extractor_class = ProfileAgent
 
-    def _extract(self, task_input: str) -> dict:
-        return self.extractor._extract_profile(task_input)
-
 
 class NativeTaskAgent(_NativeWriter):
     memory_type = "task_context"
     extractor_class = TaskAgent
-
-    def _extract(self, task_input: str) -> dict:
-        return self.extractor._extract_task_context(task_input)
 
 
 def _load_assistant_prompt() -> str:

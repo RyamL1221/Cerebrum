@@ -21,7 +21,10 @@ from benchmarks.shared_memory.models import (
 from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
 from cerebrum.example.agents.native import agents as native_agents
 from cerebrum.example.agents.native import backends
-from cerebrum.example.agents.native.render import render
+from cerebrum.example.agents.shared_memory_utils import (
+    render,
+    validate_extraction,
+)
 from cerebrum.example.agents.native.sharing import (
     in_partition,
     memory_metadata,
@@ -182,12 +185,21 @@ def test_filter_never_shows_another_agents_private_memory(metadata):
                 or metadata.get("sharing_policy") == "shared")
 
 
-def test_render_handles_real_writer_variants():
-    assert render("profile", {"user_attributes": {"name": "Ava", "tools": ["Git"]}}) \
-        == "My name is Ava. I prefer to use Git."
-    assert render("task_context", {"project_name": "P", "next_actions": ["a", "b"]}) \
-        == "I'm working on P. My next steps are: a; b."
-    assert "Mood: calm." in render("profile", {"user_name": "A", "mood": "calm"})
+def test_shared_renderer_handles_real_writer_variants():
+    """Since Subtask 9 the native writers use the shared validator and
+    renderer: aliases and one nested object are accepted, a partial
+    extraction is not (it is retried, then the writer fails)."""
+    fields, _ = validate_extraction("profile", {"user_attributes": {
+        "name": "Ava", "tools": ["Git"], "language": "Go",
+        "style": "concise", "mood": "calm",
+    }})
+    assert render("profile", fields) == (
+        "My name is Ava. I prefer to use Git. My preferred programming "
+        "language is Go. I like concise responses."
+    )
+    assert validate_extraction(
+        "task_context", {"project_name": "P", "next_actions": ["a", "b"]}
+    )[0] is None
 
 
 def test_collection_names_are_valid_and_distinct():

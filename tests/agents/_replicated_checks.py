@@ -124,7 +124,8 @@ def test_replicated_trial_makes_no_kernel_memory_calls(harness, method):
     # The assistant sent the kernel's block, built by the library.
     block = chat.call_args.kwargs["messages"][0]["content"]
     assert block.startswith("===== MEMORY CONTEXT =====")
-    assert block.index("User profile") < block.index("Current task context")
+    # The writers store the shared rendering (Subtask 9), profile first.
+    assert block.index("My name is") < block.index("I'm working on")
     diagnostics = result.injection_diagnostics
     assert diagnostics.injected_count == 2
     assert result.retrieval_log.injection_status == "agent_reported"
@@ -229,3 +230,45 @@ def test_difference_1_a_local_barrier_cannot_order_another_agents_write():
         {"user_id": "u", "outcome": "DRAINED"}
     ]
     assert time.monotonic() - started >= 0.25
+
+
+def test_replicated_mem0_follows_the_kernels_extraction_and_counts_it():
+    """With the kernel's backend_extraction, the replicated Mem0 store
+    extracts with the pinned backend LLM, as the kernel's Mem0 does, and
+    its LiteLLM calls are counted per trial (Subtask 9)."""
+    import litellm
+
+    from cerebrum.utils import usage
+
+    config = {**KERNEL_CONFIG, "backend_extraction": True,
+              "backend_llm": {"provider": "azure_openai", "model": "gpt-4o"}}
+    seen = {}
+
+    def create(cls, kind, provider_config):
+        seen.update(kind=kind, config=provider_config)
+        store = InHouseProvider()
+        store.initialize({})
+        store.backend_extraction = provider_config.get("infer", False)
+        return store
+
+    before = [c for c in litellm.callbacks
+              if getattr(c, "accumulator", None) is usage.ACCUMULATOR]
+    for c in before:
+        litellm.callbacks.remove(c)
+    with patch.object(factory.ProviderFactory, "create",
+                      classmethod(create)):
+        memory = replicated.ReplicatedMemory("mem0", config)
+    assert seen["kind"] == "mem0"
+    assert seen["config"]["infer"] is True
+    assert seen["config"]["llm"] == usage.mem0_llm_config(
+        config["backend_llm"]
+    )
+    assert memory.backend_extraction is True
+    assert any(getattr(c, "accumulator", None) is usage.ACCUMULATOR
+               for c in litellm.callbacks)
+    # In-house: no extraction.
+    with patch.object(factory.ProviderFactory, "create",
+                      classmethod(create)):
+        assert not replicated.ReplicatedMemory(
+            "inhouse", config
+        ).backend_extraction
