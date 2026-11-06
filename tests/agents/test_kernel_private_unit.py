@@ -9,6 +9,8 @@ Validates: Requirements 5.5, 5.6, 5.8
 """
 
 import sys
+
+import pytest
 sys.path.insert(0, ".")
 
 from unittest.mock import patch, MagicMock, call
@@ -71,6 +73,10 @@ def _mock_assistant_result():
     return {"agent_name": "assistant_agent", "result": "mocked response", "rounds": 1}
 
 
+# Runs the real writers against port 8000; passed only because the
+# connection failed (live-kernel guard, NeurIPS Subtask 10). Tests a
+# removed local-Mem0 path, like the four baseline failures here.
+@pytest.mark.live_kernel
 def test_no_create_memory_calls():
     """kernel_private must not call AIOS kernel create_memory."""
     pipeline = MethodPipeline(method="kernel_private")
@@ -94,6 +100,10 @@ def test_no_create_memory_calls():
     print("PASSED: AIOS create_memory is never called in kernel_private")
 
 
+# Runs the real writers against port 8000; passed only because the
+# connection failed (live-kernel guard, NeurIPS Subtask 10). Tests a
+# removed local-Mem0 path, like the four baseline failures here.
+@pytest.mark.live_kernel
 def test_no_search_memories_calls():
     """kernel_private must not call AIOS kernel search_memories."""
     pipeline = MethodPipeline(method="kernel_private")
@@ -239,6 +249,10 @@ def test_search_exception_sets_retrieved_context_count_zero():
     print("PASSED: search exception sets retrieved_context_count=0")
 
 
+# Runs the real writers against port 8000; passed only because the
+# connection failed (live-kernel guard, NeurIPS Subtask 10). Tests a
+# removed local-Mem0 path, like the four baseline failures here.
+@pytest.mark.live_kernel
 def test_exception_does_not_fail_trial():
     """Mem0 exception must not cause the pipeline to raise — result is returned."""
     pipeline = MethodPipeline(method="kernel_private")
@@ -265,6 +279,10 @@ def test_exception_does_not_fail_trial():
     print("PASSED: Mem0 exception does not fail the trial — result is returned")
 
 
+# Runs the real writers against port 8000; passed only because the
+# connection failed (live-kernel guard, NeurIPS Subtask 10). Tests a
+# removed local-Mem0 path, like the four baseline failures here.
+@pytest.mark.live_kernel
 def test_exception_does_not_prevent_assistant_run():
     """When Mem0 raises, AssistantAgent.run must still be called."""
     pipeline = MethodPipeline(method="kernel_private")

@@ -367,7 +367,11 @@ class ExperimentMetadata(BaseModel):
     judge_seed: Optional[int] = None
     git_commit: Optional[str] = Field(default_factory=_harness_commit)
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
-    config_snapshot: dict = Field(default_factory=_config_snapshot)
+    # Looked up at call time, so the test suite can stub it (the
+    # live-kernel guard, tests/conftest.py).
+    config_snapshot: dict = Field(
+        default_factory=lambda: _config_snapshot()
+    )
 
 
 class ConditionResults(BaseModel):

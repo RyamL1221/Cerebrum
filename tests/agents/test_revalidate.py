@@ -8,6 +8,9 @@ import pytest
 from benchmarks.shared_memory import models, revalidate
 from benchmarks.shared_memory.models import ExperimentMetadata
 
+# The real lookup; tests/conftest.py stubs it for every other test.
+REAL_CONFIG_SNAPSHOT = models._config_snapshot
+
 
 def spread(center, width=1.0, n=150):
     """Return n scores evenly spread around center."""
@@ -91,7 +94,8 @@ def test_diagnostics_report_counts_cap_and_budget():
     assert report["after_budget"] == {8: 1}
 
 
-def test_metadata_records_commits_and_config():
+def test_metadata_records_commits_and_config(monkeypatch):
+    monkeypatch.setattr(models, "_config_snapshot", REAL_CONFIG_SNAPSHOT)
     with patch.object(models.requests, "get") as get:
         get.return_value.json.return_value = {"max_memory_tokens": 2000}
         metadata = ExperimentMetadata(
