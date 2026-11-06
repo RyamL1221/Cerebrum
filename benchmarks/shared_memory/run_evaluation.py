@@ -71,6 +71,10 @@ from benchmarks.shared_memory.dataset import (
     trial_input_sha256,
 )
 from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
+from cerebrum.example.agents.variants import (
+    CATALOG_VERSION as VARIANT_CATALOG_VERSION,
+    schedule as variant_schedule,
+)
 from benchmarks.shared_memory.results import ResultsWriter
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
 from cerebrum.config.config_manager import config
@@ -83,6 +87,23 @@ _ALL_METHODS = list(CONDITIONS)
 
 DEFAULT_TEMPERATURE = 0.0
 DEFAULT_SEED = 20261105
+
+# Heterogeneity (Subtask 10, AIOS docs/HETEROGENEITY.md). The default
+# schedule seed was fixed before any heterogeneity trial ran.
+HETEROGENEITY_LEVELS = (0, 1, 2)
+DEFAULT_VARIANT_SEED = 20261106
+
+
+class _Unjudged:
+    """The scores of a trial run with --no-judge: none."""
+
+    profile_usage_score = None
+    task_usage_score = None
+    integration_score = None
+    judge_attempts = None
+
+
+UNJUDGED = _Unjudged()
 
 
 def with_decoding(llms: list | None, decoding: dict | None) -> list | None:
@@ -324,6 +345,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--heterogeneity",
+        type=int,
+        choices=list(HETEROGENEITY_LEVELS),
+        default=0,
+        help=(
+            "Heterogeneity level H: how many of the three agents deviate "
+            "from the reference, each with a catalog variant chosen by "
+            "the seeded schedule (AIOS docs/HETEROGENEITY.md). H > 0 "
+            "needs --no-judge (no scored heterogeneity runs yet)."
+        ),
+    )
+    parser.add_argument(
+        "--variant-seed",
+        type=int,
+        default=DEFAULT_VARIANT_SEED,
+        help=(
+            "Seed of the heterogeneity schedule (default "
+            f"{DEFAULT_VARIANT_SEED}); the same in every cell keeps "
+            "cells paired."
+        ),
+    )
+    parser.add_argument(
+        "--no-judge",
+        action="store_true",
+        help=(
+            "Do not judge: trials carry no scores, only the judge-free "
+            "measures (functional checks)."
+        ),
+    )
+    parser.add_argument(
         "--kernel-logs",
         type=str,
         default=None,
@@ -365,7 +416,26 @@ class EvaluationOrchestrator:
         kernel_logs_path: str | None = None,
         dataset: str = RANDOM,
         decoding: dict | None = None,
+        heterogeneity: int = 0,
+        variant_seed: int | None = None,
+        judge: bool = True,
     ):
+        if heterogeneity not in HETEROGENEITY_LEVELS:
+            raise ValueError(
+                f"heterogeneity must be one of {HETEROGENEITY_LEVELS}"
+            )
+        if heterogeneity and judge:
+            raise ValueError(
+                "heterogeneity runs are not scored yet (Subtask 10): "
+                "pass --no-judge"
+            )
+        if heterogeneity and condition is not None:
+            raise ValueError("heterogeneity needs --method, not --condition")
+        self.heterogeneity = heterogeneity
+        self.variant_seed = (
+            DEFAULT_VARIANT_SEED if variant_seed is None else variant_seed
+        )
+        self.judged = judge
         self.dataset = load_dataset(dataset)
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
         if trials is None:
@@ -481,6 +551,17 @@ class EvaluationOrchestrator:
             return self.dataset.trial_data(trial_index, self.generator.run_id)
         return self.generator.generate_trial_data(trial_index)
 
+    def _heterogeneity_metadata(self) -> dict:
+        """``{level, variant_seed, catalog_version}`` for the results
+        file (AIOS docs/HETEROGENEITY.md)."""
+        return {
+            "level": getattr(self, "heterogeneity", 0),
+            "variant_seed": getattr(
+                self, "variant_seed", DEFAULT_VARIANT_SEED
+            ),
+            "catalog_version": VARIANT_CATALOG_VERSION,
+        }
+
     def run_single_trial(
         self,
         trial_index: int,
@@ -521,8 +602,16 @@ class EvaluationOrchestrator:
                 )
 
         # Step 2: Run agent pipeline
+        variants = variant_schedule(
+            self.variant_seed, getattr(self, "heterogeneity", 0), trial_index,
+        )
         try:
-            pipeline_result = pipeline.run_trial(trial_data)
+            if variants:
+                pipeline_result = pipeline.run_trial(
+                    trial_data, variants=variants
+                )
+            else:
+                pipeline_result = pipeline.run_trial(trial_data)
         except Exception as e:
             logger.error("Trial %d: agent pipeline failed: %s", trial_index, e)
             return TrialResult(
@@ -543,6 +632,12 @@ class EvaluationOrchestrator:
             "decoding": pipeline_result.decoding,
             "dataset": self.dataset_name,
             "input_sha256": trial_input_sha256(trial_data),
+            "heterogeneity_level": getattr(self, "heterogeneity", 0),
+            "variants_applied": getattr(
+                pipeline_result, "variants_applied", {}) or {},
+            "variants_not_applied": getattr(
+                pipeline_result, "variants_not_applied", {}) or {},
+            "judge_free": getattr(pipeline_result, "judge_free", None),
         }
         if pipeline_result.writer_failed:
             # A writer stored nothing (Subtask 9): counted, not scored.
@@ -595,14 +690,17 @@ class EvaluationOrchestrator:
         # Kernel log cross-reference is now handled post-run by
         # _cross_reference_kernel_logs() after all trials complete.
 
-        # Step 3: Judge the assistant response
+        # Step 3: Judge the assistant response (not with --no-judge)
         try:
-            scores = self.judge.evaluate(
-                query=trial_data.follow_up_query,
-                response=pipeline_result.assistant_response,
-                profile=trial_data.profile,
-                task_context=trial_data.task_context,
-            )
+            if not getattr(self, "judged", True):
+                scores = UNJUDGED
+            else:
+                scores = self.judge.evaluate(
+                    query=trial_data.follow_up_query,
+                    response=pipeline_result.assistant_response,
+                    profile=trial_data.profile,
+                    task_context=trial_data.task_context,
+                )
         except Exception as e:
             # No keyword-only fallback (Subtask 4b): the trial fails.
             logger.error("Trial %d: judge failed: %s", trial_index, e)
@@ -667,7 +765,7 @@ class EvaluationOrchestrator:
             writer_tokens=pipeline_result.writer_tokens,
             latency_breakdown=pipeline_result.latency_breakdown,
             pipeline_version=pipeline_result.pipeline_version,
-            scorer=SCORER,
+            scorer=SCORER if scores is not UNJUDGED else None,
             judge_attempts=attempts if isinstance(attempts, int) else None,
             **common,
             **backend_usage,
@@ -741,6 +839,8 @@ class EvaluationOrchestrator:
             decoding=self.decoding,
             judge_temperature=self.judge.temperature,
             judge_seed=self.judge.seed,
+            judged=getattr(self, "judged", True),
+            heterogeneity=self._heterogeneity_metadata(),
         )
 
         experiment = ExperimentResults(
@@ -839,6 +939,8 @@ class EvaluationOrchestrator:
             decoding=self.decoding,
             judge_temperature=self.judge.temperature,
             judge_seed=self.judge.seed,
+            judged=getattr(self, "judged", True),
+            heterogeneity=self._heterogeneity_metadata(),
         )
 
         experiment = ExperimentResults(
@@ -895,6 +997,9 @@ def main():
         kernel_logs_path=args.kernel_logs,
         dataset=args.dataset,
         decoding=decoding_from_args(args),
+        heterogeneity=args.heterogeneity,
+        variant_seed=args.variant_seed,
+        judge=not args.no_judge,
     )
 
     experiment = orchestrator.run()

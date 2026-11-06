@@ -132,6 +132,8 @@ class _ReplicatedWriter:
         self.user_id: Optional[str] = None
         self.llms: Optional[list] = None
         self.share_memory = True
+        # Metadata the deployment adds to every write (Subtask 10).
+        self.extra_metadata: Dict[str, Any] = {}
 
     def _upsert(
         self, user_id: str, content: str, fields_json: str,
@@ -151,7 +153,8 @@ class _ReplicatedWriter:
                 pipeline.update(
                     self.agent_name, user_id, row["memory_id"],
                     content,
-                    {"user_id": user_id, FIELD_STRUCTURED: fields_json},
+                    {"user_id": user_id, FIELD_STRUCTURED: fields_json,
+                     **self.extra_metadata},
                 )
             return dict(matching[0]["metadata"])
         metadata = build_memory_metadata(
@@ -162,6 +165,7 @@ class _ReplicatedWriter:
                 POLICY_SHARED if self.share_memory else POLICY_PRIVATE
             ),
             **{FIELD_STRUCTURED: fields_json},
+            **self.extra_metadata,
         )
         note = self.memory.library.note_from_request(
             {"content": content, "metadata": metadata}
@@ -228,6 +232,7 @@ class ReplicatedAssistantAgent:
         self.system_prompt = _load_assistant_prompt()
         self.user_id: Optional[str] = None
         self.llms: Optional[list] = None
+        self.extra_metadata: Dict[str, Any] = {}
 
     def run(self, task_input: str) -> dict:
         """Answer one query. The timing keys are the kernel's; the
@@ -258,13 +263,12 @@ class ReplicatedAssistantAgent:
         # As the kernel's extractor does: the pair, private, in the
         # resolved user's scope.
         if task_input and answer:
-            pipeline.write(
-                self.agent_name, None,
-                self.memory.library.conversation_note(
-                    self.agent_name, task_input, str(answer),
-                    diagnostics.get("resolved_user_id"),
-                ),
+            note = self.memory.library.conversation_note(
+                self.agent_name, task_input, str(answer),
+                diagnostics.get("resolved_user_id"),
             )
+            note.metadata.update(self.extra_metadata)
+            pipeline.write(self.agent_name, None, note)
         written = time.perf_counter()
         records = usage.ACCUMULATOR.take(user_id)
 

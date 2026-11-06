@@ -100,6 +100,15 @@ class InjectedMemoryEntry(BaseModel):
     owner_agent: str
     memory_type: str
     match_score: Optional[float] = None
+    # Since Subtask 10 (docs/HETEROGENEITY.md in AIOS): the row's id,
+    # stored user and sharing policy, and the provenance its writer
+    # attached (None for a row written without it, such as the kernel's
+    # own conversation write). None in older files.
+    memory_id: Optional[str] = None
+    user_id: Optional[str] = None
+    sharing_policy: Optional[str] = None
+    provenance_agent: Optional[str] = None
+    provenance_user: Optional[str] = None
 
 
 class InjectionDiagnostics(BaseModel):
@@ -124,6 +133,30 @@ class InjectionDiagnostics(BaseModel):
     # "legacy"; "native" for the native agents' own renderer.
     block_format: Optional[str] = None
     block_recency: Optional[bool] = None
+    # The block as the consumer received it (Subtask 10); None in older
+    # files, "" when nothing was injected.
+    block_text: Optional[str] = None
+
+
+class JudgeFreeMeasures(BaseModel):
+    """What reached the consumer, measured without the judge (Subtask
+    10, docs/HETEROGENEITY.md in AIOS)."""
+
+    # Fraction of the user's profile items (name, language, style, each
+    # tool) present in the block; None without a block to check.
+    profile_facts_in_block: Optional[float] = None
+    profile_facts_missing: List[str] = []
+    # Injected rows of another user (a leak).
+    cross_user_rows: int = 0
+    # Injected rows another agent wrote and did not share (a leak).
+    private_rows_from_others: int = 0
+    # Writers that stored a memory this trial of which no row reached
+    # the block.
+    memories_missing: int = 0
+    memories_missing_writers: List[str] = []
+    # Block rows that are raw structured JSON or carry writer-schema
+    # keys (the form measure for V5).
+    raw_payload_rows: int = 0
 
 
 class WrittenMemoryRecord(BaseModel):
@@ -264,6 +297,13 @@ class TrialResult(BaseModel):
     # inputs (writer inputs and query), equal across cells for one user.
     dataset: Optional[str] = None
     input_sha256: Optional[str] = None
+    # Heterogeneity (Subtask 10): the level, the variant each deviating
+    # agent ran ({agent: variant}), and the aspects of a variant the
+    # locus gave the agent no way to apply ({agent: reason}).
+    heterogeneity_level: int = 0
+    variants_applied: Dict[str, str] = {}
+    variants_not_applied: Dict[str, str] = {}
+    judge_free: Optional[JudgeFreeMeasures] = None
     failed: bool = False
     error_message: Optional[str] = None
 
@@ -365,6 +405,12 @@ class ExperimentMetadata(BaseModel):
     # before it, which sampled at the kernel default 1.0 with no seed.
     judge_temperature: Optional[float] = None
     judge_seed: Optional[int] = None
+    # False when the run was not judged (``--no-judge``, Subtask 10);
+    # its trials carry no scores. None in older files (judged).
+    judged: Optional[bool] = None
+    # ``{level, variant_seed, catalog_version}`` (Subtask 10); None
+    # before it (level 0).
+    heterogeneity: Optional[dict] = None
     git_commit: Optional[str] = Field(default_factory=_harness_commit)
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
     # Looked up at call time, so the test suite can stub it (the

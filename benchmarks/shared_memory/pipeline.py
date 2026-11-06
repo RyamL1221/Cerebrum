@@ -36,9 +36,13 @@ from cerebrum.example.agents.native.agents import (
     NativeProfileAgent,
     NativeTaskAgent,
 )
+from cerebrum.example.agents import variants as variant_catalog
+from cerebrum.example.agents.variants import apply_variant
+from benchmarks.shared_memory import judge_free
 from benchmarks.shared_memory.models import (
     InjectedMemoryEntry,
     InjectionDiagnostics,
+    JudgeFreeMeasures,
     LatencyBreakdown,
     RetrievalLog,
     RetrievalLogEntry,
@@ -91,6 +95,50 @@ class PipelineResult:
     # The temperature and seed the kernel applied to the assistant's
     # model call (its /query reply's ``decoding``; Subtask 9d).
     decoding: Optional[Dict[str, Any]] = None
+    # Heterogeneity (Subtask 10): {agent: variant} applied, {agent:
+    # reason} for aspects the locus had no channel for, and the
+    # judge-free measures of what reached the consumer.
+    variants_applied: Dict[str, str] = field(default_factory=dict)
+    variants_not_applied: Dict[str, str] = field(default_factory=dict)
+    judge_free: Optional[JudgeFreeMeasures] = None
+
+
+def provenance(agent_name: str, user_id: str) -> Dict[str, str]:
+    """The metadata the harness adds to every write an agent makes: who
+    wrote it for which user (AIOS docs/HETEROGENEITY.md). No memory
+    logic reads it, and no variant changes it."""
+    return {"provenance_agent": agent_name, "provenance_user": user_id}
+
+
+class VariantRunner:
+    """Runs each agent of a trial under its scheduled variant and keeps
+    what was applied and what the locus could not apply."""
+
+    def __init__(self, variants: Optional[Dict[str, str]], locus: str):
+        self.codes = dict(variants or {})
+        for agent in self.codes:
+            variant_catalog.role_of(agent)  # unknown agents fail early
+        self.locus = locus
+        self.not_applied: Dict[str, str] = {}
+
+    def run(self, agent_name: str, agent: Any, task_input: str) -> dict:
+        code = self.codes.get(agent_name)
+        variant = variant_catalog.variant(code) if code else None
+        with apply_variant(variant, agent, agent_name, self.locus) as skipped:
+            if skipped:
+                self.not_applied[agent_name] = f"{code}: {skipped}"
+            return agent.run(task_input)
+
+
+def measures(
+    trial_data: SyntheticTrialData, user_id: str,
+    diagnostics: Optional[InjectionDiagnostics],
+    written: List[WrittenMemoryRecord],
+) -> JudgeFreeMeasures:
+    """The trial's judge-free measures (``judge_free.measure``)."""
+    return judge_free.measure(
+        trial_data.profile, user_id, diagnostics, written
+    )
 
 
 def writer_report(*writer_results: dict) -> tuple:
@@ -180,18 +228,24 @@ class AgentPipeline:
         self.share_memory = share_memory
         self.assistant_llms = assistant_llms
 
-    def run_trial(self, trial_data: SyntheticTrialData) -> PipelineResult:
+    def run_trial(
+        self, trial_data: SyntheticTrialData,
+        variants: Optional[Dict[str, str]] = None,
+    ) -> PipelineResult:
         """Execute the full agent pipeline for one trial.
 
         Args:
             trial_data: The synthetic data for this trial, containing
                 profile, task_context, and follow_up_query.
+            variants: ``{agent: variant}`` for a heterogeneity trial
+                (Subtask 10); each agent runs under its variant.
 
         Returns:
             PipelineResult with all agent outputs, assistant latency,
             injection diagnostics, and written memory records.
         """
         written_records: List[WrittenMemoryRecord] = []
+        runner = VariantRunner(variants, "kernel")
 
         # Capture reference to real create_memory before patching
         from cerebrum.memory.apis import create_memory as _real_create_memory
@@ -218,8 +272,12 @@ class AgentPipeline:
             profile_agent.share_memory = self.share_memory
             profile_agent.user_id = trial_data.user_id
             profile_agent.llms = self.assistant_llms
-            profile_result = profile_agent.run(
-                json.dumps(trial_data.profile.model_dump())
+            profile_agent.extra_metadata = provenance(
+                "profile_agent", trial_data.user_id
+            )
+            profile_result = runner.run(
+                "profile_agent", profile_agent,
+                json.dumps(trial_data.profile.model_dump()),
             )
 
             # Diagnostic: verify Mem0 actually stored profile memories
@@ -250,17 +308,24 @@ class AgentPipeline:
             task_agent.share_memory = self.share_memory
             task_agent.user_id = trial_data.user_id
             task_agent.llms = self.assistant_llms
-            task_result = task_agent.run(
-                json.dumps(trial_data.task_context.model_dump())
+            task_agent.extra_metadata = provenance(
+                "task_agent", trial_data.user_id
+            )
+            task_result = runner.run(
+                "task_agent", task_agent,
+                json.dumps(trial_data.task_context.model_dump()),
             )
             failed, retries, attempts = writer_report(
             profile_result, task_result
         )
             if failed:
-                return self._writer_failure(
+                result = self._writer_failure(
                     profile_result, task_result, written_records,
                     trial_data.user_id,
                 )
+                result.variants_applied = runner.codes
+                result.variants_not_applied = runner.not_applied
+                return result
 
             # Step 3: Run AssistantAgent with follow-up query, measuring latency
             assistant_agent = AssistantAgent("assistant_agent")
@@ -269,7 +334,10 @@ class AgentPipeline:
             assistant_agent.llms = self.assistant_llms
 
             start_time = time.time()
-            assistant_result = assistant_agent.run(trial_data.follow_up_query)
+            assistant_result = runner.run(
+                "assistant_agent", assistant_agent,
+                trial_data.follow_up_query,
+            )
             latency_seconds = time.time() - start_time
 
         # Extract the response text from the assistant result
@@ -310,6 +378,12 @@ class AgentPipeline:
             writer_retries=retries,
             writer_attempt_settings=attempts,
             backend_extraction=self._kernel_backend_extraction(),
+            variants_applied=runner.codes,
+            variants_not_applied=runner.not_applied,
+            judge_free=measures(
+                trial_data, trial_data.user_id, injection_diagnostics,
+                written_records,
+            ),
             **cost_fields(
                 assistant_result, [profile_result, task_result],
                 self.assistant_llms,
@@ -372,6 +446,11 @@ class AgentPipeline:
                 owner_agent=mem.get("owner_agent", ""),
                 memory_type=mem.get("memory_type", ""),
                 match_score=mem.get("match_score"),
+                memory_id=mem.get("memory_id"),
+                user_id=mem.get("user_id"),
+                sharing_policy=mem.get("sharing_policy"),
+                provenance_agent=mem.get("provenance_agent"),
+                provenance_user=mem.get("provenance_user"),
             ))
 
         selection = {
@@ -639,8 +718,14 @@ class MethodPipeline:
         self._native_agents: tuple | None = None
         self._replicated_agents: tuple | None = None
 
-    def run_trial(self, trial_data: SyntheticTrialData) -> PipelineResult:
+    def run_trial(
+        self, trial_data: SyntheticTrialData,
+        variants: Optional[Dict[str, str]] = None,
+    ) -> PipelineResult:
         """Route to the correct execution path based on self.method.
+
+        ``variants`` (``{agent: variant}``, Subtask 10) applies to the
+        kernel, replicated and native conditions only.
 
         Derives a Method_User_ID by appending the method name to the base
         user ID with a double-underscore separator, then dispatches to the
@@ -656,6 +741,12 @@ class MethodPipeline:
             ValueError: If self.method is not a recognised method name.
         """
         method_user_id = f"{trial_data.user_id}__{self.method}"
+        if variants and self.method in ("naive_concat", "vanilla_rag"):
+            raise ValueError(
+                f"{self.method} has no agents' memory: heterogeneity "
+                "applies to the kernel, replicated and native conditions"
+            )
+        self._variants = variants
         if self.method == "kernel_shared":
             return self._run_kernel_shared(trial_data, method_user_id)
         elif self.method == "naive_concat":
@@ -701,9 +792,18 @@ class MethodPipeline:
         """
         scoped_trial = trial_data.model_copy(update={"user_id": method_user_id})
         pipeline = AgentPipeline(share_memory=True, assistant_llms=self.assistant_llms)
-        result = pipeline.run_trial(scoped_trial)
+        result = self._run_agent_pipeline(pipeline, scoped_trial)
         result.method = "kernel_shared"
         return result
+
+    def _run_agent_pipeline(
+        self, pipeline: "AgentPipeline", trial_data: SyntheticTrialData,
+    ) -> PipelineResult:
+        """``pipeline.run_trial``, with the trial's variants if any."""
+        variants = getattr(self, "_variants", None)
+        if variants:
+            return pipeline.run_trial(trial_data, variants=variants)
+        return pipeline.run_trial(trial_data)
 
     def _run_naive_concat(
         self, trial_data: SyntheticTrialData, method_user_id: str
@@ -906,7 +1006,7 @@ class MethodPipeline:
         """
         scoped_trial = trial_data.model_copy(update={"user_id": method_user_id})
         pipeline = AgentPipeline(share_memory=False, assistant_llms=self.assistant_llms)
-        result = pipeline.run_trial(scoped_trial)
+        result = self._run_agent_pipeline(pipeline, scoped_trial)
         result.method = "kernel_private"
         return result
 
@@ -988,23 +1088,36 @@ class MethodPipeline:
         write theirs on a background thread.
         """
         profile_agent, task_agent, assistant_agent = agents
-        for agent in (profile_agent, task_agent, assistant_agent):
+        names = ("profile_agent", "task_agent", "assistant_agent")
+        for name, agent in zip(names, agents):
             agent.user_id = method_user_id
             agent.llms = self.assistant_llms
-        profile_result = profile_agent.run(
-            json.dumps(trial_data.profile.model_dump())
+            agent.extra_metadata = provenance(name, method_user_id)
+        runner = VariantRunner(
+            getattr(self, "_variants", None),
+            "native" if self.method.startswith("native") else "replicated",
         )
-        task_result = task_agent.run(
-            json.dumps(trial_data.task_context.model_dump())
+        profile_result = runner.run(
+            "profile_agent", profile_agent,
+            json.dumps(trial_data.profile.model_dump()),
         )
+        task_result = runner.run(
+            "task_agent", task_agent,
+            json.dumps(trial_data.task_context.model_dump()),
+        )
+        # What each writer stored; a variant may have left fields out
+        # (V3), so the writer's name stands in for a missing owner.
         written = [
             WrittenMemoryRecord(
-                agent_name=meta["owner_agent"],
-                memory_type=meta["memory_type"],
-                sharing_policy=meta["sharing_policy"],
-                user_id=meta["user_id"],
+                agent_name=meta.get("owner_agent") or name,
+                memory_type=meta.get("memory_type", ""),
+                sharing_policy=meta.get("sharing_policy", ""),
+                user_id=meta.get("user_id", ""),
             )
-            for meta in (profile_result["written"], task_result["written"])
+            for name, meta in (
+                ("profile_agent", profile_result["written"]),
+                ("task_agent", task_result["written"]),
+            )
             if meta
         ]
         failed, retries, attempts = writer_report(
@@ -1026,10 +1139,14 @@ class MethodPipeline:
                 backend_extraction=backend_extraction,
                 backend_llm_tokens=TokenUsage(),
                 embedding_tokens=TokenUsage(),
+                variants_applied=runner.codes,
+                variants_not_applied=runner.not_applied,
                 **cost_fields({}, [profile_result, task_result],
                               self.assistant_llms),
             )
-        assistant_result = assistant_agent.run(trial_data.follow_up_query)
+        assistant_result = runner.run(
+            "assistant_agent", assistant_agent, trial_data.follow_up_query,
+        )
         timing = assistant_result["timing"]
         backend = assistant_result["backend_usage"]
 
@@ -1055,6 +1172,11 @@ class MethodPipeline:
                 **backend["backend_llm_tokens"]
             ),
             embedding_tokens=TokenUsage(**backend["embedding_tokens"]),
+            variants_applied=runner.codes,
+            variants_not_applied=runner.not_applied,
+            judge_free=measures(
+                trial_data, method_user_id, diagnostics, written,
+            ),
             **cost_fields(
                 assistant_result, [profile_result, task_result],
                 self.assistant_llms,

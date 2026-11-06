@@ -142,6 +142,8 @@ class _NativeWriter:
         self.user_id: Optional[str] = None
         self.llms: Optional[list] = None
         self.share_memory = True
+        # Metadata the deployment adds to every write (Subtask 10).
+        self.extra_metadata: Dict[str, Any] = {}
 
     def run(self, task_input: str) -> dict:
         """Extract and validate like the kernel writer (the same
@@ -164,6 +166,7 @@ class _NativeWriter:
             SHARED if self.share_memory else PRIVATE,
         )
         metadata[FIELD_STRUCTURED] = structured(extraction.fields)
+        metadata.update(self.extra_metadata)
         self.memory.write(
             [{"role": "user", "content": text}], text,
             self.agent_name, metadata,
@@ -198,9 +201,23 @@ def _load_assistant_prompt() -> str:
 
 class NativeAssistantAgent:
     """Retrieves, filters, formats and prepends its own memory block,
-    then answers through the kernel's ``llm_chat``."""
+    then answers through the kernel's ``llm_chat``.
+
+    Its selection settings are attributes, so a deployment (or a
+    heterogeneity variant, Subtask 10) can set its own. The defaults are
+    the reference: k from the kernel's ``/memory/config``, no threshold,
+    no token budget, the visibility rule, the native block.
+    """
 
     BLOCK_HEADER = "Relevant memories about this user:"
+    # The kernel's block before Subtask 9d, for an agent one version
+    # behind (variant V1).
+    LEGACY_HEADER = "===== MEMORY CONTEXT ====="
+    LEGACY_FOOTER = "===== END MEMORY CONTEXT ====="
+    LEGACY_INSTRUCTION = (
+        "The following are relevant memories from prior interactions "
+        "with this user. Use them to personalize your response:"
+    )
 
     def __init__(self, agent_name: str, memory: NativeMemory):
         self.agent_name = agent_name
@@ -208,11 +225,62 @@ class NativeAssistantAgent:
         self.system_prompt = _load_assistant_prompt()
         self.user_id: Optional[str] = None
         self.llms: Optional[list] = None
+        self.extra_metadata: Dict[str, Any] = {}
+        self.k: Optional[int] = None
+        self.relevance_threshold: Optional[float] = None
+        self.max_memory_tokens: Optional[int] = None
+        self.check_visibility = True
+        self.block_format = "native"
 
     def _block(self, rows: List[dict]) -> str:
+        if self.block_format == "legacy":
+            lines = [self.LEGACY_HEADER, self.LEGACY_INSTRUCTION, ""]
+            lines += [
+                f"- [{row['metadata'].get('created_at', 'unknown')}] "
+                f"{row['content']}"
+                for row in rows
+            ]
+            return "\n".join(lines + ["", self.LEGACY_FOOTER])
         return "\n".join(
             [self.BLOCK_HEADER] + [f"- {row['content']}" for row in rows]
         )
+
+    @staticmethod
+    def _tokens(text: str) -> int:
+        return int(len(text.split()) * 1.3)
+
+    def _select(self, rows: List[dict], user_id: str, k: int) -> tuple:
+        """Partition, visibility, threshold, cap and budget; returns the
+        kept rows and the count after each stage."""
+        partitioned = [
+            r for r in rows if in_partition(user_id, r["metadata"])
+        ]
+        visible_rows = (
+            [r for r in partitioned
+             if visible(self.agent_name, r["metadata"])]
+            if self.check_visibility else partitioned
+        )
+        thresholded = visible_rows
+        if self.relevance_threshold is not None:
+            thresholded = [
+                r for r in visible_rows
+                if r["score"] is None or r["score"] >= self.relevance_threshold
+            ]
+        capped = thresholded[:k]
+        kept = capped
+        if self.max_memory_tokens is not None:
+            while kept and self._tokens(self._block(kept)) > (
+                self.max_memory_tokens
+            ):
+                kept = kept[:-1]
+        counts = {
+            "after_partition": len(partitioned),
+            "after_visibility": len(visible_rows),
+            "after_threshold": len(thresholded),
+            "after_cap": len(capped),
+            "after_budget": len(kept),
+        }
+        return kept, counts
 
     def run(self, task_input: str) -> dict:
         """Answer one query. The timing keys are the kernel's
@@ -220,14 +288,11 @@ class NativeAssistantAgent:
         own token usage for the trial, writers included, is read from
         this process's accumulator after the conversation write."""
         user_id = self.user_id
-        k = self.memory.settings.k
+        k = self.k if self.k is not None else self.memory.settings.k
         started = time.perf_counter()
         rows = self.memory.search(task_input, user_id, k)
         searched = time.perf_counter()
-        partitioned = [r for r in rows if in_partition(user_id, r["metadata"])]
-        kept = [
-            r for r in partitioned if visible(self.agent_name, r["metadata"])
-        ][:k]
+        kept, counts = self._select(rows, user_id, k)
         selected = time.perf_counter()
 
         messages = []
@@ -249,6 +314,10 @@ class NativeAssistantAgent:
         answer = response["response"]["response_message"] if response else ""
         answered = time.perf_counter()
 
+        conversation = memory_metadata(
+            self.agent_name, user_id, "conversation", PRIVATE
+        )
+        conversation.update(self.extra_metadata)
         self.memory.write(
             [
                 {"role": "user", "content": task_input},
@@ -256,7 +325,7 @@ class NativeAssistantAgent:
             ],
             f"User: {task_input}\nAssistant: {answer}",
             self.agent_name,
-            memory_metadata(self.agent_name, user_id, "conversation", PRIVATE),
+            conversation,
         )
         written = time.perf_counter()
         records = usage.ACCUMULATOR.take(user_id)
@@ -278,7 +347,8 @@ class NativeAssistantAgent:
             "llm_ms": llm_timing.get("llm_ms"),
         }
         diagnostics = self._diagnostics(
-            user_id, k, rows, partitioned, kept, block
+            user_id, k, rows, counts, kept, block,
+            self.relevance_threshold, self.block_format,
         )
         diagnostics.update(latency)
         return {
@@ -304,32 +374,43 @@ class NativeAssistantAgent:
         }
 
     @staticmethod
-    def _diagnostics(user_id, k, rows, partitioned, kept, block) -> dict:
+    def _diagnostics(user_id, k, rows, counts, kept, block,
+                     threshold=None, block_format="native") -> dict:
         """The kernel's diagnostic keys, filled by the agent."""
         scores_present = any(r["score"] is not None for r in rows)
         return {
             "resolved_user_id": user_id,
             "own_fetched": len(rows),
             "shared_fetched": 0,
-            "after_partition": len(partitioned),
-            "after_visibility": len(kept),
-            "after_dedupe": len(kept),
+            "after_partition": counts["after_partition"],
+            "after_visibility": counts["after_visibility"],
+            "after_dedupe": counts["after_visibility"],
             "scores_present": scores_present,
-            "threshold_used": None,
-            "after_threshold": len(kept),
-            "after_cap": len(kept),
+            "threshold_used": threshold,
+            "after_threshold": counts["after_threshold"],
+            "after_cap": counts["after_cap"],
             "top_k_used": {"own": k, "shared": 0},
-            "after_budget": len(kept),
+            "after_budget": counts["after_budget"],
             "injected_count": len(kept),
             "tokens_estimated": int(len(block.split()) * 1.3),
-            "block_format": "native",  # its own renderer (NATIVE_USAGE.md)
+            # "native": its own renderer (NATIVE_USAGE.md).
+            "block_format": block_format,
             "block_recency": False,
+            "block_text": block,
             "injected_memories": [
                 {
                     "memory_id": r["memory_id"],
                     "owner_agent": r["metadata"].get("owner_agent", ""),
                     "memory_type": r["metadata"].get("memory_type", ""),
                     "match_score": r["score"],
+                    "user_id": r["metadata"].get("user_id", ""),
+                    "sharing_policy": r["metadata"].get(
+                        "sharing_policy", ""
+                    ),
+                    "provenance_agent": r["metadata"].get(
+                        "provenance_agent"
+                    ),
+                    "provenance_user": r["metadata"].get("provenance_user"),
                 }
                 for r in kept
             ],

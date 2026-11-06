@@ -237,6 +237,7 @@ class ProfileAgent:
                         metadata={
                             "user_id": user_id,
                             FIELD_STRUCTURED: fields_json,
+                            **getattr(self, "extra_metadata", {}),
                         },
                         base_url=aios_kernel_url,
                     )
@@ -249,6 +250,9 @@ class ProfileAgent:
                 memory_type=MEMORY_TYPE_PROFILE,
                 sharing_policy=POLICY_SHARED if getattr(self, 'share_memory', False) else POLICY_PRIVATE,
                 **{FIELD_STRUCTURED: fields_json},
+                # Metadata the deployment adds to every write, such as
+                # the benchmark's provenance (Subtask 10).
+                **getattr(self, "extra_metadata", {}),
             )
             create_response = create_memory(
                 agent_name=self.agent_name,
