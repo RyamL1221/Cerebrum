@@ -192,6 +192,76 @@ def mem0_llm_config(backend_llm: dict) -> dict:
     }}
 
 
+_SEEDED_CLASS = None
+
+
+def _seeded_litellm_class():
+    """``mem0.llms.litellm.LiteLLM`` with a seed: the same request as
+    Mem0 2.0.2 builds (``generate_response``), plus ``seed``. Mem0's
+    LLM config has no seed field, and its config check rejects new
+    provider names, so the seed is set on the built client
+    (``seed_mem0_llm``)."""
+    global _SEEDED_CLASS
+    if _SEEDED_CLASS is not None:
+        return _SEEDED_CLASS
+    import litellm
+    from mem0.llms.litellm import LiteLLM
+
+    class SeededLiteLLM(LiteLLM):
+        seed: Optional[int] = None
+
+        def generate_response(self, messages, response_format=None,
+                              tools=None, tool_choice="auto"):
+            if not litellm.supports_function_calling(self.config.model):
+                raise ValueError(
+                    f"Model '{self.config.model}' in litellm does not "
+                    "support function calling."
+                )
+            params = {
+                "model": self.config.model,
+                "messages": messages,
+                "temperature": self.config.temperature,
+                "max_tokens": self.config.max_tokens,
+                "top_p": self.config.top_p,
+            }
+            if self.seed is not None:
+                params["seed"] = self.seed
+            if response_format:
+                params["response_format"] = response_format
+            if tools:
+                params["tools"] = tools
+                params["tool_choice"] = tool_choice
+            response = litellm.completion(**params)
+            return self._parse_response(response, tools)
+
+    _SEEDED_CLASS = SeededLiteLLM
+    return SeededLiteLLM
+
+
+def seed_mem0_llm(client: Any, seed: Optional[int]) -> Any:
+    """Give a ``mem0.Memory`` built from ``mem0_llm_config`` its seed
+    (``memory.backend_llm.seed``, NeurIPS Subtask 10), so Mem0's own
+    extraction runs at the fixed decoding in every locus. A client whose
+    LLM is not Mem0's LiteLLM, or no seed, is left as it is. Idempotent;
+    returns the client."""
+    if seed is None:
+        return client
+    llm = getattr(client, "llm", None)
+    try:
+        from mem0.llms.litellm import LiteLLM
+    except ImportError:
+        return client
+    if not isinstance(llm, LiteLLM):
+        return client
+    seeded_class = _seeded_litellm_class()
+    if not isinstance(llm, seeded_class):
+        seeded = seeded_class(llm.config)
+        client.llm = seeded
+        llm = seeded
+    llm.seed = int(seed)
+    return client
+
+
 def count_embeddings(client: Any, model: str,
                      accumulator: UsageAccumulator = ACCUMULATOR) -> Any:
     """Wrap an Ollama ``Client``'s ``embed`` so each call made under a

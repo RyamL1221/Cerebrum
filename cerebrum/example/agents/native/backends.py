@@ -15,6 +15,7 @@ from cerebrum.utils.usage import (
     count_embeddings,
     install_litellm_logger,
     mem0_llm_config,
+    seed_mem0_llm,
 )
 
 # Mem0 reports usage to its telemetry service unless told not to.
@@ -74,7 +75,8 @@ def mem0_client(settings: NativeSettings):
         "history_db_path": os.path.join(root, "history.db"),
     })
     count_embeddings(client.embedding_model.client, embedding["model"])
-    return client
+    # Mem0's extraction at the fixed decoding (Subtask 10).
+    return seed_mem0_llm(client, settings.backend_llm.get("seed"))
 
 
 def chroma_client():

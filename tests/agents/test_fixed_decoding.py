@@ -157,3 +157,83 @@ def test_metadata_and_trials_record_the_decoding(tmp_path):
         conditions_run=["kernel_shared"], decoding=orch.decoding,
     )
     assert json.loads(meta.model_dump_json())["decoding"] == FIXED
+
+
+def test_mem0_extraction_gets_the_backend_llm_seed(monkeypatch):
+    """Subtask 10: ``seed_mem0_llm`` makes Mem0's LiteLLM send the seed
+    with its own temperature; no seed leaves the client unchanged."""
+    import litellm
+    from mem0.utils.factory import LlmFactory
+
+    from cerebrum.utils.usage import mem0_llm_config, seed_mem0_llm
+
+    class Client:
+        pass
+
+    def built():
+        client = Client()
+        config = mem0_llm_config({"provider": "azure_openai",
+                                  "model": "gpt-4o", "temperature": 0.0})
+        client.llm = LlmFactory.create("litellm", config["config"])
+        return client
+
+    calls = []
+    monkeypatch.setattr(litellm, "completion",
+                        lambda **params: calls.append(params) or _reply())
+    monkeypatch.setattr(litellm, "supports_function_calling",
+                        lambda model: True)
+
+    plain = built()
+    original = plain.llm
+    assert seed_mem0_llm(plain, None).llm is original
+
+    client = seed_mem0_llm(built(), 20261105)
+    seeded = client.llm
+    assert seed_mem0_llm(client, 20261105).llm is seeded  # idempotent
+    assert client.llm.generate_response(
+        [{"role": "user", "content": "x"}]) == "ok"
+    assert calls[-1]["seed"] == 20261105
+    assert calls[-1]["temperature"] == 0.0
+    assert calls[-1]["model"] == "azure/gpt-4o"
+
+
+def _reply():
+    from types import SimpleNamespace
+
+    message = SimpleNamespace(content="ok", tool_calls=None)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+def test_native_mem0_client_is_seeded(monkeypatch):
+    """The native agents' Mem0 is seeded from the kernel's reported
+    ``backend_llm``."""
+    from cerebrum.example.agents.native import backends
+
+    seen = {}
+    monkeypatch.setattr(backends, "count_embeddings", lambda c, m: c)
+    monkeypatch.setattr(backends, "install_litellm_logger", lambda: None)
+
+    class Memory:
+        @staticmethod
+        def from_config(config):
+            seen["config"] = config
+            client = type("C", (), {})()
+            client.embedding_model = type("E", (), {"client": None})()
+            return client
+
+    monkeypatch.setattr("mem0.Memory", Memory)
+    monkeypatch.setattr(
+        backends, "seed_mem0_llm",
+        lambda client, seed: seen.setdefault("seed", seed) and client,
+    )
+    monkeypatch.setattr(backends, "store_dir", lambda name: "/tmp/x")
+    settings = backends.NativeSettings(
+        embedding={"provider": "ollama", "model": "m",
+                   "ollama_base_url": "u", "dimension": 3},
+        backend_llm={"provider": "azure_openai", "model": "gpt-4o",
+                     "temperature": 0.0, "seed": 5},
+        k=10,
+    )
+    backends.mem0_client(settings)
+    assert seen["seed"] == 5
+    assert seen["config"]["llm"]["config"]["temperature"] == 0.0
