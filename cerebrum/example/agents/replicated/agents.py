@@ -137,7 +137,10 @@ class _ReplicatedWriter:
 
     def _upsert(
         self, user_id: str, content: str, fields_json: str,
-    ) -> Dict[str, Any]:
+    ) -> tuple:
+        """``(metadata written, rows stored)``. A create stores no row
+        when the backend's extraction kept nothing (the library returns
+        an empty id)."""
         pipeline = self.memory.pipeline
         rows, _ = pipeline.retrieve(
             self.agent_name, user_id, f"{self.query_prefix} {user_id}",
@@ -156,7 +159,7 @@ class _ReplicatedWriter:
                     {"user_id": user_id, FIELD_STRUCTURED: fields_json,
                      **self.extra_metadata},
                 )
-            return dict(matching[0]["metadata"])
+            return dict(matching[0]["metadata"]), len(matching)
         metadata = build_memory_metadata(
             owner_agent=self.agent_name,
             user_id=user_id,
@@ -170,8 +173,8 @@ class _ReplicatedWriter:
         note = self.memory.library.note_from_request(
             {"content": content, "metadata": metadata}
         )
-        pipeline.write(self.agent_name, user_id, note)
-        return dict(note.metadata)
+        memory_id = pipeline.write(self.agent_name, user_id, note)
+        return dict(note.metadata), 1 if memory_id else 0
 
     def run(self, task_input: str) -> dict:
         """Extract and validate like the kernel writer (the same
@@ -189,13 +192,14 @@ class _ReplicatedWriter:
                 **report,
             }
         content = extraction.text
-        written = self._upsert(
+        written, stored = self._upsert(
             self.user_id, content, structured(extraction.fields)
         )
         return {
             "agent_name": self.agent_name,
             "result": content,
             "written": written,
+            "stored_rows": stored,
             "token_usage": self.extractor.token_usage,
             **report,
         }

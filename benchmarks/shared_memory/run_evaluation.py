@@ -70,7 +70,11 @@ from benchmarks.shared_memory.dataset import (
     load as load_dataset,
     trial_input_sha256,
 )
-from benchmarks.shared_memory.pipeline import AgentPipeline, MethodPipeline
+from benchmarks.shared_memory.pipeline import (
+    AgentPipeline,
+    MethodPipeline,
+    extraction_failure,
+)
 from cerebrum.example.agents.variants import (
     CATALOG_VERSION as VARIANT_CATALOG_VERSION,
     schedule as variant_schedule,
@@ -629,6 +633,8 @@ class EvaluationOrchestrator:
             "writer_retries": pipeline_result.writer_retries,
             "writer_attempt_settings": pipeline_result.writer_attempt_settings,
             "backend_extraction": pipeline_result.backend_extraction,
+            "writer_stored_rows": dict(getattr(
+                pipeline_result, "writer_stored_rows", {}) or {}),
             "decoding": pipeline_result.decoding,
             "dataset": self.dataset_name,
             "input_sha256": trial_input_sha256(trial_data),
@@ -742,6 +748,34 @@ class EvaluationOrchestrator:
         backend_usage = {
             key: value or TokenUsage() for key, value in backend_usage.items()
         }
+        # A backend that extracts but stored or called nothing failed
+        # silently: the trial is failed, not completed (Subtask 10).
+        silent = extraction_failure(
+            pipeline_result.backend_extraction,
+            common["writer_stored_rows"],
+            backend_usage["backend_llm_tokens"],
+        )
+        if silent:
+            logger.error("Trial %d: %s", trial_index, silent)
+            return TrialResult(
+                trial_index=trial_index,
+                condition=condition,
+                method=effective_method,
+                failed=True,
+                error_message=silent,
+                follow_up_query=trial_data.follow_up_query,
+                plausible_actions=trial_data.plausible_actions,
+                assistant_response=pipeline_result.assistant_response or "",
+                synthetic_profile=trial_data.profile,
+                synthetic_task_context=trial_data.task_context,
+                injection_diagnostics=pipeline_result.injection_diagnostics,
+                written_memories=pipeline_result.written_memories,
+                token_usage=pipeline_result.token_usage,
+                writer_tokens=pipeline_result.writer_tokens,
+                pipeline_version=pipeline_result.pipeline_version,
+                **common,
+                **backend_usage,
+            )
 
         return TrialResult(
             trial_index=trial_index,

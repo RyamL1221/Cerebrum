@@ -289,6 +289,11 @@ class TrialResult(BaseModel):
     # (Subtask 9d follow-up: retries sample at RETRY_TEMPERATURE, seed+n).
     writer_attempt_settings: Dict[str, List[dict]] = {}
     backend_extraction: Optional[bool] = None
+    # The rows each writer's write stored ({agent: n}; Subtask 10). A
+    # trial whose backend extracts and stored no row for a writer, or
+    # recorded no backend LLM call, is failed: the backend failed
+    # silently (``backend_extraction_failed``).
+    writer_stored_rows: Dict[str, int] = {}
     # The temperature and seed the kernel applied to the assistant's
     # call (Subtask 9d); None in older files or without a kernel reply.
     decoding: Optional[Dict[str, Any]] = None

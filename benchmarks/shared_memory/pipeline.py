@@ -92,6 +92,10 @@ class PipelineResult:
     # Whether the memory backend ran its own extraction on the writes
     # (Mem0 with infer=True); None for conditions without a backend.
     backend_extraction: Optional[bool] = None
+    # The rows each writer's write left in the store ({agent: n}); 0
+    # when the backend's extraction kept nothing. Writers that do not
+    # report it are absent.
+    writer_stored_rows: Dict[str, int] = field(default_factory=dict)
     # The temperature and seed the kernel applied to the assistant's
     # model call (its /query reply's ``decoding``; Subtask 9d).
     decoding: Optional[Dict[str, Any]] = None
@@ -154,6 +158,40 @@ def writer_report(*writer_results: dict) -> tuple:
         if result.get("writer_failed"):
             failed.append(name)
     return failed, retries, settings
+
+
+def writer_stored(*writer_results: dict) -> Dict[str, int]:
+    """``{agent: rows stored}`` from the writers that report it."""
+    return {
+        result.get("agent_name", ""): result["stored_rows"]
+        for result in writer_results
+        if isinstance(result.get("stored_rows"), int)
+    }
+
+
+def extraction_failure(
+    backend_extraction: Optional[bool],
+    writer_stored_rows: Dict[str, int],
+    backend_llm_tokens: Optional[TokenUsage],
+) -> Optional[str]:
+    """Why a trial whose backend extracts facts (Mem0, infer=True) is a
+    failure although every writer succeeded, or None.
+
+    Mem0 logs and swallows its extraction LLM's errors (an Azure
+    firewall refusal, Subtask 10) and stores nothing, so the trial runs
+    on with an empty store. Two signs give it away: a writer whose write
+    stored no row, and a trial with no backend LLM call at all. Each
+    trial's user is new, so every writer creates and Mem0 extracts.
+    """
+    if backend_extraction is not True:
+        return None
+    empty = sorted(a for a, n in writer_stored_rows.items() if n == 0)
+    if empty:
+        return ("backend_extraction_failed: stored no rows: "
+                + ", ".join(empty))
+    if backend_llm_tokens is not None and backend_llm_tokens.calls == 0:
+        return "backend_extraction_failed: no backend LLM calls recorded"
+    return None
 
 
 def model_name(llms: Optional[list]) -> Optional[str]:
@@ -378,6 +416,7 @@ class AgentPipeline:
             writer_retries=retries,
             writer_attempt_settings=attempts,
             backend_extraction=self._kernel_backend_extraction(),
+            writer_stored_rows=writer_stored(profile_result, task_result),
             variants_applied=runner.codes,
             variants_not_applied=runner.not_applied,
             judge_free=measures(
@@ -1168,6 +1207,7 @@ class MethodPipeline:
             writer_retries=retries,
             writer_attempt_settings=attempts,
             backend_extraction=backend_extraction,
+            writer_stored_rows=writer_stored(profile_result, task_result),
             backend_llm_tokens=TokenUsage(
                 **backend["backend_llm_tokens"]
             ),

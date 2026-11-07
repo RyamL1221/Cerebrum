@@ -118,6 +118,7 @@ class TaskAgent:
                     f"Stored task context for {user_id}: {extraction.text} "
                     f"Memory IDs: {memory_ids}"
                 ),
+                "stored_rows": len(memory_ids),
                 "rounds": self.rounds,
                 "token_usage": self.token_usage,
                 **report,

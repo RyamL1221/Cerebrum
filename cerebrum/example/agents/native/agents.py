@@ -59,20 +59,24 @@ class NativeMemory:
     def write(
         self, messages: List[Dict[str, str]], text: str,
         agent_name: str, metadata: Dict[str, Any],
-    ) -> None:
+    ) -> int:
         """Store one memory: Mem0 extracts facts from ``messages``; the
         in-house store keeps ``text`` verbatim. The backend's LLM and
-        embedding calls count to the user's trial."""
+        embedding calls count to the user's trial. Returns the rows the
+        write stored: Mem0's extracted facts (0 when its extraction
+        failed or found nothing; Mem0 does not raise), else 1."""
         user_id = metadata["user_id"]
         with usage.tagged(user_id):
-            self._write(messages, text, agent_name, metadata, user_id)
+            return self._write(messages, text, agent_name, metadata, user_id)
 
-    def _write(self, messages, text, agent_name, metadata, user_id) -> None:
+    def _write(self, messages, text, agent_name, metadata, user_id) -> int:
         if self.backend == "mem0":
-            self.mem0.add(
+            result = self.mem0.add(
                 messages, user_id=user_id, agent_id=agent_name,
                 metadata=metadata, infer=True,
             )
+            rows = result.get("results") if isinstance(result, dict) else None
+            return len(rows or [])
         else:
             self._collection(user_id).add(
                 ids=[str(uuid.uuid4())],
@@ -80,6 +84,7 @@ class NativeMemory:
                 embeddings=[self.embed(text)],
                 metadatas=[metadata],
             )
+            return 1
 
     def search(self, query: str, user_id: str, k: int) -> List[dict]:
         """The user's memories nearest the query, as
@@ -167,7 +172,7 @@ class _NativeWriter:
         )
         metadata[FIELD_STRUCTURED] = structured(extraction.fields)
         metadata.update(self.extra_metadata)
-        self.memory.write(
+        stored = self.memory.write(
             [{"role": "user", "content": text}], text,
             self.agent_name, metadata,
         )
@@ -175,6 +180,7 @@ class _NativeWriter:
             "agent_name": self.agent_name,
             "result": text,
             "written": metadata,
+            "stored_rows": stored,
             "token_usage": self.extractor.token_usage,
             **report,
         }
