@@ -32,7 +32,8 @@ COLUMNS = (
     "not_applied", "missing", "d_missing", "cross_user_rows",
     "private_rows_from_others", "facts", "d_facts", "raw_payload_rows",
     "d_raw", "after_threshold", "d_after_threshold", "after_cap",
-    "d_after_cap", "tokens", "d_tokens", "block_format",
+    "d_after_cap", "tokens", "d_tokens", "block_format", "threshold_used",
+    "top_k_own",
 )
 
 
@@ -116,6 +117,8 @@ def rows(trials: Dict[tuple, dict]) -> List[dict]:
             "d_tokens": _delta(d.get("tokens_estimated"),
                                rd.get("tokens_estimated")),
             "block_format": d.get("block_format"),
+            "threshold_used": d.get("threshold_used"),
+            "top_k_own": (d.get("top_k_used") or {}).get("own"),
             "has_reference": reference is not None,
         })
     return out
@@ -165,37 +168,43 @@ def checks(table: List[dict]) -> List[Tuple[str, bool, str]]:
             f"{len(hit)} of {len(others)} replicated/native trials",
         ))
 
+    # V4 on the consumer: the kernel keeps its own settings (threshold
+    # 0.0, own k 10) and records the variant as not applied; replicated
+    # applies the agent's (0.5, k 5), and its cap or block size moves.
     single = [(r, a) for r, a in with_variant(table, "V4", "assistant_agent")]
     kernel = [r for r, a in single if r["locus"] == "kernel"]
-    kernel_changed = [r for r in kernel if _changed(r) and len(
-        r["variants"].split(",")) == 1]
+    own = [r for r in kernel
+           if r["threshold_used"] in (0.0, None) and r["top_k_own"] == 10
+           and "assistant_agent: V4" in r["not_applied"]]
     results.append((
-        "V4 consumer: no change under the kernel",
-        bool(kernel) and not kernel_changed,
-        f"{len(kernel)} kernel trials, {len(kernel_changed)} changed "
-        "(V4 alone)",
+        "V4 consumer: the kernel keeps its own settings",
+        bool(kernel) and len(own) == len(kernel),
+        f"{len(own)} of {len(kernel)} kernel trials at threshold 0.0, "
+        "k 10, recorded not applied",
     ))
     replicated = [r for r, a in single if r["locus"] == "replicated"]
-    moved = [r for r in replicated
-             if (r["d_after_cap"] or 0) != 0 or (r["d_tokens"] or 0) != 0]
+    moved = [r for r in replicated if r["threshold_used"] == 0.5 and (
+        (r["d_after_cap"] or 0) != 0 or (r["d_tokens"] or 0) != 0)]
     results.append((
         "V4 consumer: after_cap or block size changes under replicated",
-        bool(moved),
+        bool(replicated) and len(moved) == len(replicated),
         f"{len(moved)} of {len(replicated)} replicated trials",
     ))
 
     for locus in ("kernel", "replicated", "native"):
-        v5 = [r for r, a in with_variant(table, "V5")
-              if r["locus"] == locus
-              and any(c == "V5" and ag != "assistant_agent"
-                      for ag, c in a.items())]
-        raised = [r for r in v5 if (r["d_raw"] or 0) > 0]
-        results.append((
-            f"V5 writer: raw_payload_rows rises under {locus}",
-            bool(v5) and len(raised) == len(v5),
-            f"{len(raised)} of {len(v5)} trials; d_facts "
-            + ", ".join(str(r["d_facts"]) for r in v5),
-        ))
+        for backend in ("inhouse", "mem0"):
+            v5 = [r for r, a in with_variant(table, "V5")
+                  if r["locus"] == locus and r["backend"] == backend
+                  and any(c == "V5" and ag != "assistant_agent"
+                          for ag, c in a.items())]
+            raised = [r for r in v5 if (r["d_raw"] or 0) > 0]
+            results.append((
+                f"V5 writer: raw_payload_rows rises under {locus} "
+                f"{backend}",
+                bool(v5) and len(raised) == len(v5),
+                f"{len(raised)} of {len(v5)} trials; d_facts "
+                + ", ".join(str(r["d_facts"]) for r in v5),
+            ))
     return results
 
 
