@@ -1,0 +1,526 @@
+{
+ "catalog_version": 1,
+ "dataset": "pilot_v1",
+ "levels": {
+  "0": [
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   },
+   {
+    "stratum": "reference",
+    "variants": {}
+   }
+  ],
+  "1": [
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V3"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V5"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V4"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V1"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V3"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V1"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V4"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V1"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V5"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V4"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V4"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V5"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V5"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V5"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V3"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V2"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V3"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V4"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V3"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V5"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V4"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V1"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V3"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "task_agent": "V1"
+    }
+   },
+   {
+    "stratum": "writer",
+    "variants": {
+     "profile_agent": "V1"
+    }
+   },
+   {
+    "stratum": "consumer",
+    "variants": {
+     "assistant_agent": "V2"
+    }
+   }
+  ],
+  "2": [
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V5",
+     "task_agent": "V5"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V5",
+     "task_agent": "V1"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V1",
+     "profile_agent": "V3"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V1",
+     "profile_agent": "V5"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V1",
+     "profile_agent": "V1"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V3",
+     "profile_agent": "V3"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V2",
+     "profile_agent": "V4"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V4",
+     "task_agent": "V4"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V4",
+     "task_agent": "V5"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V3",
+     "task_agent": "V4"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V2",
+     "task_agent": "V1"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V1",
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V5",
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V4",
+     "task_agent": "V1"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V2",
+     "task_agent": "V5"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V3",
+     "task_agent": "V3"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V5",
+     "profile_agent": "V5"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V4",
+     "profile_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V2",
+     "task_agent": "V3"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V1",
+     "task_agent": "V4"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V3",
+     "task_agent": "V5"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V5",
+     "task_agent": "V3"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V2",
+     "task_agent": "V4"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V4",
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V3",
+     "task_agent": "V1"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V3",
+     "profile_agent": "V1"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V1",
+     "task_agent": "V3"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V4",
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "writer_only",
+    "variants": {
+     "profile_agent": "V5",
+     "task_agent": "V2"
+    }
+   },
+   {
+    "stratum": "one_of_each",
+    "variants": {
+     "assistant_agent": "V2",
+     "task_agent": "V4"
+    }
+   }
+  ]
+ },
+ "name": "pilot_v1_schedule",
+ "seed": 20261106,
+ "users": 30,
+ "version": 1
+}

@@ -79,6 +79,7 @@ from cerebrum.example.agents.variants import (
     CATALOG_VERSION as VARIANT_CATALOG_VERSION,
     schedule as variant_schedule,
 )
+from benchmarks.shared_memory.pilot_schedule import Schedule
 from benchmarks.shared_memory.results import ResultsWriter
 from benchmarks.shared_memory.synth import SyntheticDataGenerator
 from cerebrum.config.config_manager import config
@@ -356,8 +357,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Heterogeneity level H: how many of the three agents deviate "
             "from the reference, each with a catalog variant chosen by "
-            "the seeded schedule (AIOS docs/HETEROGENEITY.md). H > 0 "
-            "needs --no-judge (no scored heterogeneity runs yet)."
+            "the seeded schedule (AIOS docs/HETEROGENEITY.md), or by "
+            "--schedule. A scored run at H > 0 needs --schedule (the "
+            "pre-registered pilot schedule); otherwise pass --no-judge."
         ),
     )
     parser.add_argument(
@@ -368,6 +370,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Seed of the heterogeneity schedule (default "
             f"{DEFAULT_VARIANT_SEED}); the same in every cell keeps "
             "cells paired."
+        ),
+    )
+    parser.add_argument(
+        "--schedule",
+        type=str,
+        default=None,
+        help=(
+            "A committed heterogeneity schedule file (e.g. "
+            "benchmarks/shared_memory/data/pilot_v1_schedule.json, AIOS "
+            "docs/PILOT.md): user i at level H gets the file's variants "
+            "instead of the seeded cycle. Must name the --dataset."
         ),
     )
     parser.add_argument(
@@ -423,15 +436,16 @@ class EvaluationOrchestrator:
         heterogeneity: int = 0,
         variant_seed: int | None = None,
         judge: bool = True,
+        schedule: str | None = None,
     ):
         if heterogeneity not in HETEROGENEITY_LEVELS:
             raise ValueError(
                 f"heterogeneity must be one of {HETEROGENEITY_LEVELS}"
             )
-        if heterogeneity and judge:
+        if heterogeneity and judge and schedule is None:
             raise ValueError(
-                "heterogeneity runs are not scored yet (Subtask 10): "
-                "pass --no-judge"
+                "a scored heterogeneity run needs --schedule (the "
+                "pre-registered schedule); otherwise pass --no-judge"
             )
         if heterogeneity and condition is not None:
             raise ValueError("heterogeneity needs --method, not --condition")
@@ -442,6 +456,12 @@ class EvaluationOrchestrator:
         self.judged = judge
         self.dataset = load_dataset(dataset)
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
+        self.schedule = Schedule(schedule) if schedule else None
+        if self.schedule and self.schedule.dataset != self.dataset_name:
+            raise ValueError(
+                f"--schedule {self.schedule.name} is for "
+                f"{self.schedule.dataset}, not {self.dataset_name}"
+            )
         if trials is None:
             trials = len(self.dataset) if self.dataset else 10
         if self.dataset and trials > len(self.dataset):
@@ -558,13 +578,24 @@ class EvaluationOrchestrator:
     def _heterogeneity_metadata(self) -> dict:
         """``{level, variant_seed, catalog_version}`` for the results
         file (AIOS docs/HETEROGENEITY.md)."""
-        return {
+        out = {
             "level": getattr(self, "heterogeneity", 0),
             "variant_seed": getattr(
                 self, "variant_seed", DEFAULT_VARIANT_SEED
             ),
             "catalog_version": VARIANT_CATALOG_VERSION,
         }
+        if getattr(self, "schedule", None):
+            out.update(self.schedule.metadata())
+        return out
+
+    def trial_variants(self, trial_index: int) -> dict:
+        """``{agent: variant}`` for user ``trial_index``: from the
+        schedule file when given, else the seeded cycle."""
+        level = getattr(self, "heterogeneity", 0)
+        if getattr(self, "schedule", None):
+            return self.schedule.variants(level, trial_index)
+        return variant_schedule(self.variant_seed, level, trial_index)
 
     def run_single_trial(
         self,
@@ -606,9 +637,7 @@ class EvaluationOrchestrator:
                 )
 
         # Step 2: Run agent pipeline
-        variants = variant_schedule(
-            self.variant_seed, getattr(self, "heterogeneity", 0), trial_index,
-        )
+        variants = self.trial_variants(trial_index)
         try:
             if variants:
                 pipeline_result = pipeline.run_trial(
@@ -1034,6 +1063,7 @@ def main():
         heterogeneity=args.heterogeneity,
         variant_seed=args.variant_seed,
         judge=not args.no_judge,
+        schedule=args.schedule,
     )
 
     experiment = orchestrator.run()

@@ -141,7 +141,7 @@ def test_every_locus_gets_the_same_schedule():
 
 
 def test_heterogeneity_needs_no_judge_and_level_0_passes_nothing():
-    with pytest.raises(ValueError, match="no-judge"):
+    with pytest.raises(ValueError, match="--schedule"):
         orchestrator(1, judge=True)
     runner = orchestrator(0, judge=True)
     recorder = MagicMock(side_effect=RuntimeError)
