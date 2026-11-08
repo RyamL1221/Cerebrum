@@ -52,6 +52,12 @@ Design, rule and result: AIOS `docs/PILOT.md`.
   gaps, DiD, judge-free rates, H = 1 by variant, verdict).
 - `cells.csv`, `gaps.csv`, `variants_h1.csv`: the same tables.
 - `gap_vs_h.svg`: the draft headline figure (`pilot_figure.py`).
+- `missing_split.md`, `missing_split_rates.csv`,
+  `missing_split_variants.csv`: added after the pilot (Subtask 14). They
+  split `memories_missing` into withheld (the writer's rows were
+  private) and lost (a shared row never arrived), recomputed from the
+  same result files. The pre-registered outputs above are unchanged:
+  re-running `pilot_analysis.py` reproduces them byte for byte.
 - Per-trial results and logs: `repo-artifacts/Cerebrum/pilot_v1_hetero/`
   (the results tree is gitignored; kernel logs are never committed).
 
@@ -60,6 +66,7 @@ Re-create the analysis:
     python -m benchmarks.shared_memory.pilot_analysis results/pilot_v1_hetero \
         --markdown results/pilot_v1_hetero/analysis.md \
         --json results/pilot_v1_hetero/analysis.json \
-        --csv-dir results/pilot_v1_hetero
+        --csv-dir results/pilot_v1_hetero \
+        --missing-split results/pilot_v1_hetero/missing_split.md
     python -m benchmarks.shared_memory.pilot_figure results/pilot_v1_hetero \
         --output results/pilot_v1_hetero/gap_vs_h.svg

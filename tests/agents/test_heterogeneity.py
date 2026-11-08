@@ -15,7 +15,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from benchmarks.shared_memory import run_evaluation
-from benchmarks.shared_memory.judge_free import is_raw_payload, measure
+from benchmarks.shared_memory.judge_free import (
+    is_raw_payload, measure, split_missing,
+)
 from benchmarks.shared_memory.models import (
     InjectedMemoryEntry,
     InjectionDiagnostics,
@@ -419,6 +421,8 @@ def test_native_v1_writer_misses_and_v1_consumer_builds_legacy(native_run):
     run, rows, chat = native_run
     result = run({"profile_agent": "V1"})
     assert result.judge_free.memories_missing_writers == ["profile_agent"]
+    assert result.judge_free.memories_withheld_writers == ["profile_agent"]
+    assert result.judge_free.memories_lost == 0
     assert result.judge_free.profile_facts_in_block < 0.5
     result = run({"assistant_agent": "V1"})
     assert block_of(chat).startswith("===== MEMORY CONTEXT =====")
@@ -433,8 +437,11 @@ def test_native_v2_writer_and_consumer_miss(native_run):
     run, rows, chat = native_run
     result = run({"task_agent": "V2"})
     assert result.judge_free.memories_missing_writers == ["task_agent"]
+    assert result.judge_free.memories_lost_writers == ["task_agent"]
     result = run({"assistant_agent": "V2"})
     assert result.judge_free.memories_missing == 2
+    assert result.judge_free.memories_lost == 2
+    assert result.judge_free.memories_withheld == 0
     assert result.judge_free.profile_facts_in_block == 0.0
     assert result.judge_free.cross_user_rows == 0
 
@@ -446,6 +453,8 @@ def test_native_v3_writer_misses_and_v3_consumer_alone_changes_nothing(
     stored = [r for r in rows if r["metadata"].get("memory_type") == "profile"]
     assert "owner_agent" not in stored[0]["metadata"]
     assert result.judge_free.memories_missing_writers == ["profile_agent"]
+    # No policy on the write is the private default: withheld.
+    assert result.judge_free.memories_withheld_writers == ["profile_agent"]
     result = run({"assistant_agent": "V3"})
     assert result.judge_free.memories_missing == 0
     assert result.judge_free.private_rows_from_others == 0
@@ -471,6 +480,7 @@ def test_native_v4_consumer_thresholds_away_the_rows(native_run):
     assert diagnostics.after_visibility == 2
     assert diagnostics.after_threshold == 0
     assert result.judge_free.memories_missing == 2
+    assert result.judge_free.memories_lost == 2
     assert "native writers do not read" in run(
         {"task_agent": "V4"}).variants_not_applied["task_agent"]
 
@@ -589,6 +599,36 @@ def test_measures_count_facts_leaks_and_misses():
     assert result.cross_user_rows == 1
     assert result.private_rows_from_others == 1
     assert result.memories_missing == 0  # task_agent's private row reached it
+
+
+def test_missing_writers_split_into_withheld_and_lost():
+    """Subtask 14: a writer whose rows were all private (or carried no
+    policy, the private default) was withheld; one that stored a shared
+    row that never arrived was lost."""
+    profile = SyntheticProfile(**PROFILE)
+    records = [
+        WrittenMemoryRecord(agent_name="profile_agent", memory_type="p",
+                            user_id="u", sharing_policy="private"),
+        WrittenMemoryRecord(agent_name="task_agent", memory_type="t",
+                            user_id="U@x.example", sharing_policy="shared"),
+        WrittenMemoryRecord(agent_name="calendar_agent", memory_type="c",
+                            user_id="u", sharing_policy=""),
+    ]
+    result = measure(profile, "u", InjectionDiagnostics(block_text=""),
+                     records)
+    assert result.memories_missing == 3
+    assert result.memories_withheld_writers == ["calendar_agent",
+                                                "profile_agent"]
+    assert result.memories_lost_writers == ["task_agent"]
+    assert (result.memories_withheld, result.memories_lost) == (2, 1)
+    # Stored dicts split the same way (old result files).
+    dicts = [r.model_dump() for r in records]
+    assert split_missing(["task_agent", "profile_agent"], dicts) == (
+        ["profile_agent"], ["task_agent"])
+    reached = InjectionDiagnostics(block_text="- x", injected_memories=[
+        entry(owner_agent="task_agent", provenance_agent="task_agent",
+              provenance_user="u")])
+    assert measure(profile, "u", reached, records[1:2]).memories_lost == 0
 
 
 def test_facts_match_whole_words_only():

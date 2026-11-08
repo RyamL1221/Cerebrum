@@ -133,3 +133,51 @@ def test_integer_means_print_with_two_decimals():
     text = pa.table([{"level": 2, "n": 30, "profile": 4, "gap": 0}],
                     ["level", "n", "profile", "gap"])
     assert text.splitlines()[-1] == "| 2 | 30 | 4.00 | 0.00 |"
+
+
+def test_missing_split_from_files_written_before_it(tmp_path):
+    """Subtask 14: memories_missing splits into withheld (the writer's
+    rows were private) and lost (a shared row never arrived), recomputed
+    from the written records of files that predate the split."""
+    def free(model, locus, backend, level, i):
+        missing = ["profile_agent"] if level > 0 and i < 2 else []
+        return {"cross_user_rows": 0, "private_rows_from_others": 0,
+                "memories_missing": len(missing),
+                "memories_missing_writers": missing,
+                "profile_facts_in_block": 1.0}
+    write_cells(tmp_path, lambda *a: (4.0, 4.0), free)
+    cells, _, _ = analyze(tmp_path)
+    for (model, locus, backend, level), trials in cells.items():
+        for i, trial in trials.items():
+            policy = "private" if locus == "kernel" or i == 0 else "shared"
+            trial["written_memories"] = [
+                {"agent_name": "profile_agent", "memory_type": "profile",
+                 "sharing_policy": policy, "user_id": f"u{i}"},
+                {"agent_name": "task_agent", "memory_type": "task_context",
+                 "sharing_policy": "shared", "user_id": f"u{i}"}]
+    kernel = pa.judge_free(pa.trials_of(cells, "qwen", "kernel",
+                                        levels=(1,)))
+    replicated = pa.judge_free(pa.trials_of(cells, "qwen", "replicated",
+                                            levels=(1,)))
+    assert kernel["missing_rate"] == kernel["withheld_rate"] == 2 / 30
+    assert kernel["lost_rate"] == 0
+    assert replicated["withheld_rate"] == replicated["lost_rate"] == 1 / 30
+    variant_rows = pa.split_variant_rows(cells)
+    totals = {}
+    for r in variant_rows:
+        key = (r["locus"], r["level"], r["writer"])
+        withheld, lost = totals.get(key, (0, 0))
+        totals[key] = (withheld + r["withheld"], lost + r["lost"])
+    # 2 models x 2 backends x 2 users per H; one of the 2 users is
+    # withheld outside the kernel.
+    assert totals[("kernel", 1, "profile_agent")] == (8, 0)
+    assert totals[("native", 2, "profile_agent")] == (4, 4)
+    assert not any(r["level"] == 0 for r in variant_rows)
+    first = SCHEDULE.variants(1, 0)
+    row = next(r for r in variant_rows
+               if (r["locus"], r["level"]) == ("kernel", 1))
+    assert row["writer_variant"] == first.get("profile_agent", "-")
+    assert row["consumer_variant"] == first.get("assistant_agent", "-")
+    text = pa.split_markdown(pa.split_rate_rows(cells), variant_rows)
+    assert "| kernel | 1 | profile_agent |" in text
+    assert "| qwen | kernel | 1 | 60 | 0.07 | 0.07 | 0.00 |" in text

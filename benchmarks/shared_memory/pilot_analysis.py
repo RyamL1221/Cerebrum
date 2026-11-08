@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 from scipy import stats
 
 from benchmarks.shared_memory.cost import cell_summary, load_prices
+from benchmarks.shared_memory.judge_free import split_missing
 from benchmarks.shared_memory.pilot_schedule import Schedule, PATH
 
 MODELS = ("qwen", "gpt4o")
@@ -181,6 +182,18 @@ def did(cells, model, other, high, low, dimension,
     return t_interval([a[i] - b[i] for i in sorted(set(a) & set(b))])
 
 
+def missing_split(trial: dict) -> Tuple[List[str], List[str]]:
+    """``(withheld, lost)`` writers of a trial's ``memories_missing``
+    (``judge_free.split_missing``). Files written before Subtask 14 have
+    no split, so it is recomputed from their written records."""
+    free = trial.get("judge_free") or {}
+    if "memories_withheld_writers" in free:
+        return (list(free["memories_withheld_writers"]),
+                list(free.get("memories_lost_writers") or []))
+    return split_missing(free.get("memories_missing_writers") or [],
+                         trial.get("written_memories") or [])
+
+
 def judge_free(trials: List[dict]) -> dict:
     done = [t for t in trials if not t.get("failed") and t.get("judge_free")]
     n = len(done)
@@ -188,12 +201,18 @@ def judge_free(trials: List[dict]) -> dict:
     def rate(pred):
         return sum(1 for t in done if pred(t["judge_free"])) / n if n else None
 
+    def split_rate(part):
+        return (sum(1 for t in done if missing_split(t)[part]) / n
+                if n else None)
+
     facts = [t["judge_free"].get("profile_facts_in_block") for t in done]
     facts = [f for f in facts if f is not None]
     return {
         "n": n,
         "leak_rate": rate(lambda m: sum(m.get(k) or 0 for k in LEAKS) > 0),
         "missing_rate": rate(lambda m: (m.get("memories_missing") or 0) > 0),
+        "withheld_rate": split_rate(0),
+        "lost_rate": split_rate(1),
         "facts_in_block": statistics.mean(facts) if facts else None,
     }
 
@@ -277,6 +296,69 @@ def variant_rows(cells: dict, schedule: Schedule) -> List[dict]:
                 row[f"{locus}_leak"] = free["leak_rate"]
             rows.append(row)
     return rows
+
+
+# -- memories_missing split (Subtask 14, after the pilot) -----------------------
+
+def split_rate_rows(cells: dict) -> List[dict]:
+    """Per model, locus and H, both backends pooled: the share of trials
+    with a missing writer, with a withheld one and with a lost one (a
+    trial can have both)."""
+    rows = []
+    for model in MODELS:
+        for locus in LOCI:
+            for level in LEVELS:
+                free = judge_free(
+                    trials_of(cells, model, locus, levels=(level,)))
+                rows.append({"model": model, "locus": locus, "level": level,
+                             "n": free["n"],
+                             "missing_rate": free["missing_rate"],
+                             "withheld_rate": free["withheld_rate"],
+                             "lost_rate": free["lost_rate"]})
+    return rows
+
+
+def split_variant_rows(cells: dict) -> List[dict]:
+    """Every missing writer, by locus, H, the writer, its variant and the
+    consumer's variant ("-" when none), counted over both models and
+    backends: how many were withheld and how many lost."""
+    counts = defaultdict(lambda: {"withheld": 0, "lost": 0})
+    for (model, locus, backend, level), trials in cells.items():
+        for trial in trials.values():
+            if trial.get("failed"):
+                continue
+            variants = trial.get("variants_applied") or {}
+            withheld, lost = missing_split(trial)
+            for kind, writers in (("withheld", withheld), ("lost", lost)):
+                for writer in writers:
+                    key = (LOCI.index(locus), level, writer,
+                           variants.get(writer, "-"),
+                           variants.get("assistant_agent", "-"))
+                    counts[key][kind] += 1
+    return [{"locus": LOCI[locus], "level": level, "writer": writer,
+             "writer_variant": wv, "consumer_variant": cv, **count}
+            for (locus, level, writer, wv, cv), count
+            in sorted(counts.items())]
+
+
+def split_markdown(rate_rows: List[dict], variant_rows: List[dict]) -> str:
+    return "\n".join([
+        "# memories_missing: withheld vs. lost", "",
+        "Computed after the pilot (Subtask 14) from its result files; the "
+        "pre-registered analysis is `analysis.md`.", "",
+        "- **Withheld**: every row the missing writer stored was private, "
+        "or had no policy (the private default), so the visibility rule "
+        "kept it from the consumer.",
+        "- **Lost**: the writer stored a shared row and none reached the "
+        "block (stored under another user id, or dropped by the "
+        "threshold, the dedupe, the cap or the budget).", "",
+        "## Trials with a missing writer (both backends pooled)", "",
+        table(rate_rows, ["model", "locus", "level", "n", "missing_rate",
+                          "withheld_rate", "lost_rate"]), "",
+        "## Missing writers by variant (both models and backends)", "",
+        table(variant_rows, ["locus", "level", "writer", "writer_variant",
+                             "consumer_variant", "withheld", "lost"]), "",
+    ])
 
 
 # -- the rule -------------------------------------------------------------------
@@ -374,7 +456,7 @@ def ci(row: dict) -> str:
             f"{row['ci_high']:+.2f}]")
 
 
-COUNT_KEYS = ("level", "n", "failed")
+COUNT_KEYS = ("level", "n", "failed", "withheld", "lost")
 
 
 def table(rows: List[dict], keys: List[str], formats=None) -> str:
@@ -475,6 +557,11 @@ def main(argv=None) -> int:
     parser.add_argument("--markdown")
     parser.add_argument("--json")
     parser.add_argument("--csv-dir")
+    parser.add_argument(
+        "--missing-split", metavar="PATH.md",
+        help="also write the withheld / lost split of memories_missing "
+             "(Subtask 14) to PATH.md, with PATH_rates.csv and "
+             "PATH_variants.csv next to it")
     args = parser.parse_args(argv)
     root = Path(args.root)
     schedule = Schedule(args.schedule)
@@ -501,6 +588,12 @@ def main(argv=None) -> int:
         write_csv(out / "cells.csv", cell_table)
         write_csv(out / "gaps.csv", gaps)
         write_csv(out / "variants_h1.csv", variants)
+    if args.missing_split:
+        path = Path(args.missing_split)
+        rates, by_variant = split_rate_rows(cells), split_variant_rows(cells)
+        path.write_text(split_markdown(rates, by_variant))
+        write_csv(path.with_name(path.stem + "_rates.csv"), rates)
+        write_csv(path.with_name(path.stem + "_variants.csv"), by_variant)
     return 0
 
 

@@ -7,7 +7,7 @@ the writers' recorded writes. Never from the judge.
 """
 import json
 import re
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional, Tuple
 
 from benchmarks.shared_memory.models import (
     InjectionDiagnostics,
@@ -66,6 +66,37 @@ def is_raw_payload(row: str) -> bool:
     return any(key in text for key in SCHEMA_KEYS)
 
 
+def _field(record: Any, name: str) -> Any:
+    """``record.name`` for a model, ``record[name]`` for a stored dict."""
+    if isinstance(record, dict):
+        return record.get(name)
+    return getattr(record, name, None)
+
+
+def split_missing(
+    missing: Iterable[str], written: Iterable[Any],
+) -> Tuple[List[str], List[str]]:
+    """``(withheld, lost)``: the missing writers split by why their rows
+    did not reach the consumer (Subtask 14).
+
+    A writer is *withheld* when every row it stored was private, or
+    carried no policy (the private default): the visibility rule kept it
+    from the consumer, as it should. It is *lost* when it stored at least
+    one shared row and none reached the block: stored under another user
+    id, or dropped by the threshold, the dedupe, the cap or the budget.
+    ``written`` holds ``WrittenMemoryRecord``\\ s or their stored dicts,
+    so old result files can be split too.
+    """
+    shared = {
+        _field(record, "agent_name") for record in written
+        if (_field(record, "sharing_policy") or "private") == "shared"
+    }
+    missing = list(missing)
+    withheld = [writer for writer in missing if writer not in shared]
+    lost = [writer for writer in missing if writer in shared]
+    return withheld, lost
+
+
 def measure(
     profile: SyntheticProfile,
     trial_user_id: str,
@@ -104,11 +135,13 @@ def measure(
     seen = {
         writer_of(row) for row in injected if user_of(row) == trial_user_id
     }
+    written = list(written)
     stored = sorted({
         record.agent_name for record in written
         if record.agent_name != consumer
     })
     missing = [agent for agent in stored if agent not in seen]
+    withheld, lost = split_missing(missing, written)
     raw_rows = sum(1 for row in block_rows(block_text or "")
                    if is_raw_payload(row))
     return JudgeFreeMeasures(
@@ -118,5 +151,9 @@ def measure(
         private_rows_from_others=private_from_others,
         memories_missing=len(missing),
         memories_missing_writers=missing,
+        memories_withheld=len(withheld),
+        memories_withheld_writers=withheld,
+        memories_lost=len(lost),
+        memories_lost_writers=lost,
         raw_payload_rows=raw_rows,
     )

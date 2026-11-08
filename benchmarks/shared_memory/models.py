@@ -154,6 +154,15 @@ class JudgeFreeMeasures(BaseModel):
     # the block.
     memories_missing: int = 0
     memories_missing_writers: List[str] = []
+    # The missing writers split by cause (Subtask 14; judge_free.
+    # split_missing): withheld = every row the writer stored was private
+    # (or had no policy, the private default), so visibility kept it from
+    # the consumer; lost = it stored a shared row and none reached the
+    # block. memories_missing == memories_withheld + memories_lost.
+    memories_withheld: int = 0
+    memories_withheld_writers: List[str] = []
+    memories_lost: int = 0
+    memories_lost_writers: List[str] = []
     # Block rows that are raw structured JSON or carry writer-schema
     # keys (the form measure for V5).
     raw_payload_rows: int = 0
