@@ -23,21 +23,43 @@ os.environ.setdefault("MEM0_TELEMETRY", "False")
 
 STORE_ROOT = os.environ.get("CEREBRUM_NATIVE_MEMORY_DIR", ".native_memory")
 
+# What a block's recency age counts, as the kernel's
+# memory.block_recency_unit: wall-clock time or sessions (benchmark v2).
+RECENCY_UNITS = ("time", "session")
+
 
 @dataclass(frozen=True)
 class NativeSettings:
+    """``k`` is the kernel's ``max_injected_memories``; ``block_recency``
+    and ``block_recency_unit`` are its block recency settings
+    (``/memory/config`` ``pipeline``; off and ``"time"`` when absent),
+    which the native assistant follows for session ages (benchmark
+    v2)."""
+
     embedding: Dict[str, Any]
     backend_llm: Dict[str, Any]
     k: int
+    block_recency: bool = False
+    block_recency_unit: str = "time"
+
+    def __post_init__(self):
+        if self.block_recency_unit not in RECENCY_UNITS:
+            raise ValueError(
+                f"block_recency_unit must be one of {RECENCY_UNITS}, "
+                f"got {self.block_recency_unit!r}"
+            )
 
     @classmethod
     def from_kernel_config(cls, config: Dict[str, Any]) -> "NativeSettings":
         if not config.get("embedding"):
             raise ValueError("kernel /memory/config reports no embedding")
+        pipeline = config.get("pipeline") or {}
         return cls(
             embedding=dict(config["embedding"]),
             backend_llm=dict(config.get("backend_llm") or {}),
             k=int(config["max_injected_memories"]),
+            block_recency=bool(pipeline.get("block_recency", False)),
+            block_recency_unit=pipeline.get("block_recency_unit", "time"),
         )
 
 

@@ -1,8 +1,15 @@
 import os
 import json
+from typing import Optional
 
 from cerebrum.llm.apis import llm_chat
+from cerebrum.memory.apis import list_memories
 from cerebrum.config.config_manager import config
+from cerebrum.example.agents.shared_memory_utils import (
+    V2_LIST_LIMIT,
+    listed_rows,
+    require_user_id,
+)
 
 aios_kernel_url = config.get_kernel_url()
 
@@ -13,6 +20,12 @@ class AssistantAgent:
     Issues plain llm_chat calls. The kernel handles all memory operations:
     - auto_extract stores conversation turns as memories automatically
     - auto_inject retrieves and injects relevant memories into context
+
+    Benchmark v2 (AIOS docs/BENCHMARK_V2.md) sets ``session``, the
+    current session the block's ages count from, sent with the request
+    (the kernel stamps it on the stored turn), and ``probe_id``, which
+    the kernel has no channel for: it writes the conversation itself.
+    Both default to None, and the request is then sent as before.
     """
 
     def __init__(self, agent_name: str, llms: list | None = None):
@@ -21,6 +34,8 @@ class AssistantAgent:
         self.messages = []
         self.rounds = 0
         self.llms = llms  # Optional model override, e.g. [{"name": "qwen2.5:7b", "backend": "ollama"}]
+        self.session: Optional[int] = None
+        self.probe_id: Optional[str] = None
 
     def load_config(self) -> dict:
         """Load agent configuration from config.json in the agent's directory."""
@@ -49,6 +64,11 @@ class AssistantAgent:
             # Append user query
             self.messages.append({"role": "user", "content": task_input})
 
+            # The current session (benchmark v2) goes with the request
+            # when set; without one the request is sent as before.
+            session = getattr(self, "session", None)
+            extra = {} if session is None else {"session": session}
+
             # Call LLM — kernel handles memory injection and extraction
             response = llm_chat(
                 agent_name=self.agent_name,
@@ -56,6 +76,7 @@ class AssistantAgent:
                 base_url=aios_kernel_url,
                 llms=self.llms,
                 user_id=getattr(self, "user_id", None),
+                **extra,
             )
 
             result_text = response["response"]["response_message"] if response else ""
@@ -82,3 +103,15 @@ class AssistantAgent:
                 "result": f"Error: {e}",
                 "rounds": self.rounds,
             }
+
+    def list_own_rows(self, user_id: Optional[str] = None) -> list:
+        """The conversation rows the kernel stored for this agent and
+        ``user_id`` (default: its ``user_id``) as ``{memory_id, content,
+        metadata}``, through the owner-only listing, up to
+        ``V2_LIST_LIMIT``. Raises ``WriterError`` when the listing
+        fails."""
+        uid = require_user_id(user_id or getattr(self, "user_id", None))
+        return listed_rows(list_memories(
+            agent_name=self.agent_name, user_id=uid,
+            base_url=aios_kernel_url, k=V2_LIST_LIMIT,
+        ))

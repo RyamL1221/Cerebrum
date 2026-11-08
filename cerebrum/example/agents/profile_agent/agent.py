@@ -4,13 +4,27 @@ import json
 import logging
 
 from cerebrum.llm.apis import llm_chat_with_json_output, parse_json_reply
-from cerebrum.memory.apis import create_memory, update_memory, search_memories
+# Called by these module names (the harness's create_memory capture and
+# the variants' wrapper patch them here), with keyword content= and
+# metadata=; the v2 calls look them up when they are made.
+from cerebrum.memory.apis import (
+    create_memory,
+    delete_memory,
+    list_memories,
+    search_memories,
+    update_memory,
+)
 from cerebrum.config.config_manager import config
 
 from cerebrum.example.agents.shared_memory_utils import (
     Extraction,
     FIELD_STRUCTURED,
+    V2_LIST_LIMIT,
     extract_validated,
+    listed_rows,
+    parse_v2_session,
+    require_user_id,
+    run_v2_session,
     structured,
     build_memory_metadata,
     FIELD_SHARING_POLICY,
@@ -65,7 +79,9 @@ class ProfileAgent:
         """Extract, validate, and store the profile from input.
 
         A writer whose extraction does not validate after its retries
-        stores nothing and returns ``writer_failed`` True.
+        stores nothing and returns ``writer_failed`` True. A benchmark
+        v2 session (``{"v2_session": ...}``) is run by ``_run_v2``
+        instead, with no extraction.
 
         Args:
             task_input: User input text to extract the profile from.
@@ -75,6 +91,9 @@ class ProfileAgent:
             each extraction call, and the extraction report
             (``writer_failed``, ``writer_retries``, ``writer_problems``).
         """
+        session = parse_v2_session(task_input)
+        if session is not None:
+            return self._run_v2(session)
         extraction = None
         try:
             extraction = self.extract(task_input)
@@ -189,6 +208,43 @@ class ProfileAgent:
 
         self.token_usage = response.get("token_usage")
         return parse_json_reply(response["response"]["response_message"])
+
+    # -- benchmark v2 (AIOS docs/BENCHMARK_V2.md) ----------------------
+
+    def _run_v2(self, session: dict) -> dict:
+        """One v2 session's writes and deletes
+        (``shared_memory_utils.run_v2_session``) through the kernel."""
+        return run_v2_session(
+            self, session, MEMORY_TYPE_PROFILE,
+            write=self._v2_create, list_rows=self._v2_list,
+            delete=self._v2_delete,
+        )
+
+    def _v2_create(self, content: str, metadata: dict) -> dict:
+        return create_memory(
+            agent_name=self.agent_name, content=content,
+            metadata=metadata, base_url=aios_kernel_url,
+        )
+
+    def _v2_list(self, user_id: str) -> dict:
+        return list_memories(
+            agent_name=self.agent_name, user_id=user_id,
+            base_url=aios_kernel_url, k=V2_LIST_LIMIT,
+        )
+
+    def _v2_delete(self, user_id: str, memory_id: str) -> dict:
+        return delete_memory(
+            agent_name=self.agent_name, memory_id=memory_id,
+            base_url=aios_kernel_url, user_id=user_id,
+        )
+
+    def list_own_rows(self, user_id: Optional[str] = None) -> list:
+        """The rows this agent owns for ``user_id`` (default: its
+        ``user_id``) as ``{memory_id, content, metadata}``, up to
+        ``V2_LIST_LIMIT``, by the call a revoke lists with. Raises
+        ``WriterError`` when the listing fails."""
+        uid = require_user_id(user_id or getattr(self, "user_id", None))
+        return listed_rows(self._v2_list(uid))
 
     def _upsert_profile_memory(self, user_id: str, extraction: Extraction) -> list:
         """Search for existing profile memories, update or create.

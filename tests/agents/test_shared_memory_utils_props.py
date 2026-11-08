@@ -30,7 +30,7 @@ from cerebrum.example.agents.shared_memory_utils import (
     FIELD_SHARING_POLICY,
 )
 
-VALID_MEMORY_TYPES = ["profile", "task_context", "conversation"]
+VALID_MEMORY_TYPES = ["profile", "task_context", "calendar", "conversation"]
 VALID_SHARING_POLICIES = ["private", "shared"]
 STANDARD_KEYS = {FIELD_OWNER_AGENT, FIELD_USER_ID, FIELD_MEMORY_TYPE, FIELD_SHARING_POLICY}
 

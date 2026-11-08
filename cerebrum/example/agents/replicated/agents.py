@@ -8,22 +8,36 @@ their memory as the kernel writers' SDK calls do, and the assistant
 injects the block and writes the conversation as the kernel's injector
 and extractor do. The kernel serves the LLM calls only: no agent here
 makes a kernel memory call.
+
+Benchmark v2 (docs/BENCHMARK_V2.md): the writers run scripted sessions
+(``shared_memory_utils.run_v2_session``) and delete a revoked fact's
+rows through the library's ``MemoryPipeline.list_own`` and ``delete``,
+the code the kernel runs for its list and delete requests; the
+assistant passes the current session to ``MemoryPipeline.inject`` and
+stamps its conversation note.
 """
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from cerebrum.config.config_manager import config
+from cerebrum.example.agents.calendar_agent.agent import CalendarAgent
 from cerebrum.example.agents.profile_agent.agent import ProfileAgent
 from cerebrum.example.agents.replicated import library
 from cerebrum.example.agents.shared_memory_utils import (
     FIELD_STRUCTURED,
+    MEMORY_TYPE_CALENDAR,
     MEMORY_TYPE_PROFILE,
     MEMORY_TYPE_TASK_CONTEXT,
     POLICY_PRIVATE,
     POLICY_SHARED,
+    V2_LIST_LIMIT,
     build_memory_metadata,
+    listed_rows,
+    parse_v2_session,
+    require_user_id,
+    run_v2_session,
     structured,
 )
 from cerebrum.example.agents.task_agent.agent import TaskAgent
@@ -115,6 +129,21 @@ class ReplicatedMemory:
             getattr(self.provider, "backend_extraction", False)
         )
 
+    # The library's owner-only listing and delete (benchmark v2), through
+    # the agent's current pipeline (a variant may have replaced it).
+
+    def list_own(self, agent_name: str, user_id: str) -> List[dict]:
+        """Every row ``agent_name`` owns for ``user_id``
+        (``MemoryPipeline.list_own``), up to ``V2_LIST_LIMIT``."""
+        return self.pipeline.list_own(
+            agent_name, user_id, top_k=V2_LIST_LIMIT
+        )
+
+    def delete(self, agent_name: str, user_id: str, memory_id: str) -> bool:
+        """Delete one of ``agent_name``'s rows (``MemoryPipeline.delete``):
+        False when it is missing or not the agent's."""
+        return self.pipeline.delete(agent_name, user_id, memory_id)
+
 
 class _ReplicatedWriter:
     """Extracts like the kernel conditions' writer, then upserts through
@@ -132,6 +161,9 @@ class _ReplicatedWriter:
         self.user_id: Optional[str] = None
         self.llms: Optional[list] = None
         self.share_memory = True
+        # False is the no_delete control: a v2 revoke finds the fact's
+        # rows and deletes none.
+        self.delete_on_revoke = True
         # Metadata the deployment adds to every write (Subtask 10).
         self.extra_metadata: Dict[str, Any] = {}
 
@@ -179,7 +211,16 @@ class _ReplicatedWriter:
     def run(self, task_input: str) -> dict:
         """Extract and validate like the kernel writer (the same
         ``extract``), then upsert the shared rendering; store nothing
-        when the extraction fails."""
+        when the extraction fails. A benchmark v2 session
+        (``{"v2_session": ...}``) is written event by event instead, with
+        no extraction (``shared_memory_utils.run_v2_session``)."""
+        session = parse_v2_session(task_input)
+        if session is not None:
+            return run_v2_session(
+                self, session, self.memory_type,
+                write=self._v2_create, list_rows=self._v2_list,
+                delete=self._v2_delete,
+            )
         self.extractor.llms = self.llms
         extraction = self.extractor.extract(task_input)
         report = extraction.report()
@@ -204,6 +245,31 @@ class _ReplicatedWriter:
             **report,
         }
 
+    # -- benchmark v2 (docs/BENCHMARK_V2.md) ---------------------------
+
+    def _v2_create(self, content: str, metadata: Dict[str, Any]) -> str:
+        """Store one v2 row as the kernel stores a create request: the
+        request's note (``note_from_request``) through the agent's
+        current pipeline, which fills the required metadata into it."""
+        note = self.memory.library.note_from_request(
+            {"content": content, "metadata": metadata}
+        )
+        return self.memory.pipeline.write(self.agent_name, self.user_id, note)
+
+    def _v2_list(self, user_id: str) -> List[dict]:
+        return self.memory.list_own(self.agent_name, user_id)
+
+    def _v2_delete(self, user_id: str, memory_id: str) -> bool:
+        return self.memory.delete(self.agent_name, user_id, memory_id)
+
+    def list_own_rows(self, user_id: Optional[str] = None) -> List[dict]:
+        """The rows this agent owns for ``user_id`` (default: its
+        ``user_id``) as ``{memory_id, content, metadata}``, up to
+        ``V2_LIST_LIMIT``, by the call a revoke lists with. Raises
+        ``WriterError`` when the listing fails."""
+        uid = require_user_id(user_id or self.user_id)
+        return listed_rows(self._v2_list(uid))
+
 
 class ReplicatedProfileAgent(_ReplicatedWriter):
     memory_type = MEMORY_TYPE_PROFILE
@@ -217,6 +283,15 @@ class ReplicatedTaskAgent(_ReplicatedWriter):
     extractor_class = TaskAgent
 
 
+class ReplicatedCalendarAgent(_ReplicatedWriter):
+    """Benchmark v2's calendar writer; v2 sessions only: any other input
+    fails the writer (``CalendarAgent.extract``)."""
+
+    memory_type = MEMORY_TYPE_CALENDAR
+    query_prefix = "calendar"
+    extractor_class = CalendarAgent
+
+
 def _load_assistant_prompt() -> str:
     path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -228,7 +303,12 @@ def _load_assistant_prompt() -> str:
 
 class ReplicatedAssistantAgent:
     """Sends the kernel AssistantAgent's messages, with the block its own
-    pipeline injects, and writes the conversation turn afterwards."""
+    pipeline injects, and writes the conversation turn afterwards.
+
+    Benchmark v2 sets ``session`` (the current session, which the
+    block's session ages count from) and ``probe_id`` per probe; the
+    conversation note then carries ``session`` and ``provenance_event``
+    (the probe id)."""
 
     def __init__(self, agent_name: str, memory: ReplicatedMemory):
         self.agent_name = agent_name
@@ -237,6 +317,17 @@ class ReplicatedAssistantAgent:
         self.user_id: Optional[str] = None
         self.llms: Optional[list] = None
         self.extra_metadata: Dict[str, Any] = {}
+        self.session: Optional[int] = None
+        self.probe_id: Optional[str] = None
+
+    def list_own_rows(self, user_id: Optional[str] = None) -> List[dict]:
+        """The conversation rows this agent owns for ``user_id``
+        (default: its ``user_id``) as ``{memory_id, content,
+        metadata}``, up to ``V2_LIST_LIMIT``
+        (``MemoryPipeline.list_own``). Raises ``WriterError`` when the
+        listing fails."""
+        uid = require_user_id(user_id or self.user_id)
+        return listed_rows(self.memory.list_own(self.agent_name, uid))
 
     def run(self, task_input: str) -> dict:
         """Answer one query. The timing keys are the kernel's; the
@@ -250,8 +341,11 @@ class ReplicatedAssistantAgent:
             {"role": "user", "content": task_input},
         ]
         started = time.perf_counter()
+        # The current session goes to the library only when set, so a
+        # v1 call is made as before.
+        session = {} if self.session is None else {"session": self.session}
         messages, diagnostics = pipeline.inject(
-            self.agent_name, messages, user_id=user_id
+            self.agent_name, messages, user_id=user_id, **session
         )
         injected = time.perf_counter()
         response = llm_chat(
@@ -272,6 +366,12 @@ class ReplicatedAssistantAgent:
                 diagnostics.get("resolved_user_id"),
             )
             note.metadata.update(self.extra_metadata)
+            # Benchmark v2: the turn's session (as the kernel's
+            # extractor stamps it) and the probe it answered.
+            if self.session is not None:
+                note.metadata["session"] = self.session
+            if self.probe_id is not None:
+                note.metadata["provenance_event"] = self.probe_id
             pipeline.write(self.agent_name, None, note)
         written = time.perf_counter()
         records = usage.ACCUMULATOR.take(user_id)

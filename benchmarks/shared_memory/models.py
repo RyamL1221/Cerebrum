@@ -94,6 +94,22 @@ class JudgeScores(BaseModel):
     judge_attempts: Optional[int] = None
 
 
+class V2UserData(BaseModel):
+    """A benchmark v2 user (AIOS docs/BENCHMARK_V2.md, "File") with its
+    run-scoped user id: the final profile and task context (the judge's
+    inputs, equal to the base in v2), the integration query, and the
+    script's sessions and probes as the dataset holds them."""
+
+    index: int
+    user_id: str
+    profile: SyntheticProfile
+    task_context: SyntheticTaskContext
+    follow_up_query: str
+    plausible_actions: List[str] = []
+    sessions: List[Dict[str, Any]] = []
+    probes: List[Dict[str, Any]] = []
+
+
 class InjectedMemoryEntry(BaseModel):
     """Single injected memory with source attribution."""
 
@@ -109,6 +125,12 @@ class InjectedMemoryEntry(BaseModel):
     sharing_policy: Optional[str] = None
     provenance_agent: Optional[str] = None
     provenance_user: Optional[str] = None
+    # Benchmark v2: the row's text as printed (without its age), the
+    # event that wrote it, and the fact and session it states.
+    provenance_event: Optional[str] = None
+    content: Optional[str] = None
+    fact_key: Optional[str] = None
+    session: Optional[int] = None
 
 
 class InjectionDiagnostics(BaseModel):
@@ -133,6 +155,11 @@ class InjectionDiagnostics(BaseModel):
     # "legacy"; "native" for the native agents' own renderer.
     block_format: Optional[str] = None
     block_recency: Optional[bool] = None
+    # Benchmark v2: the age unit and the current session the block was
+    # built with, and the write-barrier waits that preceded it.
+    block_recency_unit: Optional[str] = None
+    session: Optional[int] = None
+    barrier_waits: List[Dict[str, Any]] = []
     # The block as the consumer received it (Subtask 10); None in older
     # files, "" when nothing was injected.
     block_text: Optional[str] = None
@@ -250,6 +277,71 @@ class LatencyBreakdown(BaseModel):
     schedule_wait_ms: Optional[float] = None
 
 
+class SessionRecord(BaseModel):
+    """One benchmark v2 writer session (AIOS docs/BENCHMARK_V2.md,
+    "Harness"): the writer, the user id it wrote under, its events with
+    the ids each stored, found or deleted, and the listings after it."""
+
+    session: int
+    writer: str
+    user_id: Optional[str] = None
+    events: List[Dict[str, Any]] = []
+    stored_rows: int = 0
+    deleted_ids: List[str] = []
+    writer_failed: bool = False
+    error: Optional[str] = None
+    # Rows each agent owned for the user after the session.
+    listing_counts: Dict[str, int] = {}
+
+
+class ProbeResult(BaseModel):
+    """One benchmark v2 probe turn: the question and its ground truth,
+    the consumer's answer and diagnostics, and the judge-free score
+    (``probes.score_probe``; judge scores for integration only)."""
+
+    probe_id: str
+    type: str
+    slot: Optional[str] = None
+    question: str
+    expected: List[Dict[str, Any]] = []
+    forbidden: List[Dict[str, Any]] = []
+    target_event: Optional[str] = None
+    target_writer: Optional[str] = None
+    target_session: Optional[int] = None
+    echo_event: Optional[str] = None
+    observed: str = ""
+    error: Optional[str] = None
+    # The pass rule's outcome; None for integration (judged).
+    passed: Optional[bool] = None
+    expected_present: Optional[bool] = None
+    stale_present: Optional[bool] = None
+    forbidden_in_answer: Optional[bool] = None
+    forbidden_in_block: Optional[bool] = None
+    matched_expected: List[str] = []
+    matched_forbidden: List[str] = []
+    transition_marked: Optional[bool] = None
+    expected_in_block: Optional[bool] = None
+    stale_in_block: Optional[bool] = None
+    rows_with_expected: List[Dict[str, Any]] = []
+    rows_with_stale: List[Dict[str, Any]] = []
+    rows_with_forbidden: List[Dict[str, Any]] = []
+    newest_target_row_has_stale: Optional[bool] = None
+    cap_bound: Optional[bool] = None
+    budget_bound: Optional[bool] = None
+    answer_words: Optional[int] = None
+    other_values_in_answer: List[str] = []
+    semantic_best: Optional[float] = None
+    semantic_only: Optional[bool] = None
+    deleted_ids_in_block: List[str] = []
+    contaminated: Optional[bool] = None
+    visible_stored_rows: Optional[int] = None
+    diagnostics: Optional["InjectionDiagnostics"] = None
+    judge_scores: Optional[Dict[str, Any]] = None
+    integration_score: Optional[int] = None
+    token_usage: Optional[Dict[str, Any]] = None
+    latency_seconds: Optional[float] = None
+
+
 class TrialResult(BaseModel):
     """Complete result for one trial."""
 
@@ -318,6 +410,16 @@ class TrialResult(BaseModel):
     variants_applied: Dict[str, str] = {}
     variants_not_applied: Dict[str, str] = {}
     judge_free: Optional[JudgeFreeMeasures] = None
+    # Benchmark v2 (AIOS docs/BENCHMARK_V2.md, "Harness"): the user's
+    # run-scoped id, the negative control the trial ran under, each
+    # writer session, each probe, and what the revokes left behind.
+    user_id: Optional[str] = None
+    control: Optional[str] = None
+    sessions: List[SessionRecord] = []
+    probe_results: List[ProbeResult] = []
+    deleted_memory_ids: List[str] = []
+    reappeared_memory_ids: List[str] = []
+    revoked_value_rows: List[Dict[str, Any]] = []
     failed: bool = False
     error_message: Optional[str] = None
 
@@ -429,6 +531,10 @@ class ExperimentMetadata(BaseModel):
     kernel_git_commit: Optional[str] = Field(default_factory=_kernel_commit)
     # Looked up at call time, so the test suite can stub it (the
     # live-kernel guard, tests/conftest.py).
+    # Benchmark v2: the run's recency, control and the kernel settings
+    # the pre-flight checked (AIOS docs/BENCHMARK_V2.md, "Harness").
+    run_settings: Dict[str, Any] = {}
+    run_id: Optional[str] = None
     config_snapshot: dict = Field(
         default_factory=lambda: _config_snapshot()
     )

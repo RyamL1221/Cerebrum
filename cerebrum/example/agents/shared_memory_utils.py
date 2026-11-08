@@ -2,10 +2,11 @@
 
 This module provides memory metadata field names, sharing policy values,
 memory type values, and helper functions used by the Assistant Agent,
-Profile Agent, and Task Agent.
+Profile Agent, Task Agent and Calendar Agent, and the event loop every
+benchmark v2 writer runs (``run_v2_session``).
 """
 
-from typing import Any, Optional, List, Dict
+from typing import Any, Callable, Optional, List, Dict
 
 # --- Memory metadata field names ---
 FIELD_OWNER_AGENT = "owner_agent"
@@ -21,10 +22,15 @@ POLICY_SHARED = "shared"
 MEMORY_TYPE_CONVERSATION = "conversation"
 MEMORY_TYPE_PROFILE = "profile"
 MEMORY_TYPE_TASK_CONTEXT = "task_context"
+# The calendar writer's rows (benchmark v2, AIOS docs/BENCHMARK_V2.md).
+MEMORY_TYPE_CALENDAR = "calendar"
 
 
 _VALID_SHARING_POLICIES = {POLICY_PRIVATE, POLICY_SHARED}
-_VALID_MEMORY_TYPES = {MEMORY_TYPE_PROFILE, MEMORY_TYPE_TASK_CONTEXT, MEMORY_TYPE_CONVERSATION}
+_VALID_MEMORY_TYPES = {
+    MEMORY_TYPE_PROFILE, MEMORY_TYPE_TASK_CONTEXT, MEMORY_TYPE_CALENDAR,
+    MEMORY_TYPE_CONVERSATION,
+}
 
 
 def build_memory_metadata(
@@ -39,7 +45,8 @@ def build_memory_metadata(
     Args:
         owner_agent: The agent_name of the creating agent. Must be non-empty.
         user_id: Identifier for the user. Must be non-empty.
-        memory_type: One of "profile", "task_context", "conversation".
+        memory_type: One of "profile", "task_context", "calendar",
+            "conversation".
         sharing_policy: "private" (default) or "shared".
         **extra: Additional provider-specific keys.
 
@@ -307,3 +314,360 @@ def extract_validated(
             return result
         result.problems = problems
     return result
+
+
+# ---------------------------------------------------------------------------
+# Benchmark v2 writers (Subtask 14, AIOS docs/BENCHMARK_V2.md)
+# ---------------------------------------------------------------------------
+#
+# A v2 writer gets one session of scripted events and makes the writes
+# and deletes they imply, with no LLM call: each event already says what
+# to store. Its input is ``json.dumps({"v2_session": {"session": n,
+# "events": [...]}})``; any other input keeps the writer's v1 behaviour.
+# ``run_v2_session`` is the one event loop of every writer in every
+# locus; each locus passes its own create, list and delete calls.
+
+import logging as _logging
+
+_logger = _logging.getLogger(__name__)
+
+V2_SESSION_KEY = "v2_session"
+# The event types that write one row; an echo is an ``add``.
+V2_WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
+V2_REVOKE = "revoke"
+V2_EVENT_TYPES = V2_WRITE_EVENTS + (V2_REVOKE,)
+# A listing asks for this many rows (BENCHMARK_V2.md, "Listings reach
+# every row"); one that comes back with as many may have cut some.
+V2_LIST_LIMIT = 10_000
+
+FIELD_FACT_KEY = "fact_key"
+FIELD_EVENT_TYPE = "event_type"
+FIELD_SESSION = "session"
+FIELD_PROVENANCE_EVENT = "provenance_event"
+MEMORY_NOT_FOUND = "Memory not found"
+
+
+class WriterError(RuntimeError):
+    """A v2 writer's create, list or delete failed. The session stops
+    there: a v2 writer never catches and continues."""
+
+
+def parse_v2_session(task_input: Any) -> Optional[Dict[str, Any]]:
+    """The v2 session in a writer's input (``{"session", "events"}``),
+    or ``None`` when the input is not a v2 session, so the writer keeps
+    its v1 behaviour. A ``v2_session`` that is not an object comes back
+    empty, which ``run_v2_session`` refuses."""
+    if not isinstance(task_input, str):
+        return None
+    try:
+        data = _json.loads(task_input)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or V2_SESSION_KEY not in data:
+        return None
+    payload = data[V2_SESSION_KEY]
+    return payload if isinstance(payload, dict) else {}
+
+
+def v2_structured(event: Dict[str, Any]) -> str:
+    """The event as the JSON string a v2 write keeps in
+    ``metadata.structured`` (its ``fact_key``, ``value`` and
+    ``event_type``): what V5 writes as its raw payload."""
+    return _json.dumps({
+        FIELD_FACT_KEY: event.get(FIELD_FACT_KEY),
+        "value": event.get("value"),
+        FIELD_EVENT_TYPE: event.get("type"),
+    }, sort_keys=True)
+
+
+def v2_sharing_policy(agent: Any, event: Dict[str, Any]) -> str:
+    """``private`` for a private event; any other event is ``shared``
+    when the writer's ``share_memory`` is true, else ``private`` (V1).
+    The kernel writers also have a ``share_memory`` method: a value that
+    is not a bool (that bound method, when the harness set no attribute)
+    counts as the default, True."""
+    if event.get("type") == "private":
+        return POLICY_PRIVATE
+    share = getattr(agent, "share_memory", True)
+    if not isinstance(share, bool):
+        share = True
+    return POLICY_SHARED if share else POLICY_PRIVATE
+
+
+def v2_write_metadata(
+    agent: Any, memory_type: str, session: int, event: Dict[str, Any],
+) -> Dict[str, Any]:
+    """The metadata of one v2 write: the four standard fields,
+    ``fact_key``, ``event_type`` (the event's type: an echo is ``add``),
+    ``session`` and ``structured``; then the deployment's
+    ``extra_metadata`` (the harness's provenance); last
+    ``provenance_event``, the event's id, which nothing overrides."""
+    metadata = build_memory_metadata(
+        owner_agent=agent.agent_name,
+        user_id=agent.user_id,
+        memory_type=memory_type,
+        sharing_policy=v2_sharing_policy(agent, event),
+        **{
+            FIELD_FACT_KEY: event[FIELD_FACT_KEY],
+            FIELD_EVENT_TYPE: event["type"],
+            FIELD_SESSION: session,
+            FIELD_STRUCTURED: v2_structured(event),
+        },
+    )
+    metadata.update(getattr(agent, "extra_metadata", None) or {})
+    metadata[FIELD_PROVENANCE_EVENT] = event["event_id"]
+    return metadata
+
+
+def _unwrap(reply: Any) -> Any:
+    """A reply without the kernel's ``{"response": ...}`` envelope; the
+    library's and native calls return their value directly."""
+    if isinstance(reply, dict) and "response" in reply:
+        return reply["response"]
+    return reply
+
+
+def reply_error(reply: Any) -> Optional[str]:
+    """Why a create, list or delete reply is a writer error, or ``None``
+    when it is not (BENCHMARK_V2.md, "Failures"): no reply, ``False``
+    (a library or native delete that found no row of the agent's),
+    ``success`` false, or an error that says "Memory not found"."""
+    response = _unwrap(reply)
+    if response is None:
+        return "no reply"
+    if response is False:
+        return f"{MEMORY_NOT_FOUND} (or not the agent's)"
+    if isinstance(response, dict):
+        error = response.get("error")
+        if response.get("success") is False:
+            return str(error) if error else "success is false"
+        if error and MEMORY_NOT_FOUND in str(error):
+            return str(error)
+    return None
+
+
+def _checked(operation: str, reply: Any) -> Any:
+    """The unwrapped reply; raises ``WriterError`` for an error reply."""
+    problem = reply_error(reply)
+    if problem is not None:
+        raise WriterError(f"{operation}: {problem}")
+    return _unwrap(reply)
+
+
+def reply_ids(reply: Any) -> List[str]:
+    """The ids a create reply names: the kernel's ``memory_id`` (``""``
+    when the backend's extraction kept nothing: no row), the library's
+    id, or native's list of ids."""
+    response = _checked("create", reply)
+    if isinstance(response, dict):
+        response = response.get("memory_id")
+    if response is None or isinstance(response, str):
+        return [response] if response else []
+    if isinstance(response, (list, tuple)):
+        return [str(memory_id) for memory_id in response if memory_id]
+    raise WriterError(
+        f"create: unexpected reply {type(response).__name__}"
+    )
+
+
+def listed_rows(reply: Any) -> List[Dict[str, Any]]:
+    """The rows of a listing reply as ``{memory_id, content, metadata}``:
+    the kernel's ``search_results``, or the library's or native list.
+    Raises ``WriterError`` for an error reply or one without rows."""
+    response = _checked("list", reply)
+    if isinstance(response, dict):
+        response = response.get("search_results")
+    if not isinstance(response, list):
+        raise WriterError("list: the reply holds no rows")
+    return [
+        {
+            "memory_id": row.get("memory_id"),
+            "content": row.get("content", ""),
+            "metadata": dict(row.get("metadata") or {}),
+        }
+        for row in response
+    ]
+
+
+def require_user_id(user_id: Any) -> str:
+    """``user_id`` if it names a user; raises ``WriterError``
+    otherwise (a v2 call never falls back to the agent's own scope)."""
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise WriterError(f"no user_id: {user_id!r}")
+    return user_id
+
+
+def v2_failure(
+    agent: Any, error: str, session: Optional[int] = None,
+) -> Dict[str, Any]:
+    """The result of a v2 writer turn that ran no event: the session
+    result's keys, ``writer_failed`` and the reason."""
+    _logger.warning("%s: v2 writer failed: %s",
+                    getattr(agent, "agent_name", ""), error)
+    return {
+        "agent_name": getattr(agent, "agent_name", ""),
+        "result": f"Writer failed: {error}",
+        "session": session,
+        "user_id": getattr(agent, "user_id", None),
+        "events": [],
+        "stored_rows": 0,
+        "deleted_ids": [],
+        "written": [],
+        "writer_failed": True,
+        "error": error,
+        "token_usage": None,
+    }
+
+
+def _session_problem(payload: Any) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return "the session is not an object"
+    session = payload.get("session")
+    if not isinstance(session, int) or isinstance(session, bool):
+        return f"session must be an integer, got {session!r}"
+    events = payload.get("events")
+    if not isinstance(events, list) or not all(
+        isinstance(event, dict) for event in events
+    ):
+        return "events must be a list of objects"
+    return None
+
+
+def _event_problem(event: Dict[str, Any]) -> Optional[str]:
+    kind = event.get("type")
+    if kind not in V2_EVENT_TYPES:
+        return f"unknown event type {kind!r}"
+    for key in ("event_id", FIELD_FACT_KEY):
+        if not isinstance(event.get(key), str) or not event[key]:
+            return f"no {key}"
+    utterance = event.get("utterance")
+    if kind in V2_WRITE_EVENTS and not (
+        isinstance(utterance, str) and utterance.strip()
+    ):
+        return "no utterance"
+    return None
+
+
+def _event_record(event: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "event_id": event.get("event_id"),
+        "type": event.get("type"),
+        "fact_key": event.get(FIELD_FACT_KEY),
+        "memory_ids": [],
+        "stored_rows": 0,
+        "deleted_ids": [],
+        "found_ids": [],
+        "error": None,
+    }
+
+
+def _describe(error: Exception) -> str:
+    if isinstance(error, WriterError):
+        return str(error)
+    return f"{type(error).__name__}: {error}"
+
+
+def run_v2_session(
+    agent: Any,
+    payload: Any,
+    memory_type: str,
+    *,
+    write: Callable[[str, Dict[str, Any]], Any],
+    list_rows: Callable[[str], Any],
+    delete: Callable[[str, str], Any],
+) -> Dict[str, Any]:
+    """Run one benchmark v2 session (``parse_v2_session``) for
+    ``agent``, a writer of ``memory_type``, through its locus's calls:
+
+    - ``write(content, metadata)`` stores one row; its reply names the
+      ids stored (the kernel's ``create_memory`` reply, the library's id,
+      native's list of ids);
+    - ``list_rows(user_id)`` lists the agent's own rows for the user;
+    - ``delete(user_id, memory_id)`` deletes one of them.
+
+    A write event (base, add, update, contradict or private; an echo is
+    an add) stores its utterance with ``v2_write_metadata``. A revoke
+    lists the agent's own rows and deletes every one whose
+    ``metadata.fact_key`` is the event's: Mem0 copies a write's metadata
+    onto every fact it extracts, so this reaches a write's sibling
+    facts. With ``agent.delete_on_revoke`` False (the ``no_delete``
+    control) the revoke records the rows it found and deletes nothing.
+
+    A reply that is an error (``reply_error``), a listing that returned
+    its limit, a malformed event, or any exception fails the writer: the
+    event records the error and the session stops there.
+
+    Returns ``{agent_name, result, session, user_id`` (the id the writer
+    used, which a V2 variant rewrites), ``events`` (one record per event
+    run: ``event_id, type, fact_key, memory_ids, stored_rows,
+    deleted_ids, found_ids, error``), ``stored_rows`` (rows written),
+    ``deleted_ids``, ``written`` (each write's metadata as sent; a locus
+    may fill defaults into it in place), ``writer_failed, error,
+    token_usage}`` (None: no LLM call).
+    """
+    problem = _session_problem(payload)
+    if problem is not None:
+        return v2_failure(agent, f"malformed v2 session: {problem}")
+    session, events = payload["session"], payload["events"]
+    try:
+        user_id = require_user_id(getattr(agent, "user_id", None))
+    except WriterError as e:
+        return v2_failure(agent, str(e), session)
+    deletes = getattr(agent, "delete_on_revoke", True) is not False
+    records: List[Dict[str, Any]] = []
+    written: List[Dict[str, Any]] = []
+    error: Optional[str] = None
+    for event in events:
+        record = _event_record(event)
+        records.append(record)
+        try:
+            problem = _event_problem(event)
+            if problem is not None:
+                raise WriterError(
+                    f"event {event.get('event_id')!r}: {problem}"
+                )
+            if event["type"] == V2_REVOKE:
+                rows = listed_rows(list_rows(user_id))
+                if len(rows) >= V2_LIST_LIMIT:
+                    raise WriterError(
+                        f"list: returned its limit of {V2_LIST_LIMIT} "
+                        "rows, so some may be missing"
+                    )
+                record["found_ids"] = [
+                    row["memory_id"] for row in rows
+                    if row["metadata"].get(FIELD_FACT_KEY)
+                    == event[FIELD_FACT_KEY]
+                ]
+                if deletes:
+                    for memory_id in record["found_ids"]:
+                        _checked("delete", delete(user_id, memory_id))
+                        record["deleted_ids"].append(memory_id)
+            else:
+                metadata = v2_write_metadata(
+                    agent, memory_type, session, event
+                )
+                written.append(metadata)
+                ids = reply_ids(write(event["utterance"], metadata))
+                record["memory_ids"] = ids
+                record["stored_rows"] = len(ids)
+        except Exception as e:  # every failure fails the writer
+            record["error"] = error = _describe(e)
+            _logger.warning(
+                "%s: v2 session %s stopped at event %s: %s",
+                getattr(agent, "agent_name", ""), session,
+                event.get("event_id"), error,
+            )
+            break
+    return {
+        "agent_name": getattr(agent, "agent_name", ""),
+        "result": f"v2 session {session}: {len(events)} events",
+        "session": session,
+        "user_id": user_id,
+        "events": records,
+        "stored_rows": sum(r["stored_rows"] for r in records),
+        "deleted_ids": [i for r in records for i in r["deleted_ids"]],
+        "written": written,
+        "writer_failed": error is not None,
+        "error": error,
+        "token_usage": None,
+    }

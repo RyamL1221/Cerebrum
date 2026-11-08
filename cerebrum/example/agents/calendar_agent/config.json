@@ -1,0 +1,17 @@
+{
+    "name": "calendar_agent",
+    "description": [
+        "You are a calendar agent. ",
+        "You store the user's scheduling facts, such as meeting rooms, one-on-ones, conference talks and offsites, one memory per fact as the user states it, and you delete your own memories of a fact when the user asks you to forget it."
+    ],
+    "tools": [],
+    "meta": {
+        "author": "example",
+        "version": "0.0.1",
+        "license": "MIT"
+    },
+    "build": {
+        "entry": "agent.py",
+        "module": "CalendarAgent"
+    }
+}

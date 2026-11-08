@@ -356,6 +356,8 @@ class FakeNativeMemory:
             "metadata": dict(metadata), "messages": messages,
             "score": SCORES.get(metadata.get("memory_type"), 0.3),
         })
+        # The stored ids, as NativeMemory.write returns them (Subtask 14).
+        return [self.rows[-1]["memory_id"]]
 
     def search(self, query, user_id, k):
         return [dict(r, metadata=dict(r["metadata"])) for r in self.rows

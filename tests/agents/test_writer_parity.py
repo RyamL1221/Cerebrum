@@ -123,6 +123,8 @@ class FakeNativeMemory:
     def write(self, messages, text, agent_name, metadata):
         self.writes.append({"messages": messages, "text": text,
                             "metadata": dict(metadata)})
+        # The stored ids, as NativeMemory.write returns them (Subtask 14).
+        return [f"n{len(self.writes)}"]
 
 
 class FakePipeline:

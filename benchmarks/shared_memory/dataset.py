@@ -31,6 +31,7 @@ from benchmarks.shared_memory.models import (
     SyntheticProfile,
     SyntheticTaskContext,
     SyntheticTrialData,
+    V2UserData,
     _harness_commit,
 )
 
@@ -41,6 +42,10 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 NAMED = {
     "users_v1": ("users_v1.jsonl", None),
     "pilot_v1": ("users_v1.jsonl", 30),
+    # Benchmark v2 (AIOS docs/BENCHMARK_V2.md): the same 150 base users
+    # with a scripted history each; pilot_v2 is the first 30.
+    "users_v2": ("users_v2.jsonl", None),
+    "pilot_v2": ("users_v2.jsonl", 30),
 }
 RANDOM = "random"
 PROFILE_RETRIES = 5
@@ -74,6 +79,33 @@ class Dataset:
             follow_up_query=user["follow_up_query"],
             plausible_actions=user["plausible_actions"],
             user_id=f"{base}_{run_id}_t{index}",
+        )
+
+    @property
+    def version(self) -> int:
+        """The file's format: 1 (``users_v1``) or 2 (benchmark v2)."""
+        return int(self.header.get("format_version", 1))
+
+    def user_v2(self, index: int, run_id: str) -> V2UserData:
+        """Benchmark v2 user ``index`` with the run-scoped user id the
+        v1 users get (``{name}_{run_id}_t{index}``)."""
+        if self.version != 2:
+            raise ValueError(f"{self.name} is not a benchmark v2 dataset")
+        user = self.users[index]
+        if user["index"] != index:
+            raise ValueError(f"{self.path}: user {index} out of order")
+        final = user["final"]
+        profile = SyntheticProfile(**final["profile"])
+        base = profile.user_name.lower().replace(" ", "_")
+        return V2UserData(
+            index=index,
+            user_id=f"{base}_{run_id}_t{index}",
+            profile=profile,
+            task_context=SyntheticTaskContext(**final["task_context"]),
+            follow_up_query=user["base"]["follow_up_query"],
+            plausible_actions=user["base"].get("plausible_actions", []),
+            sessions=user["sessions"],
+            probes=user["probes"],
         )
 
     def describe(self) -> dict:
@@ -111,6 +143,15 @@ def load(spec: str) -> Optional[Dataset]:
         users = users[:limit]
     return Dataset(name, path, header, users,
                    hashlib.sha256(raw).hexdigest())
+
+
+def v2_input_sha256(user: "V2UserData") -> str:
+    """A hash of a v2 user's whole script, what the trial gives the
+    agents: every session with its events and utterances, and every
+    probe (not the run-scoped user id)."""
+    text = json.dumps({"sessions": user.sessions, "probes": user.probes},
+                      sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def trial_input_sha256(trial_data: SyntheticTrialData) -> str:

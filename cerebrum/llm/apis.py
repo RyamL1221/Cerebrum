@@ -177,6 +177,9 @@ class LLMQuery(Query):
     message_return_type: Literal["text", "json"] = Field(default="text")
     response_format: Optional[Dict[str, Any]] = Field(default=None)
     user_id: Optional[str] = Field(default=None)
+    # The caller's current session (benchmark v2): the memory block
+    # gives each row its age in sessions ("2 sessions ago").
+    session: Optional[int] = Field(default=None)
 
     class Config:
         arbitrary_types_allowed = True
@@ -241,6 +244,7 @@ def llm_chat(
         base_url: str = aios_kernel_url,
         llms: List[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
+        session: Optional[int] = None,
     ) -> LLMResponse:
     """
     Perform a chat interaction with the LLM.
@@ -257,6 +261,9 @@ def llm_chat(
             ]
         base_url: API base URL
         llms: Optional list of LLM configurations
+        user_id: The end user the request is for (memory scope)
+        session: The caller's current session, for session ages in
+            the memory block (benchmark v2); None leaves them off
         
     Returns:
         LLMResponse containing the generated response
@@ -311,6 +318,7 @@ def llm_chat(
         tools=None,
         action_type="chat",
         user_id=user_id,
+        session=session,
     )
     return send_request(agent_name, query, base_url)
 

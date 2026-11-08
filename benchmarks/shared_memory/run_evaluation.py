@@ -27,6 +27,7 @@ Usage::
 """
 
 import argparse
+from typing import Optional
 import logging
 import os
 import statistics
@@ -69,11 +70,15 @@ from benchmarks.shared_memory.dataset import (
     RANDOM,
     load as load_dataset,
     trial_input_sha256,
+    v2_input_sha256,
 )
+from benchmarks.shared_memory import history
+from benchmarks.shared_memory import judge_free as judge_free_measures
 from benchmarks.shared_memory.pipeline import (
     AgentPipeline,
     MethodPipeline,
     extraction_failure,
+    model_name,
 )
 from cerebrum.example.agents.variants import (
     CATALOG_VERSION as VARIANT_CATALOG_VERSION,
@@ -203,6 +208,47 @@ def check_kernel_mode(kernel_url: str, method: str) -> None:
             f"{kernel[0]} needs kernel injection, but the kernel has "
             "auto_inject=false"
         )
+
+
+V2_SETTINGS = {"max_injected_memories": 10, "max_memory_tokens": 500,
+               "relevance_threshold": 0.0, "block_format": "compact"}
+V2_BARRIER_TIMEOUT_MS = 60_000
+
+
+def check_v2_settings(kernel_url: str, method: str,
+                      recency: bool = True) -> dict:
+    """Fail unless the kernel's memory settings are benchmark v2's
+    (AIOS docs/BENCHMARK_V2.md, "Pre-flight"); return what was checked,
+    for the results file."""
+    response = requests.get(f"{kernel_url}/memory/config", timeout=10)
+    response.raise_for_status()
+    body = response.json()
+    pipeline = body.get("pipeline") or {}
+    problems = []
+    for key, want in V2_SETTINGS.items():
+        if pipeline.get(key) != want:
+            problems.append(f"{key} is {pipeline.get(key)!r}, not {want!r}")
+    unit = pipeline.get("block_recency_unit", "time")
+    if recency and (pipeline.get("block_recency") is not True
+                    or unit != "session"):
+        problems.append("session ages are off (block_recency "
+                        f"{pipeline.get('block_recency')!r}, unit {unit!r})")
+    if not recency and pipeline.get("block_recency") is not False:
+        problems.append("--no-recency needs block_recency false")
+    if canonical_condition(method) in KERNEL_INJECTION_CONDITIONS:
+        timeout = (pipeline.get("write_barrier") or {}).get("timeout_ms")
+        if not isinstance(timeout, (int, float)) or \
+                timeout < V2_BARRIER_TIMEOUT_MS:
+            problems.append(f"write_barrier.timeout_ms is {timeout!r}, not "
+                            f">= {V2_BARRIER_TIMEOUT_MS}")
+        if not (body.get("auto_inject") and body.get("auto_extract")):
+            problems.append("a kernel method needs auto_inject and "
+                            "auto_extract on")
+    if problems:
+        raise SystemExit("benchmark v2 pre-flight: " + "; ".join(problems))
+    return {"pipeline": pipeline, "auto_inject": body.get("auto_inject"),
+            "auto_extract": body.get("auto_extract"),
+            "pipeline_version": body.get("pipeline_version")}
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -392,6 +438,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--control",
+        choices=history.CONTROLS,
+        default=None,
+        help=(
+            "Benchmark v2 negative control (AIOS docs/BENCHMARK_V2.md, "
+            "\"Functional check\"): no_memory skips the sessions, "
+            "no_delete makes revokes delete nothing, no_visibility makes "
+            "the native consumer ignore visibility. Needs --no-judge."
+        ),
+    )
+    parser.add_argument(
+        "--no-recency",
+        action="store_true",
+        help=(
+            "Benchmark v2 without session ages (an ablation); the kernel "
+            "must then report block_recency false."
+        ),
+    )
+    parser.add_argument(
         "--kernel-logs",
         type=str,
         default=None,
@@ -437,6 +502,9 @@ class EvaluationOrchestrator:
         variant_seed: int | None = None,
         judge: bool = True,
         schedule: str | None = None,
+        control: str | None = None,
+        recency: bool = True,
+        preflight: dict | None = None,
     ):
         if heterogeneity not in HETEROGENEITY_LEVELS:
             raise ValueError(
@@ -456,6 +524,24 @@ class EvaluationOrchestrator:
         self.judged = judge
         self.dataset = load_dataset(dataset)
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
+        # Benchmark v2 (AIOS docs/BENCHMARK_V2.md): a scripted history
+        # per user, then the probes.
+        self.v2 = bool(self.dataset and self.dataset.version == 2)
+        self.control = control
+        self.recency = recency
+        self.preflight = preflight
+        if control is not None and not self.v2:
+            raise ValueError("--control needs a benchmark v2 dataset")
+        if control is not None and judge:
+            raise ValueError("a negative control runs without the judge: "
+                             "pass --no-judge")
+        if self.v2 and condition is not None:
+            raise ValueError("benchmark v2 needs --method, not --condition")
+        if self.v2 and canonical_condition(method) not in \
+                MethodPipeline.V2_METHODS:
+            raise ValueError(f"benchmark v2 runs {MethodPipeline.V2_METHODS},"
+                             f" not {method}")
+        self._embed = None
         self.schedule = Schedule(schedule) if schedule else None
         if self.schedule and self.schedule.dataset != self.dataset_name:
             raise ValueError(
@@ -621,6 +707,9 @@ class EvaluationOrchestrator:
             TrialResult with all fields populated.
         """
         effective_method = method if method else condition
+        if getattr(self, "v2", False):
+            return self.run_single_trial_v2(
+                trial_index, condition, pipeline, effective_method)
 
         # Step 1: Generate (or reuse) synthetic data
         if trial_data is None:
@@ -834,6 +923,155 @@ class EvaluationOrchestrator:
             **backend_usage,
         )
 
+    # -- benchmark v2 (AIOS docs/BENCHMARK_V2.md, "Harness") -------------
+
+    def _recorded_run_id(self) -> Optional[str]:
+        """The run id the users' ids carry: ``--run-id``, else the one
+        the generator drew."""
+        run_id = getattr(self.generator, "run_id", None)
+        return self.run_id or (run_id if isinstance(run_id, str) else None)
+
+    def _run_settings(self) -> dict:
+        """What a v2 results file records about the run's settings."""
+        if not getattr(self, "v2", False):
+            return {}
+        return {"benchmark": "v2", "control": self.control,
+                "recency": self.recency, "preflight": self.preflight}
+
+    def _embedder(self):
+        """The pinned embedding model as ``embed(texts)`` for the probes'
+        semantic diagnostic; None when it cannot be reached (the
+        semantic fields are then None; no pass depends on them)."""
+        if self._embed is not None:
+            return self._embed or None
+        try:
+            from cerebrum.example.agents.native.backends import Embedder
+
+            embedding = AgentPipeline._kernel_memory_config()["embedding"]
+            model = Embedder(embedding)
+            self._embed = lambda texts: [model(t) for t in texts]
+        except Exception as e:  # never fails a trial
+            logger.warning("Semantic probe diagnostic off: %s", e)
+            self._embed = False
+        return self._embed or None
+
+    def run_single_trial_v2(self, trial_index: int, condition: str,
+                            pipeline, method: str) -> TrialResult:
+        """One benchmark v2 user: the history and the probes through the
+        method's locus, the probes scored, the integration probe judged;
+        any failure the spec lists fails the user."""
+        base = {
+            "trial_index": trial_index, "condition": condition,
+            "method": method, "dataset": self.dataset_name,
+            "heterogeneity_level": getattr(self, "heterogeneity", 0),
+            "control": self.control,
+        }
+        try:
+            user = self.dataset.user_v2(trial_index, self.generator.run_id)
+        except Exception as e:
+            return TrialResult(**base, failed=True, error_message=str(e))
+        base.update(
+            input_sha256=v2_input_sha256(user),
+            follow_up_query=user.follow_up_query,
+            plausible_actions=user.plausible_actions,
+            synthetic_profile=user.profile,
+            synthetic_task_context=user.task_context,
+        )
+        variants = self.trial_variants(trial_index)
+        try:
+            user, outcome, locus = pipeline.run_history_trial(
+                user, variants or None, control=self.control,
+                recency_session=self.recency,
+            )
+        except Exception as e:
+            logger.error("Trial %d: history failed: %s", trial_index, e)
+            return TrialResult(**base, failed=True,
+                               error_message=f"history: {e}")
+        common = {
+            "user_id": user.user_id,
+            "sessions": outcome.sessions,
+            "variants_applied": outcome.variants_applied,
+            "variants_not_applied": outcome.variants_not_applied,
+            "backend_extraction": outcome.backend_extraction,
+            "pipeline_version": outcome.pipeline_version,
+            "written_memories": outcome.written,
+            "memory_counts": MemoryCounts.of(outcome.written),
+            "deleted_memory_ids": history.deleted_ids(outcome),
+        }
+        results = history.score_turns(user, outcome, locus,
+                                      embed=self._embedder())
+        common["probe_results"] = results
+        if outcome.failure:
+            logger.error("Trial %d: %s", trial_index, outcome.failure)
+            return TrialResult(**base, **common, failed=True,
+                               error_message=outcome.failure)
+        integration = next(r for r in results if r.type == "integration")
+        scores = UNJUDGED
+        if getattr(self, "judged", True):
+            try:
+                scores = self.judge.evaluate(
+                    query=user.follow_up_query,
+                    response=integration.observed,
+                    profile=user.profile, task_context=user.task_context,
+                )
+            except Exception as e:
+                logger.error("Trial %d: judge failed: %s", trial_index, e)
+                return TrialResult(**base, **common, failed=True,
+                                   error_message=f"judge: {e}",
+                                   judge_attempts=getattr(e, "attempts",
+                                                          None))
+            integration.judge_scores = {
+                "profile_usage_score": scores.profile_usage_score,
+                "task_usage_score": scores.task_usage_score,
+                "integration_score": scores.integration_score,
+            }
+            integration.integration_score = scores.integration_score
+        # Read after the probes (and the judge), so the kernel's last
+        # background conversation write is counted.
+        backend = {"backend_llm_tokens": outcome.backend_llm_tokens,
+                   "embedding_tokens": outcome.embedding_tokens}
+        if outcome.backend_llm_tokens is None:
+            try:
+                backend = read_backend_usage(self.kernel_url, user.user_id)
+            except requests.RequestException as e:
+                logger.warning("Trial %d: backend usage unavailable: %s",
+                               trial_index, e)
+        backend = {k: v or TokenUsage() for k, v in backend.items()}
+        silent = history.extraction_failure(
+            user, outcome, outcome.backend_extraction)
+        wrote = self.control != "no_memory" and history.write_events(user)
+        if (silent is None and outcome.backend_extraction is True and wrote
+                and backend["backend_llm_tokens"].calls == 0):
+            silent = "backend_extraction_failed: no backend LLM calls recorded"
+        attempts = getattr(scores, "judge_attempts", None)
+        trial = TrialResult(
+            **base, **common,
+            reappeared_memory_ids=history.reappeared_ids(outcome),
+            revoked_value_rows=history.revoked_value_rows(user, outcome),
+            assistant_response=integration.observed,
+            injection_diagnostics=integration.diagnostics,
+            judge_free=judge_free_measures.measure(
+                user.profile, user.user_id, integration.diagnostics,
+                outcome.written,
+            ),
+            profile_usage_score=scores.profile_usage_score,
+            task_usage_score=scores.task_usage_score,
+            integration_score=scores.integration_score,
+            token_usage=TokenUsage.of_calls(
+                [r.token_usage for r in results],
+                model_name(self.assistant_llms)),
+            latency_seconds=sum(r.latency_seconds or 0.0 for r in results),
+            decoding=(outcome.turns[0].result or {}).get("decoding")
+            if outcome.turns else None,
+            scorer=SCORER if scores is not UNJUDGED else None,
+            judge_attempts=attempts if isinstance(attempts, int) else None,
+            **backend,
+        )
+        if silent:
+            logger.error("Trial %d: %s", trial_index, silent)
+            trial.failed, trial.error_message = True, silent
+        return trial
+
     def run(self) -> ExperimentResults:
         """Run the full experiment across all requested conditions/methods.
 
@@ -904,6 +1142,8 @@ class EvaluationOrchestrator:
             judge_seed=self.judge.seed,
             judged=getattr(self, "judged", True),
             heterogeneity=self._heterogeneity_metadata(),
+            run_settings=self._run_settings(),
+            run_id=self._recorded_run_id(),
         )
 
         experiment = ExperimentResults(
@@ -1004,6 +1244,8 @@ class EvaluationOrchestrator:
             judge_seed=self.judge.seed,
             judged=getattr(self, "judged", True),
             heterogeneity=self._heterogeneity_metadata(),
+            run_settings=self._run_settings(),
+            run_id=self._recorded_run_id(),
         )
 
         experiment = ExperimentResults(
@@ -1047,6 +1289,12 @@ def main():
         check_kernel_provider(kernel_url, args.provider)
     if args.condition is None:
         check_kernel_mode(kernel_url, canonical_condition(args.method))
+    dataset_spec = (load_dataset(args.dataset)
+                    if isinstance(args.dataset, str) else None)
+    preflight = None
+    if dataset_spec is not None and dataset_spec.version == 2:
+        preflight = check_v2_settings(kernel_url, args.method,
+                                      recency=not args.no_recency)
 
     orchestrator = EvaluationOrchestrator(
         trials=args.trials,
@@ -1064,6 +1312,9 @@ def main():
         variant_seed=args.variant_seed,
         judge=not args.no_judge,
         schedule=args.schedule,
+        control=args.control,
+        recency=not args.no_recency,
+        preflight=preflight,
     )
 
     experiment = orchestrator.run()

@@ -45,7 +45,7 @@ class MemoryQuery(Query):
         params (Dict): Parameters specific to each action type
     """
     query_class: str = "memory"
-    operation_type: Literal["add_memory", "get_memory", "update_memory", "remove_memory", "retrieve_memory", "add_agentic_memory","retrieve_memory_raw"]
+    operation_type: Literal["add_memory", "get_memory", "update_memory", "remove_memory", "retrieve_memory", "add_agentic_memory","retrieve_memory_raw", "list_memory"]
     params: Dict[str, Any] = Field(default_factory=dict)
     
     class Config:
@@ -265,6 +265,25 @@ def delete_memory(agent_name: str,
         operation_type="remove_memory",
         params={"memory_id": memory_id, "user_id": user_id}
     )
+    return send_request(agent_name, query, base_url)
+
+def list_memories(agent_name: str,
+                  user_id: str,
+                  base_url: str = aios_kernel_url,
+                  *,
+                  k: Optional[int] = None) -> MemoryResponse:
+    """List the memories ``agent_name`` owns for ``user_id``, unranked.
+
+    Owner-only (benchmark v2, AIOS docs/BENCHMARK_V2.md): a writer lists
+    its own rows to find the ones it must delete on a revoke, and the
+    harness lists them to check what a delete left behind. Rows come
+    back in ``search_results`` as ``{memory_id, content, metadata, ...}``;
+    ``k`` caps the count (the kernel's default reaches every row).
+    """
+    params: Dict[str, Any] = {"user_id": user_id}
+    if k is not None:
+        params["k"] = k
+    query = MemoryQuery(operation_type="list_memory", params=params)
     return send_request(agent_name, query, base_url)
 
 def search_memories(agent_name: str,

@@ -48,6 +48,7 @@ from benchmarks.shared_memory.models import (
     RetrievalLogEntry,
     SyntheticTrialData,
     TokenUsage,
+    V2UserData,
     WrittenMemoryRecord,
 )
 
@@ -490,6 +491,12 @@ class AgentPipeline:
                 sharing_policy=mem.get("sharing_policy"),
                 provenance_agent=mem.get("provenance_agent"),
                 provenance_user=mem.get("provenance_user"),
+                # Benchmark v2's per-row fields (None in v1 replies).
+                provenance_event=mem.get("provenance_event"),
+                content=mem.get("content"),
+                fact_key=mem.get("fact_key"),
+                session=mem.get("session")
+                if isinstance(mem.get("session"), int) else None,
             ))
 
         selection = {
@@ -811,6 +818,87 @@ class MethodPipeline:
                 "kernel_private, native_mem0, native_inhouse, "
                 "replicated_mem0, replicated_inhouse."
             )
+
+    # -- benchmark v2 (AIOS docs/BENCHMARK_V2.md, "Harness") ---------------
+
+    V2_METHODS = ("kernel_shared",) + tuple(
+        m for m in ("replicated_mem0", "replicated_inhouse",
+                    "native_mem0", "native_inhouse"))
+
+    def run_history_trial(
+        self, user: "V2UserData",
+        variants: Optional[Dict[str, str]] = None, *,
+        control: Optional[str] = None, recency_session: bool = True,
+    ) -> tuple:
+        """One benchmark v2 user through this method's locus
+        (``history.run_history``), under the method-scoped user id.
+        Returns ``(user, outcome, locus)`` with the outcome's
+        ``backend_extraction`` and ``pipeline_version`` filled."""
+        from benchmarks.shared_memory import history
+
+        if self.method not in self.V2_METHODS:
+            raise ValueError(f"benchmark v2 runs {self.V2_METHODS}, not "
+                             f"{self.method}")
+        user = user.model_copy(
+            update={"user_id": f"{user.user_id}__{self.method}"})
+        if self.method == "kernel_shared":
+            locus = history.KernelLocus(self.assistant_llms)
+            extraction = AgentPipeline._kernel_backend_extraction()
+            version = AgentPipeline._kernel_pipeline_version()
+        else:
+            backend = "mem0" if self.method.endswith("mem0") else "inhouse"
+            kind = "native" if self.method.startswith("native") else \
+                "replicated"
+            agents = self._v2_agents(kind, backend)
+            locus = history.AgentManagedLocus(kind, agents,
+                                              self.assistant_llms)
+            memory = agents[history.CONSUMER].memory
+            extraction = memory.backend_extraction
+            version = getattr(memory, "version", None)
+        runner = VariantRunner(variants, locus.locus)
+        outcome = history.run_history(user, locus, runner, control=control,
+                                      recency_session=recency_session)
+        outcome.backend_extraction = extraction
+        outcome.pipeline_version = version
+        return user, outcome, locus.locus
+
+    def _v2_agents(self, kind: str, backend: str) -> Dict[str, Any]:
+        """The condition's four agents (three writers and the
+        assistant), each with its own backend client, built once and
+        kept across users like deployed agents."""
+        cached = getattr(self, "_v2_agents_cache", None)
+        if cached is not None:
+            return cached
+        kernel_config = AgentPipeline._kernel_memory_config()
+        if kind == "native":
+            from cerebrum.example.agents.native.agents import (
+                NativeCalendarAgent,
+            )
+
+            settings = native_backends.NativeSettings.from_kernel_config(
+                kernel_config)
+            make = lambda: NativeMemory(backend, settings)  # noqa: E731
+            classes = (NativeProfileAgent, NativeTaskAgent,
+                       NativeCalendarAgent, NativeAssistantAgent)
+        else:
+            from cerebrum.example.agents.replicated.agents import (
+                ReplicatedAssistantAgent,
+                ReplicatedCalendarAgent,
+                ReplicatedMemory,
+                ReplicatedProfileAgent,
+                ReplicatedTaskAgent,
+            )
+
+            make = lambda: ReplicatedMemory(  # noqa: E731
+                backend, kernel_config)
+            classes = (ReplicatedProfileAgent, ReplicatedTaskAgent,
+                       ReplicatedCalendarAgent, ReplicatedAssistantAgent)
+        names = ("profile_agent", "task_agent", "calendar_agent",
+                 "assistant_agent")
+        self._v2_agents_cache = {
+            name: cls(name, make()) for name, cls in zip(names, classes)
+        }
+        return self._v2_agents_cache
 
     def _run_kernel_shared(
         self, trial_data: SyntheticTrialData, method_user_id: str
