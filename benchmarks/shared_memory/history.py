@@ -356,11 +356,23 @@ def run_history(user: V2UserData, locus, runner, *,
     return outcome
 
 
+def _with_base_fields(user: V2UserData, events: List[dict]) -> List[dict]:
+    """The session's events, a base event with the fields it states
+    (the base profile or task context), as a v1 writer received them;
+    the dataset's events are not changed."""
+    fields = {"base_profile": user.profile.model_dump(),
+              "base_task": user.task_context.model_dump()}
+    return [dict(e, fields=fields[e["fact_key"]])
+            if e["type"] == "base" and e.get("fact_key") in fields else e
+            for e in events]
+
+
 def _sessions(user, locus, runner, outcome, ids) -> None:
     for session in user.sessions:
         name = session["writer"]
         payload = json.dumps({"v2_session": {
-            "session": session["session"], "events": session["events"]}})
+            "session": session["session"],
+            "events": _with_base_fields(user, session["events"])}})
         result = runner.run(name, locus.writer(name), payload)
         if result.get("user_id"):
             ids[name].add(result["user_id"])

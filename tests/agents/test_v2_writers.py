@@ -1051,3 +1051,36 @@ def test_replicated_v2_checks_in_a_fresh_interpreter():
         result.stdout[-6000:] + result.stderr[-3000:]
     )
     assert " passed" in result.stdout and " failed" not in result.stdout
+
+
+# -- V5 on a base event ---------------------------------------------------------
+
+BASE_FIELDS = {"user_name": "Ana Li", "preferred_tools": ["vim", "git"],
+               "preferred_language": "Go", "response_style": "terse"}
+
+
+def test_a_base_events_payload_is_its_fields():
+    """V5 writes ``structured``: for a base event that is the profile or
+    task JSON, as v1 kept it, never a fact-less stub that leaves Mem0
+    nothing to extract (functional check, H = 2, users 0 and 1)."""
+    base = event("e0", "base", "base_profile", utterance="My name is Ana.",
+                 fields=BASE_FIELDS)
+    assert smu.v2_structured(base) == smu.structured(BASE_FIELDS)
+    assert json.loads(smu.v2_structured(base))["user_name"] == "Ana Li"
+    without = dict(base)
+    del without["fields"]
+    assert json.loads(smu.v2_structured(without)) == {
+        "fact_key": "base_profile", "value": None, "event_type": "base"}
+    add = event("e1", "add", "pet", "Mochi", fields=BASE_FIELDS)
+    assert json.loads(smu.v2_structured(add))["value"] == "Mochi"
+
+
+def test_v5_writes_the_base_fields_in_the_kernel(kernel):
+    agent = kernel_writer(profile_module.ProfileAgent, "profile_agent")
+    base = event("e0", "base", "base_profile",
+                 utterance="My name is Ana Li.", fields=BASE_FIELDS)
+    with apply_variant(variants.variant("V5"), agent, "profile_agent",
+                       "kernel"):
+        agent.run(payload(1, [base]))
+    content = kernel.create.call_args.kwargs["content"]
+    assert json.loads(content) == BASE_FIELDS

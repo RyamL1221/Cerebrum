@@ -383,3 +383,25 @@ def test_a_v2_trial_mirrors_the_integration_probe_and_judges_it(tmp_path):
     assert kwargs["profile"] == trial.synthetic_profile
     assert trial.input_sha256 and trial.user_id == USER_ID
     assert trial.token_usage.total_tokens == 6 * 15
+
+
+def test_base_events_reach_the_writers_with_their_fields():
+    """The harness hands a base event the fields it states (as a v1
+    writer got them), so V5's raw payload has facts in it."""
+    sent = []
+    locus = FakeLocus()
+    real = FakeWriter.run
+
+    def recording(self, task_input):
+        sent.append(json.loads(task_input)["v2_session"])
+        return real(self, task_input)
+    user = v2_user()
+    with patch.object(FakeWriter, "run", recording):
+        run(locus, user)
+    bases = [e for s in sent for e in s["events"] if e["type"] == "base"]
+    assert [b["fact_key"] for b in bases] == ["base_profile", "base_task"]
+    assert bases[0]["fields"] == user.profile.model_dump()
+    assert bases[1]["fields"] == user.task_context.model_dump()
+    # The dataset's own events are left as they were.
+    assert all("fields" not in e for s in user.sessions
+               for e in s["events"])

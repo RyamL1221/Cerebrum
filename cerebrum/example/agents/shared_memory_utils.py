@@ -372,7 +372,14 @@ def parse_v2_session(task_input: Any) -> Optional[Dict[str, Any]]:
 def v2_structured(event: Dict[str, Any]) -> str:
     """The event as the JSON string a v2 write keeps in
     ``metadata.structured`` (its ``fact_key``, ``value`` and
-    ``event_type``): what V5 writes as its raw payload."""
+    ``event_type``): what V5 writes as its raw payload. A base event
+    carries the base profile or task context as ``fields`` (the harness
+    adds them), and its payload is those fields, as v1's writers kept
+    them (``structured``): a fact-less payload would leave Mem0 nothing
+    to extract."""
+    if event.get("type") == "base" and isinstance(event.get("fields"),
+                                                    dict):
+        return structured(event["fields"])
     return _json.dumps({
         FIELD_FACT_KEY: event.get(FIELD_FACT_KEY),
         "value": event.get("value"),
