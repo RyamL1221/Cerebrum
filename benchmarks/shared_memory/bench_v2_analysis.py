@@ -108,6 +108,10 @@ def cell_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 "budget_bound": (None if locus == "native" else sum(
                     1 for p in probes if p.get("budget_bound"))),
                 "probes": len(probes),
+                # A value reached the block only through the consumer's
+                # own conversation rows (earlier probes' answers).
+                "contaminated": sum(1 for p in probes
+                                    if p.get("contaminated")),
             }
             if kind in ("recency", "contradiction"):
                 lenient = [p for p in probes
@@ -115,9 +119,11 @@ def cell_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 row["lenient"] = _rate(
                     sum(1 for p in lenient if p["expected_present"]),
                     len(lenient))["rate"]
-                row["names_both"] = sum(
-                    1 for p in probes if p.get("expected_present")
-                    and p.get("stale_present"))
+                both = [p for p in probes if p.get("expected_present")
+                        and p.get("stale_present")]
+                row["names_both"] = len(both)
+                row["named_as_past"] = sum(
+                    1 for p in both if p.get("transition_marked"))
             if kind in ("deletion", "privacy"):
                 row["in_block"] = sum(1 for p in probes
                                       if p.get("forbidden_in_block"))
@@ -198,24 +204,34 @@ def criteria(cells: Dict[tuple, dict]) -> List[dict]:
         "evidence": f"{len(leaks)} of {len(kernel_priv)} kernel privacy "
                     "probes leaked",
     })
-    cap_cells = [(key, cell) for key, cell in cells.items()
-                 if key[1] in ("kernel", "replicated")]
-    no_cap = [key for key, cell in cap_cells if not any(
-        p.get("cap_bound") for t in cell["trials"]
-        for p in t.get("probe_results") or [])]
+    # A cell is locus x backend (the spec's six cells), read over the
+    # real conditions: no_memory skips the sessions, so its cap cannot
+    # bind, and the controls are not what the check is about.
+    bound: Dict[tuple, List[int]] = {}
+    for (m, l, b, c), cell in cells.items():
+        if l not in ("kernel", "replicated") or c not in REAL_CONDITIONS:
+            continue
+        counts = bound.setdefault((m, l, b), [0, 0, 0])
+        for t in cell["trials"]:
+            for p in t.get("probe_results") or []:
+                counts[0] += 1
+                counts[1] += bool(p.get("cap_bound"))
+                counts[2] += bool(p.get("budget_bound"))
+    no_cap = [key for key, (_, cap, _) in sorted(bound.items()) if not cap]
     out.append({
         "criterion": "the cap binds in some probe of every kernel and "
-                     "replicated cell",
-        "holds": bool(cap_cells) and not no_cap,
-        "evidence": f"cells without a binding cap: {no_cap or 'none'}",
+                     "replicated cell (H = 0 and H = 2)",
+        "holds": bool(bound) and not no_cap,
+        "evidence": "; ".join(f"{l} {b}: {cap} of {n}"
+                              for (m, l, b), (n, cap, _)
+                              in sorted(bound.items()))
+        + (f"; cells without a binding cap: {no_cap}" if no_cap else ""),
     })
-    budget = sum(1 for key, cell in cap_cells if key[2] == "inhouse"
-                 for t in cell["trials"]
-                 for p in t.get("probe_results") or []
-                 if p.get("budget_bound"))
+    budget = sum(budget for (m, l, b), (_, _, budget) in bound.items()
+                 if b == "inhouse")
     out.append({
         "criterion": "the budget binds in some probe of a kernel or "
-                     "replicated in-house cell",
+                     "replicated in-house cell (H = 0 and H = 2)",
         "holds": budget > 0,
         "evidence": f"{budget} probes with a binding budget",
     })
@@ -310,10 +326,14 @@ def markdown(cells, rows, binding, checks, contrasts, integration) -> str:
            "", "## Per-probe pass matrix", "",
            "Pass rates with 95% Wilson intervals; recency and "
            "contradiction also give the lenient rate (the new value "
-           "named, stale or not).", "",
+           "named, stale or not), how many answers named both values "
+           "and how many of those named the stale one as past. "
+           "`contaminated`: a value reached the block only through the "
+           "consumer's own conversation rows.", "",
            table(rows, ["model", "locus", "backend", "condition", "probe",
                         "passed", "n", "rate", "ci_low", "ci_high",
-                        "lenient", "names_both", "in_block", "in_answer",
+                        "lenient", "names_both", "named_as_past",
+                        "in_block", "in_answer", "contaminated",
                         "cap_bound", "budget_bound", "probes"]), "",
            "## Cap and budget", "",
            table(binding, ["model", "locus", "backend", "condition",

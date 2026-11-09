@@ -114,6 +114,30 @@ def test_a_kernel_privacy_leak_breaks_its_criterion(tmp_path):
     assert not privacy["holds"]
 
 
+def cap_criterion(root):
+    return next(c for c in ba.criteria(ba.load(root))
+                if c["criterion"].startswith("the cap binds"))
+
+
+def test_the_cap_criterion_reads_a_cell_as_locus_and_backend(tmp_path):
+    """The spec's cells are locus x backend, over H = 0 and H = 2:
+    no_memory skips the sessions, so its cap cannot bind, and that does
+    not fail the kernel in-house cell."""
+    build(tmp_path)
+    write(tmp_path, "qwen", "kinh", "no_memory_kernel_shared",
+          [trial(0, {}, cap=False)])
+    cap = cap_criterion(tmp_path)
+    assert cap["holds"], cap
+    assert "kernel inhouse: 24 of 24" in cap["evidence"]
+    # A real cell whose cap never binds, in either condition, fails it.
+    for cell in ("h0_kernel_shared", "h2_kernel_shared"):
+        write(tmp_path, "qwen", "kinh", cell, [trial(0, ALL_PASS,
+                                                     cap=False)])
+    cap = cap_criterion(tmp_path)
+    assert not cap["holds"]
+    assert "('qwen', 'kernel', 'inhouse')" in cap["evidence"]
+
+
 def test_the_contrast_pairs_users_and_counts_identical_blocks(tmp_path):
     build(tmp_path)
     rows = ba.contrast_rows(ba.load(tmp_path), "qwen")
@@ -135,3 +159,27 @@ def test_markdown_lists_every_section(tmp_path):
                     "## Functional check criteria",
                     "## Kernel against replicated", "## Integration"):
         assert heading in text
+
+
+def test_the_matrix_counts_contamination_and_marked_transitions(tmp_path):
+    """Recency and contradiction rows count the answers that name both
+    values and, of those, the ones that name the stale value as past;
+    every row counts the probes whose value came only from the
+    consumer's own conversation rows."""
+    write(tmp_path, "qwen", "kinh", "h0_kernel_shared", [
+        trial(0, ALL_PASS),
+        {"trial_index": 1, "failed": False, "probe_results": [
+            probe("recency", False, expected_present=True,
+                  stale_present=True, transition_marked=True,
+                  contaminated=True),
+            probe("contradiction", False, expected_present=True,
+                  stale_present=True, transition_marked=False)]},
+    ])
+    rows = {r["probe"]: r for r in ba.cell_rows(ba.load(tmp_path))}
+    assert (rows["recency"]["names_both"],
+            rows["recency"]["named_as_past"],
+            rows["recency"]["contaminated"]) == (1, 1, 1)
+    assert (rows["contradiction"]["names_both"],
+            rows["contradiction"]["named_as_past"],
+            rows["contradiction"]["contaminated"]) == (1, 0, 0)
+    assert rows["recall"]["contaminated"] == 0
