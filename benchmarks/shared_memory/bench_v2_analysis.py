@@ -11,7 +11,14 @@ as AIOS ``scripts/run_bench_v2.sh`` writes them and reports:
 - the functional check's criteria, each with its evidence;
 - for the smoke: the integration mean per cell with its 95%
   t-interval, kernel against replicated per probe type (paired over
-  users, exact McNemar), and the share of identical in-house blocks.
+  users, exact McNemar), and the share of identical in-house blocks;
+- readings that explain the rates (AIOS ``DEV_STATUS.md``, known
+  issues 38, 43 to 45): trial-level exposure for deletion and privacy,
+  each deletion failure's carrier and what the store kept behind each
+  deletion probe, where the expected value was in each failure,
+  contradiction per slot, recency and contradiction split by whether an
+  earlier answer in the block carries the stale value, and the
+  integration probe's block, with its score by the base rows it holds.
 
     python -m benchmarks.shared_memory.bench_v2_analysis results/bench_v2_functional \\
         --markdown results/bench_v2_functional/analysis.md \\
@@ -20,11 +27,13 @@ as AIOS ``scripts/run_bench_v2.sh`` writes them and reports:
 import argparse
 import json
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from benchmarks.shared_memory.probes import mcnemar_exact, t_interval, wilson
+from benchmarks.shared_memory.probes import (
+    match_entry, mcnemar_exact, row_source, t_interval, wilson,
+)
 
 JUDGE_FREE = ("deletion", "privacy", "recall", "recency", "contradiction")
 REAL_CONDITIONS = ("h0", "h2")
@@ -308,6 +317,360 @@ def integration_rows(cells: Dict[tuple, dict]) -> List[dict]:
     return rows
 
 
+def _key(model, locus, backend, condition) -> dict:
+    return {"model": model, "locus": locus, "backend": backend,
+            "condition": condition}
+
+
+def _carries(text: Optional[str], entries) -> bool:
+    return any(match_entry(text, entry) for entry in entries or [])
+
+
+def _block(probe: dict) -> Optional[str]:
+    return (probe.get("diagnostics") or {}).get("block_text")
+
+
+def exposure_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Deletion and privacy at the trial level (known issue 43). A
+    probe checks only its own block and answer, so a pass can hide the
+    value elsewhere in the trial. Per cell and probe type, over scored
+    probes: ``passed``; ``exposed``, the trials whose forbidden value
+    appears in any probe's block or answer; and ``passed_exposed``, the
+    passes among them."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        for kind in ("deletion", "privacy"):
+            n = passed = exposed = passed_exposed = 0
+            for trial in cell["trials"]:
+                if trial.get("failed"):
+                    continue
+                probes = trial.get("probe_results") or []
+                probe = next((p for p in probes if p["type"] == kind), None)
+                if probe is None or probe.get("passed") is None:
+                    continue
+                forbidden = probe.get("forbidden") or []
+                hit = any(_carries(_block(p), forbidden)
+                          or _carries(p.get("observed"), forbidden)
+                          for p in probes)
+                n += 1
+                passed += bool(probe["passed"])
+                exposed += hit
+                passed_exposed += bool(probe["passed"]) and hit
+            if n:
+                rows.append({**_key(model, locus, backend, condition),
+                             "probe": kind, "n": n, "passed": passed,
+                             "exposed": exposed,
+                             "passed_exposed": passed_exposed})
+    return rows
+
+
+def carrier_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Each failed deletion probe by its carrier (known issue 38): the
+    sources of the block rows that hold the revoked value (``target``,
+    ``echo``, ``other_fact``, which is a Mem0 fold, ``conversation``,
+    ``unknown``), joined with ``+``; ``block, no row`` when the block
+    text holds the value but no injected row does; ``answer only`` when
+    the block text does not hold it, or is missing (the answer does).
+    :func:`stored_carrier_rows` gives what the store kept instead."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        counts = Counter()
+        for probe in _probes(cell["trials"], "deletion"):
+            if probe.get("passed") is not False:
+                continue
+            if probe.get("forbidden_in_block"):
+                sources = sorted({row.get("source") or "unknown" for row
+                                  in probe.get("rows_with_forbidden") or []})
+                counts["+".join(sources) or "block, no row"] += 1
+            else:
+                counts["answer only"] += 1
+        for carrier, n in sorted(counts.items()):
+            rows.append({**_key(model, locus, backend, condition),
+                         "carrier": carrier, "failures": n})
+    return rows
+
+
+def stored_carrier_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Each scored deletion probe, failed or passed, by what the store
+    kept (known issue 38): the sources (:func:`probes.row_source`) of
+    the rows that still held the revoked value in the listing after the
+    history, right before the probes (``revoked_value_rows``, listing
+    ``history``), joined with ``+``, or ``none``. A pass with a stored
+    carrier is one whose selection left the carrier out of the block:
+    the fetch did not return it, or a later stage, such as the cap,
+    dropped it. A failure's block may hold fewer carriers than the
+    store (:func:`carrier_rows`)."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        counts = defaultdict(lambda: {False: 0, True: 0})
+        for trial in cell["trials"]:
+            if trial.get("failed"):
+                continue
+            probe = next((p for p in trial.get("probe_results") or []
+                          if p["type"] == "deletion"), None)
+            if probe is None or probe.get("passed") is None:
+                continue
+            values = {entry.get("value") if isinstance(entry, dict)
+                      else entry for entry in probe.get("forbidden") or []}
+            sources = {row_source(row, probe)
+                       for row in trial.get("revoked_value_rows") or []
+                       if row.get("listing") == "history"
+                       and row.get("value") in values}
+            stored = "+".join(sorted(sources)) or "none"
+            counts[stored][bool(probe["passed"])] += 1
+        for stored, split in sorted(counts.items()):
+            rows.append({**_key(model, locus, backend, condition),
+                         "stored": stored, "failures": split[False],
+                         "passes": split[True]})
+    return rows
+
+
+def miss_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Failed recall, recency and contradiction probes by where the
+    expected value was: ``not_in_block`` (never stored, or selection
+    lost it), ``in_block_no_row`` (the block text holds it, no injected
+    row does), ``conversation_only`` (only the consumer's own earlier
+    answers held it) or ``in_writer_row`` (a writer's row held it).
+    ``named``: the failures whose answer named the expected value too
+    (recency and contradiction: they failed on the stale value)."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        for kind in ("recall", "recency", "contradiction"):
+            probes = [p for p in _probes(cell["trials"], kind)
+                      if p.get("passed") is False]
+            if not probes:
+                continue
+            counts = Counter()
+            for probe in probes:
+                sources = {row.get("source") for row
+                           in probe.get("rows_with_expected") or []}
+                if not probe.get("expected_in_block"):
+                    counts["not_in_block"] += 1
+                elif not sources:
+                    counts["in_block_no_row"] += 1
+                elif sources == {"conversation"}:
+                    counts["conversation_only"] += 1
+                else:
+                    counts["in_writer_row"] += 1
+            rows.append({**_key(model, locus, backend, condition),
+                         "probe": kind, "failed": len(probes),
+                         "named": sum(1 for p in probes
+                                      if p.get("expected_present")),
+                         "not_in_block": counts["not_in_block"],
+                         "in_block_no_row": counts["in_block_no_row"],
+                         "conversation_only": counts["conversation_only"],
+                         "in_writer_row": counts["in_writer_row"]})
+    return rows
+
+
+def slot_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Contradiction per slot (known issue 44): in some slots the
+    question repeats the earlier statement's words. ``lenient``: the
+    answers that name the later value."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        by_slot = defaultdict(list)
+        for probe in _probes(cell["trials"], "contradiction"):
+            if probe.get("passed") is not None:
+                by_slot[probe.get("slot") or ""].append(probe)
+        for slot, probes in sorted(by_slot.items()):
+            rows.append({**_key(model, locus, backend, condition),
+                         "slot": slot, "n": len(probes),
+                         "passed": sum(1 for p in probes if p["passed"]),
+                         "lenient": sum(1 for p in probes
+                                        if p.get("expected_present"))})
+    return rows
+
+
+def earlier_answer_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Recency and contradiction, split by whether one of the
+    consumer's earlier answers in the block carries the stale value (a
+    ``conversation`` row among ``rows_with_stale``). The probes are asked
+    in one session, and each answer is stored, so a later probe's block
+    can hold an earlier answer that states the old value as current."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        for kind in ("recency", "contradiction"):
+            split = {True: [0, 0], False: [0, 0]}
+            for probe in _probes(cell["trials"], kind):
+                if probe.get("passed") is None:
+                    continue
+                stale = any(row.get("source") == "conversation"
+                            for row in probe.get("rows_with_stale") or [])
+                split[stale][0] += 1
+                split[stale][1] += bool(probe["passed"])
+            if split[True][0] + split[False][0]:
+                rows.append({**_key(model, locus, backend, condition),
+                             "probe": kind,
+                             "with_stale_answer": split[True][0],
+                             "passed_with": split[True][1],
+                             "without": split[False][0],
+                             "passed_without": split[False][1]})
+    return rows
+
+
+BASE_EVENTS = ("base_profile", "base_task")
+
+
+def _mean(values: List) -> Optional[float]:
+    """The mean, or None when there is nothing to average or a value is
+    missing."""
+    if not values or None in values:
+        return None
+    return float(statistics.mean(values))
+
+
+def _integration_probes(cell: dict):
+    """``(trial, probe, injected rows, {base event: in the block},
+    score)`` for each integration probe of a trial that did not fail.
+    The base events are the user's ``base_profile`` and ``base_task``
+    events, which the judge scores the answer against; a row counts
+    when its ``provenance_event`` is one of them. The score is the
+    probe's, else the trial's."""
+    for trial in cell["trials"]:
+        if trial.get("failed"):
+            continue
+        probe = next((p for p in trial.get("probe_results") or []
+                      if p["type"] == "integration"), None)
+        if probe is None:
+            continue
+        events = {kind: set() for kind in BASE_EVENTS}
+        for session in trial.get("sessions") or []:
+            for event in session.get("events") or []:
+                if event.get("fact_key") in events:
+                    events[event["fact_key"]].add(event.get("event_id"))
+        injected = (probe.get("diagnostics") or {}).get(
+            "injected_memories") or []
+        in_block = {kind: any(row.get("provenance_event") in ids
+                              for row in injected)
+                    for kind, ids in events.items()}
+        score = probe.get("integration_score")
+        if score is None:
+            score = trial.get("integration_score")
+        yield trial, probe, injected, in_block, score
+
+
+def integration_block_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """The integration probe's block per cell (known issue 45): the
+    mean number of rows, of the consumer's own conversation rows (its
+    earlier answers) and of writer rows; how often the budget bound;
+    how often a row of the user's ``base_task`` event, of its
+    ``base_profile`` event, and of both reached the block; and the mean
+    integration score with and without a base task row
+    (:func:`integration_base_rows` splits it by both)."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        sizes, own, budget, profile, both = [], [], 0, 0, 0
+        scores = {True: [], False: []}
+        for _, probe, injected, in_block, score in _integration_probes(
+                cell):
+            sizes.append(len(injected))
+            own.append(sum(1 for row in injected
+                           if row.get("memory_type") == "conversation"))
+            budget += bool(probe.get("budget_bound"))
+            profile += in_block["base_profile"]
+            both += all(in_block.values())
+            scores[in_block["base_task"]].append(score)
+        if not sizes:
+            continue
+        rows.append({**_key(model, locus, backend, condition),
+                     "n": len(sizes), "rows": _mean(sizes),
+                     "own_rows": _mean(own),
+                     "writer_rows": _mean(sizes) - _mean(own),
+                     "budget_bound": None if locus == "native" else budget,
+                     "base_task_in_block": len(scores[True]),
+                     "base_profile_in_block": profile,
+                     "both_in_block": both,
+                     "score_with": _mean(scores[True]),
+                     "score_without": _mean(scores[False])})
+    return rows
+
+
+def integration_base_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """The integration score per cell by ``base_rows``, how many of the
+    user's two base events (profile, task context) have a row in the
+    block (0, 1 or 2; known issue 45): ``n`` and the mean ``score``
+    (None when a score is missing). Only the counts that occur."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        by_count = defaultdict(list)
+        for _, _, _, in_block, score in _integration_probes(cell):
+            by_count[sum(in_block.values())].append(score)
+        for count, scores in sorted(by_count.items()):
+            rows.append({**_key(model, locus, backend, condition),
+                         "base_rows": count, "n": len(scores),
+                         "score": _mean(scores)})
+    return rows
+
+
+def readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
+    """Every reading above, by name."""
+    return {"exposure": exposure_rows(cells),
+            "carriers": carrier_rows(cells),
+            "stored_carriers": stored_carrier_rows(cells),
+            "misses": miss_rows(cells),
+            "slots": slot_rows(cells),
+            "earlier_answers": earlier_answer_rows(cells),
+            "integration_blocks": integration_block_rows(cells),
+            "integration_base_rows": integration_base_rows(cells)}
+
+
+CELL_KEYS = ["model", "locus", "backend", "condition"]
+READING_SECTIONS = [
+    ("exposure", "Trial-level exposure (deletion, privacy)",
+     "A probe checks only its own block and answer. `exposed`: trials "
+     "whose forbidden value appears in any probe's block or answer; "
+     "`passed_exposed`: passes among them.",
+     ["probe", "n", "passed", "exposed", "passed_exposed"]),
+    ("carriers", "Deletion failures by carrier",
+     "The sources of the block rows that held the revoked value "
+     "(`other_fact` is a Mem0 fold); `block, no row`: the block text "
+     "held it but no row did; `answer only`: the block text did not "
+     "hold it (only the answer did).",
+     ["carrier", "failures"]),
+    ("stored_carriers", "Deletion probes by what the store kept",
+     "The sources of the rows that still held the revoked value after "
+     "the history, right before the probes (`revoked_value_rows`), or "
+     "`none`. A pass with a stored carrier is one whose selection left "
+     "it out of the block: the fetch did not return it, or a later "
+     "stage, such as the cap, dropped it.",
+     ["stored", "failures", "passes"]),
+    ("misses", "Failures: where the expected value was",
+     "Failed recall, recency and contradiction probes by where the "
+     "expected value was: `not_in_block` (never stored, or selection "
+     "lost it), `in_block_no_row` (the block text holds it, no injected "
+     "row does), `conversation_only` (only the consumer's own earlier "
+     "answers held it), `in_writer_row` (a writer's row held it). "
+     "`named`: failures whose answer named the expected value too (they "
+     "failed on the stale value).",
+     ["probe", "failed", "named", "not_in_block", "in_block_no_row",
+      "conversation_only", "in_writer_row"]),
+    ("slots", "Contradiction by slot",
+     "`lenient`: answers that name the later value.",
+     ["slot", "n", "passed", "lenient"]),
+    ("earlier_answers",
+     "Recency and contradiction: the stale value in an earlier answer",
+     "Split by whether one of the consumer's earlier answers in the "
+     "block carries the stale value.",
+     ["probe", "with_stale_answer", "passed_with", "without",
+      "passed_without"]),
+    ("integration_blocks", "The integration probe's block",
+     "Means per probe: rows, the consumer's own rows (its earlier "
+     "answers) and writer rows. Probes whose block holds a row of the "
+     "user's base task context, of its base profile, and of both; the "
+     "mean score with and without a base task row.",
+     ["n", "rows", "own_rows", "writer_rows", "budget_bound",
+      "base_task_in_block", "base_profile_in_block", "both_in_block",
+      "score_with", "score_without"]),
+    ("integration_base_rows",
+     "Integration score by the base rows in the block",
+     "The judge scores the answer against the base profile and the "
+     "base task context. `base_rows`: how many of the two have a row "
+     "in the block.",
+     ["base_rows", "n", "score"]),
+]
+
+
 def _fmt(value) -> str:
     if value is None:
         return ""
@@ -324,9 +687,11 @@ def table(rows: List[dict], keys: List[str]) -> str:
     return "\n".join(lines)
 
 
-def markdown(cells, rows, binding, checks, contrasts, integration) -> str:
+def markdown(cells, rows, binding, checks, contrasts, integration,
+             extra: Optional[Dict[str, List[dict]]] = None) -> str:
     """The report: the pass matrix and the cap and budget table, then
-    the criteria, the contrasts and the integration rows when given."""
+    the criteria, the contrasts, the integration rows and the readings
+    (``extra``, as :func:`readings` returns them) when given."""
     out = ["# Benchmark v2 analysis", "",
            f"{len(cells)} cells, "
            f"{sum(len(c['trials']) for c in cells.values())} user-trials, "
@@ -361,6 +726,11 @@ def markdown(cells, rows, binding, checks, contrasts, integration) -> str:
                 table(integration, ["model", "locus", "backend",
                                     "condition", "n", "mean", "ci_low",
                                     "ci_high", "sd", "share_ge_4"]), ""]
+    for name, title, note, keys in READING_SECTIONS:
+        found = (extra or {}).get(name)
+        if found:
+            out += [f"## {title}", "", note, "",
+                    table(found, CELL_KEYS + keys), ""]
     return "\n".join(out) + "\n"
 
 
@@ -378,7 +748,9 @@ def main(argv=None) -> int:
     models = sorted({key[0] for key in cells})
     contrasts = [r for m in models for r in contrast_rows(cells, m)]
     integration = integration_rows(cells)
-    text = markdown(cells, rows, binding, checks, contrasts, integration)
+    extra = readings(cells)
+    text = markdown(cells, rows, binding, checks, contrasts, integration,
+                    extra)
     print(text)
     if args.markdown:
         Path(args.markdown).write_text(text)
@@ -386,6 +758,7 @@ def main(argv=None) -> int:
         Path(args.json).write_text(json.dumps({
             "rows": rows, "binding": binding, "criteria": checks,
             "contrasts": contrasts, "integration": integration,
+            "readings": extra,
         }, indent=1, default=str))
     return 0
 
