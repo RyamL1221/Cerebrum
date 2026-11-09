@@ -9,9 +9,9 @@ as AIOS ``scripts/run_bench_v2.sh`` writes them and reports:
   intervals, the lenient recency and contradiction rates, and how often
   the cap and the budget bound;
 - the functional check's criteria, each with its evidence;
-- for the smoke: the integration score per cell, kernel against
-  replicated per probe type (paired over users, exact McNemar), and the
-  share of identical in-house blocks.
+- for the smoke: the integration mean per cell with its 95%
+  t-interval, kernel against replicated per probe type (paired over
+  users, exact McNemar), and the share of identical in-house blocks.
 
     python -m benchmarks.shared_memory.bench_v2_analysis results/bench_v2_functional \\
         --markdown results/bench_v2_functional/analysis.md \\
@@ -24,7 +24,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from benchmarks.shared_memory.probes import mcnemar_exact, wilson
+from benchmarks.shared_memory.probes import mcnemar_exact, t_interval, wilson
 
 JUDGE_FREE = ("deletion", "privacy", "recall", "recency", "contradiction")
 REAL_CONDITIONS = ("h0", "h2")
@@ -286,6 +286,10 @@ def contrast_rows(cells: Dict[tuple, dict], model: str,
 
 
 def integration_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per cell with judged integration scores (failed trials left
+    out): ``n``, the ``mean`` with its 95% t-interval (``ci_low`` /
+    ``ci_high``), ``sd`` (both None for n < 2, where neither is
+    defined) and the share of scores of 4 or more."""
     rows = []
     for (model, locus, backend, condition), cell in sorted(cells.items()):
         scores = [t.get("integration_score") for t in cell["trials"]
@@ -294,10 +298,12 @@ def integration_rows(cells: Dict[tuple, dict]) -> List[dict]:
         if not scores:
             continue
         mean = statistics.mean(scores)
-        sd = statistics.stdev(scores) if len(scores) > 1 else 0.0
+        sd = statistics.stdev(scores) if len(scores) > 1 else None
+        low, high = t_interval(scores)
         rows.append({"model": model, "locus": locus, "backend": backend,
                      "condition": condition, "n": len(scores),
-                     "mean": mean, "sd": sd,
+                     "mean": mean, "ci_low": low, "ci_high": high,
+                     "sd": sd,
                      "share_ge_4": sum(s >= 4 for s in scores) / len(scores)})
     return rows
 
@@ -319,6 +325,8 @@ def table(rows: List[dict], keys: List[str]) -> str:
 
 
 def markdown(cells, rows, binding, checks, contrasts, integration) -> str:
+    """The report: the pass matrix and the cap and budget table, then
+    the criteria, the contrasts and the integration rows when given."""
     out = ["# Benchmark v2 analysis", "",
            f"{len(cells)} cells, "
            f"{sum(len(c['trials']) for c in cells.values())} user-trials, "
@@ -349,9 +357,10 @@ def markdown(cells, rows, binding, checks, contrasts, integration) -> str:
                                   "p_mcnemar"]), ""]
     if integration:
         out += ["## Integration (judge v2)", "",
+                "The mean with its 95% t-interval (none for n < 2).", "",
                 table(integration, ["model", "locus", "backend",
-                                    "condition", "n", "mean", "sd",
-                                    "share_ge_4"]), ""]
+                                    "condition", "n", "mean", "ci_low",
+                                    "ci_high", "sd", "share_ge_4"]), ""]
     return "\n".join(out) + "\n"
 
 

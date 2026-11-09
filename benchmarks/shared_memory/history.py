@@ -17,6 +17,13 @@ and the listing calls of one condition:
 
 The negative controls (``no_memory``, ``no_delete``, ``no_visibility``)
 switch one property off so a probe shows it can fail.
+
+Since Amendment 2, any failure (a ``LocusFailure`` or any exception)
+fails the user and keeps what ran. A probe whose diagnostics report a
+failed retrieval or injection is a consumer error, and ``score_turns``
+records a probe with an error unscored. Each write event's stored rows
+and ids come from the listing after its session, by
+``provenance_event``.
 """
 import json
 import logging
@@ -33,6 +40,7 @@ from benchmarks.shared_memory.models import (
     WrittenMemoryRecord,
 )
 from benchmarks.shared_memory.probes import match_entry
+from cerebrum.utils import usage
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +51,11 @@ PROBE_SESSION = 7
 LIST_LIMIT = 10_000
 CONTROLS = ("no_memory", "no_delete", "no_visibility")
 WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
+# Diagnostics keys that say a block cannot be trusted: the library's
+# fetch failed, or the kernel's injector raised. Either looks like an
+# empty store, which would pass deletion and privacy (Amendment 2).
+BLOCK_ERRORS = (("retrieval_error", "retrieval failed"),
+                ("injection_error", "injection failed"))
 
 
 def provenance(agent_name: str, user_id: str) -> Dict[str, str]:
@@ -54,7 +67,8 @@ def provenance(agent_name: str, user_id: str) -> Dict[str, str]:
 class ProbeTurn:
     """One probe as it ran: the dataset probe, the consumer's raw
     result, its answer and injection diagnostics, the rows the
-    consumer owned before it, and any error."""
+    consumer owned before it, and any error (the reason the probe
+    failed the user; ``score_turns`` does not score such a turn)."""
 
     probe: Dict[str, Any]
     result: Dict[str, Any] = field(default_factory=dict)
@@ -150,13 +164,16 @@ class KernelLocus:
 
     def capture(self, written: List[WrittenMemoryRecord]):
         """Patch every kernel agent module's ``create_memory`` so each
-        create is recorded as it is sent (after any variant)."""
+        create the kernel accepted is recorded with the metadata it was
+        sent with (after any variant). A refused or raising create is
+        not recorded, as in the agent-managed loci."""
         from cerebrum.example.agents.calendar_agent import (
             agent as calendar_module,
         )
         from cerebrum.example.agents.profile_agent import (
             agent as profile_module,
         )
+        from cerebrum.example.agents.shared_memory_utils import reply_error
         from cerebrum.example.agents.task_agent import agent as task_module
 
         stack = ExitStack()
@@ -165,7 +182,10 @@ class KernelLocus:
 
             def capturing(agent_name, content=None, metadata=None,
                           base_url=None, _real=real, **kwargs):
-                if metadata:
+                reply = _real(agent_name, content=content,
+                              metadata=metadata, base_url=base_url,
+                              **kwargs)
+                if metadata and reply_error(reply) is None:
                     written.append(WrittenMemoryRecord(
                         agent_name=metadata.get("owner_agent", agent_name),
                         memory_type=metadata.get("memory_type", ""),
@@ -173,13 +193,15 @@ class KernelLocus:
                                                     "private"),
                         user_id=metadata.get("user_id", ""),
                     ))
-                return _real(agent_name, content=content, metadata=metadata,
-                             base_url=base_url, **kwargs)
+                return reply
             stack.enter_context(patch.object(module, "create_memory",
                                              capturing))
         return stack
 
-    def backend_usage(self, turns: List[ProbeTurn]) -> tuple:
+    def backend_usage(self, turns: List[ProbeTurn],
+                      user_ids: Iterable[str] = ()) -> tuple:
+        """None, None: the kernel's usage is read from ``/memory/cost``
+        after the trial, under its canonical user ids."""
         return None, None
 
     def finish_user(self) -> None:
@@ -235,16 +257,32 @@ class AgentManagedLocus:
     def capture(self, written: List[WrittenMemoryRecord]):
         return ExitStack()  # writes are recorded from the writers' results
 
-    def backend_usage(self, turns: List[ProbeTurn]) -> tuple:
-        """The backend's LLM and embedding usage, summed over the
-        probes: each assistant run takes everything tagged with the user
-        since the last take, the history's writes included."""
+    def backend_usage(self, turns: List[ProbeTurn],
+                      user_ids: Iterable[str] = ()) -> tuple:
+        """The backend's LLM and embedding usage over the trial. Each
+        assistant run took everything tagged with its own user id since
+        the last take, the history's writes included. Calls tagged with
+        another id the trial used (``user_ids``, taken here, after the
+        probes) are added: a V2 writer's rewritten id, or the writers'
+        base id when a V2 consumer's was rewritten. A take removes what
+        it returns, so no call is counted twice."""
+        parts = [(turn.result or {}).get("backend_usage") or {}
+                 for turn in turns]
+        records: List[dict] = []
+        for user_id in dict.fromkeys(user_ids):  # each id once, in order
+            records += usage.ACCUMULATOR.take(user_id)
+        if records:
+            parts.append({
+                "backend_llm_tokens": usage.summarize(
+                    records, usage.BACKEND_EXTRACTION),
+                "embedding_tokens": usage.summarize(
+                    records, usage.EMBEDDING),
+            })
         llm, embedding = TokenUsage(), TokenUsage()
-        for turn in turns:
-            usage = (turn.result or {}).get("backend_usage") or {}
+        for part_usage in parts:
             for total, key in ((llm, "backend_llm_tokens"),
                                (embedding, "embedding_tokens")):
-                part = usage.get(key) or {}
+                part = part_usage.get(key) or {}
                 total.calls += part.get("calls", 0) or 0
                 total.prompt_tokens += part.get("prompt_tokens", 0) or 0
                 total.completion_tokens += (
@@ -307,19 +345,40 @@ def _writes_of(result: dict, written: List[WrittenMemoryRecord]) -> None:
         ))
 
 
+def _block_error(diagnostics: Any) -> Optional[str]:
+    """Why the consumer's block cannot be trusted, from its injection
+    diagnostics (a truthy ``retrieval_error`` or ``injection_error``),
+    or None."""
+    if not isinstance(diagnostics, dict):
+        return None
+    problems = [f"consumer {what}: {diagnostics[key]}"
+                for key, what in BLOCK_ERRORS if diagnostics.get(key)]
+    return "; ".join(problems) or None
+
+
 def _answer_error(result: Any) -> Optional[str]:
     """Why a consumer reply is not an answer (an error must never pass
-    a hard constraint), or None."""
+    a hard constraint), or None: no result, an error, a failed
+    retrieval or injection (the block may lack rows the store holds),
+    an empty answer or an "Error:" text."""
     if not isinstance(result, dict):
         return "consumer returned no result"
     answer = result.get("result")
     if result.get("error"):
         return f"consumer error: {result['error']}"
+    failed = _block_error(result.get("injection_diagnostics"))
+    if failed:
+        return failed
     if not isinstance(answer, str) or not answer.strip():
         return "consumer returned an empty answer"
     if answer.startswith("Error:"):
         return f"consumer error: {answer[:200]}"
     return None
+
+
+def _described(error: Exception) -> str:
+    """An exception as a failure: ``"<ExceptionType>: <message>"``."""
+    return f"{type(error).__name__}: {error}"
 
 
 def run_history(user: V2UserData, locus, runner, *,
@@ -328,8 +387,11 @@ def run_history(user: V2UserData, locus, runner, *,
     """Run ``user``'s sessions and probes through ``locus``.
 
     ``runner`` is the trial's ``VariantRunner`` (``runner.run(name,
-    agent, task_input)``). Any failure the spec lists stops the history
-    and sets ``failure``; the outcome keeps what ran.
+    agent, task_input)``). Any failure the spec lists, and any
+    exception (a ``WriterError`` from a listing, a consumer that
+    raises), stops the history and sets ``failure`` (an exception's as
+    ``"<ExceptionType>: <message>"``); the outcome keeps what ran: the
+    sessions, the probe turns and the listings.
     """
     if control is not None and control not in CONTROLS:
         raise ValueError(f"control must be one of {CONTROLS}")
@@ -346,13 +408,17 @@ def run_history(user: V2UserData, locus, runner, *,
             outcome.listings.append(_listing(locus, "probes", ids))
     except LocusFailure as failure:
         outcome.failure = str(failure)
+    except Exception as error:  # every failure fails the user, not the run
+        logger.warning("History of %s failed", uid, exc_info=True)
+        outcome.failure = _described(error)
     finally:
         outcome.variants_applied = dict(runner.codes)
         outcome.variants_not_applied = dict(runner.not_applied)
         locus.finish_user()
     if outcome.failure is None:
+        used = set().union(*ids.values())  # every id, every agent
         outcome.backend_llm_tokens, outcome.embedding_tokens = (
-            locus.backend_usage(outcome.turns))
+            locus.backend_usage(outcome.turns, sorted(used)))
     return outcome
 
 
@@ -367,13 +433,62 @@ def _with_base_fields(user: V2UserData, events: List[dict]) -> List[dict]:
             for e in events]
 
 
+def _reported(records: List[dict], events: List[dict]) -> List[dict]:
+    """The writer's event records, each write event's reply ids moved
+    to ``reported_ids``. Its ``memory_ids`` and ``stored_rows`` are None
+    until the listing after the session gives them (``_listed_rows``):
+    the kernel's Mem0 add names only its first fact. The event's type
+    is the script's (the record's own, for an event not in it)."""
+    kinds = {event.get("event_id"): event.get("type") for event in events}
+    out = []
+    for record in records:
+        record = dict(record)
+        kind = kinds.get(record.get("event_id"), record.get("type"))
+        if kind in WRITE_EVENTS:
+            record["reported_ids"] = [
+                str(i) for i in record.get("memory_ids") or []]
+            record["memory_ids"] = record["stored_rows"] = None
+        out.append(record)
+    return out
+
+
+def _listed_rows(record: SessionRecord, rows: List[dict]) -> None:
+    """Fill each write event's ``memory_ids`` and ``stored_rows`` from
+    ``rows``, the writer's rows in the listing after the session: those
+    whose ``metadata.provenance_event`` is the event's id (Mem0 copies
+    a write's metadata onto every fact it extracts). The session's
+    ``stored_rows`` is their sum. A revoke's record is left as it is."""
+    by_event: Dict[str, List[str]] = {}
+    for row in rows:
+        event = (row.get("metadata") or {}).get("provenance_event")
+        if event is not None:
+            by_event.setdefault(str(event), []).append(
+                str(row.get("memory_id")))
+    stored = 0
+    for event in record.events:
+        if "reported_ids" not in event:  # not a write event
+            continue
+        found = by_event.get(str(event.get("event_id")), [])
+        event["memory_ids"], event["stored_rows"] = found, len(found)
+        stored += len(found)
+    record.stored_rows = stored
+
+
 def _sessions(user, locus, runner, outcome, ids) -> None:
     for session in user.sessions:
         name = session["writer"]
         payload = json.dumps({"v2_session": {
             "session": session["session"],
             "events": _with_base_fields(user, session["events"])}})
-        result = runner.run(name, locus.writer(name), payload)
+        try:
+            result = runner.run(name, locus.writer(name), payload)
+        except Exception as error:
+            # A writer that raised: its session is recorded as failed,
+            # then run_history fails the user with the exception.
+            outcome.sessions.append(SessionRecord(
+                session=session["session"], writer=name,
+                writer_failed=True, error=_described(error)))
+            raise
         if result.get("user_id"):
             ids[name].add(result["user_id"])
         if locus.writes_from_results:
@@ -381,8 +496,8 @@ def _sessions(user, locus, runner, outcome, ids) -> None:
         record = SessionRecord(
             session=session["session"], writer=name,
             user_id=result.get("user_id"),
-            events=result.get("events") or [],
-            stored_rows=result.get("stored_rows") or 0,
+            events=_reported(result.get("events") or [],
+                             session["events"]),
             deleted_ids=[str(i) for i in result.get("deleted_ids") or []],
             writer_failed=bool(result.get("writer_failed")),
             error=result.get("error"),
@@ -394,7 +509,15 @@ def _sessions(user, locus, runner, outcome, ids) -> None:
                 f"{record.error}")
         listing = _listing(locus, f"session {record.session}", ids)
         record.listing_counts = _counts(listing)
+        _listed_rows(record, listing["rows"].get(name, []))
         outcome.listings.append(listing)
+
+
+def _answer_text(answer: Any) -> str:
+    """A reply's answer as the record's text ("" for none)."""
+    if answer is None:
+        return ""
+    return answer if isinstance(answer, str) else str(answer)
 
 
 def _probes(user, locus, runner, outcome, ids, recency_session) -> None:
@@ -403,28 +526,35 @@ def _probes(user, locus, runner, outcome, ids, recency_session) -> None:
         if outcome.turns:  # the consumer's rows as this probe starts
             before = len(_consumer_rows(locus, ids))
         agent = locus.consumer(user.user_id, probe["probe_id"])
+        turn = ProbeTurn(probe=probe, consumer_rows_before=before)
         started = time.perf_counter()
-        result = runner.run(CONSUMER, agent, probe["question"])
-        turn = ProbeTurn(
-            probe=probe, result=result if isinstance(result, dict) else {},
-            answer=(result or {}).get("result") or ""
-            if isinstance(result, dict) else "",
-            diagnostics=(result or {}).get("injection_diagnostics")
-            if isinstance(result, dict) else None,
-            latency_seconds=time.perf_counter() - started,
-            consumer_rows_before=before,
-        )
+        try:
+            result = runner.run(CONSUMER, agent, probe["question"])
+        except Exception as error:
+            # A consumer that raised: the turn is recorded (unscored),
+            # then run_history fails the user with the exception.
+            turn.latency_seconds = time.perf_counter() - started
+            turn.error = f"consumer raised {_described(error)}"
+            outcome.turns.append(turn)
+            raise
+        turn.latency_seconds = time.perf_counter() - started
+        if isinstance(result, dict):
+            turn.result = result
+            turn.answer = _answer_text(result.get("result"))
+            diagnostics = result.get("injection_diagnostics")
+            turn.diagnostics = (diagnostics if isinstance(diagnostics, dict)
+                                else None)
         turn.error = _answer_error(result)
+        if not turn.error:
+            resolved = (turn.diagnostics or {}).get("resolved_user_id")
+            if resolved:
+                ids[CONSUMER].add(resolved)
+            if recency_session:
+                # Its block's ages are wrong, so it is not scored either.
+                turn.error = _session_problem(turn.diagnostics)
         outcome.turns.append(turn)
         if turn.error:
             raise LocusFailure(f"{probe['probe_id']}: {turn.error}")
-        resolved = (turn.diagnostics or {}).get("resolved_user_id")
-        if resolved:
-            ids[CONSUMER].add(resolved)
-        if recency_session:
-            problem = _session_problem(turn.diagnostics)
-            if problem:
-                raise LocusFailure(f"{probe['probe_id']}: {problem}")
 
 
 def _session_problem(diagnostics: Optional[dict]) -> Optional[str]:
@@ -579,7 +709,14 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
                 embed=None, k: int = 10) -> list:
     """Each probe turn as a ``ProbeResult``: the dataset's ground truth,
     the answer, the consumer's diagnostics and ``probes.score_probe``'s
-    judge-free fields (judge scores are added by the caller)."""
+    judge-free fields (judge scores are added by the caller).
+
+    A turn with an error (it failed the user) is recorded but never
+    scored: it keeps its probe's identity and ground truth, the answer,
+    the diagnostics, tokens, latency and the error, and its ``passed``
+    and every match and block field keep their defaults (None or
+    empty), so an error cannot pass a hard constraint, even in a
+    failed trial's record."""
     from benchmarks.shared_memory.models import ProbeResult
     from benchmarks.shared_memory.pipeline import AgentPipeline
     from benchmarks.shared_memory.probes import score_probe
@@ -590,6 +727,27 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
     out = []
     for turn in outcome.turns:
         probe = turn.probe
+        recorded = {
+            "probe_id": probe["probe_id"],
+            "type": probe["type"],
+            "slot": probe.get("slot"),
+            "question": probe["question"],
+            "expected": probe.get("expected") or [],
+            "forbidden": probe.get("forbidden") or [],
+            "target_event": probe.get("target_event"),
+            "target_writer": probe.get("target_writer"),
+            "target_session": probe.get("target_session"),
+            "echo_event": probe.get("echo_event"),
+            "observed": turn.answer,
+            "error": turn.error,
+            "diagnostics": reader._extract_injection_diagnostics(
+                {"injection_diagnostics": turn.diagnostics}),
+            "token_usage": (turn.result or {}).get("token_usage"),
+            "latency_seconds": turn.latency_seconds,
+        }
+        if turn.error:
+            out.append(ProbeResult(**recorded))
+            continue
         native = locus == "native"
         visible = visible_rows(user, outcome, turn) if native else None
         score = score_probe(
@@ -599,23 +757,6 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
         )
         fields = {key: value for key, value in score.items()
                   if key in ProbeResult.model_fields}
-        diagnostics = reader._extract_injection_diagnostics(
-            {"injection_diagnostics": turn.diagnostics})
-        out.append(ProbeResult(
-            **fields,
-            slot=probe.get("slot"),
-            question=probe["question"],
-            expected=probe.get("expected") or [],
-            forbidden=probe.get("forbidden") or [],
-            target_event=probe.get("target_event"),
-            target_writer=probe.get("target_writer"),
-            target_session=probe.get("target_session"),
-            echo_event=probe.get("echo_event"),
-            observed=turn.answer,
-            error=turn.error,
-            visible_stored_rows=visible,
-            diagnostics=diagnostics,
-            token_usage=(turn.result or {}).get("token_usage"),
-            latency_seconds=turn.latency_seconds,
-        ))
+        out.append(ProbeResult(**{**fields, **recorded,
+                                  "visible_stored_rows": visible}))
     return out

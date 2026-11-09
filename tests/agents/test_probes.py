@@ -233,14 +233,15 @@ def test_every_probe_type_returns_the_contract_keys(kind):
         "stale_in_block", "rows_with_expected", "rows_with_stale",
         "rows_with_forbidden", "newest_target_row_has_stale", "cap_bound",
         "budget_bound", "answer_words", "other_values_in_answer",
-        "semantic_best", "semantic_only", "deleted_ids_in_block",
-        "contaminated",
+        "semantic_best", "semantic_only", "semantic_error",
+        "deleted_ids_in_block", "contaminated",
     }
     result = score(kind, "Some answer.", SHELL)
     assert tuple(result) == pr.RESULT_KEYS
     assert set(result) == contract
     assert result["probe_id"] == f"u0_{kind}"
     assert result["type"] == kind
+    assert result["semantic_error"] is None
 
 
 @pytest.mark.parametrize("answer, passed, matched", [
@@ -271,10 +272,11 @@ def test_recall_passes_when_the_value_or_an_alias_is_answered(
      False, True, True, False),
     ("It is in Birch or Juniper.", False, True, True, False),
     # A marker in another sentence, or inside a word, does not count.
-    ("Birch, not Juniper. It moved.", False, True, True, False),
-    ("Birch and Juniper are unchanged.", False, True, True, False),
-    # Sentence-level: the stale sentence must name the new value too.
-    ("Juniper is no longer used. Birch is.", False, True, True, False),
+    ("Birch, not Juniper. It was previously booked.",
+     False, True, True, False),
+    ("Birch and Juniper are irreplaceable.", False, True, True, False),
+    # The new value need not be in the stale sentence (Amendment 2).
+    ("Juniper is no longer used. Birch is.", False, True, True, True),
     ("Your sync is in the Juniper room.", False, False, True, False),
     ("I don't know which room.", False, False, False, False),
 ])
@@ -290,11 +292,109 @@ def test_recency_strict_lenient_and_transition_marked(
     assert result["matched_forbidden"] == (["Juniper"] if stale else [])
 
 
-def test_the_transition_markers_are_the_contracts():
+def test_the_transition_markers_are_amendment_2s():
     assert pr.TRANSITION_MARKERS == (
-        "from", "previously", "formerly", "no longer", "used to",
-        "instead of", "moved", "switched", "replaced", "changed",
+        "previously", "no longer", "instead of", "used to", "formerly",
+        "originally", "anymore", "not any more",
     )
+    assert pr.REPLACE_STEM == "replac"
+    assert pr.FROM_DETERMINERS == (
+        "the", "a", "an", "our", "my", "your", "their", "his", "her",
+    )
+
+
+# pilot_v2's recency probes for users 4 and 0, whose functional-check
+# answers Amendment 2 pins.
+SYNC_LARCH = probe("recency", "sync_room", [value("Larch")],
+                   [value("Saffron")], "u004-e11", ["u004-e07", "u004-e11"])
+STAGING = probe("recency", "staging_host", [value("bittern-06", "bittern")],
+                [value("tern-02", "tern")], "u000-e10",
+                ["u000-e04", "u000-e10"])
+
+
+@pytest.mark.parametrize("record, answer, marked", [
+    (SYNC_LARCH, "Previously, it was in the Saffron room, but it has been "
+                 "relocated.", True),
+    (SYNC_LARCH, "Your weekly team sync is now held in the Larch room. "
+                 "Previously, it was in the Saffron room, but it has been "
+                 "relocated.", True),
+    (STAGING, "We deploy to bittern-06. It took over from tern-02.", True),
+    # A full stop or a semicolon: the same answer either way.
+    (STAGING, "We deploy to bittern-06; it took over from tern-02.", True),
+    # Bare "from" elsewhere in the sentence is no marker.
+    (STAGING, "From what I have on file, you deploy to tern-02 and "
+              "bittern-06.", False),
+    (STAGING, "Based on the information from our previous interactions, we "
+              "currently deploy to the tern-02 staging server.", False),
+    (PROBES["recency"], "We moved from the Juniper room to Birch.", True),
+    # Markdown around the value does not hide the "from" before it.
+    (STAGING, "This server took over from the `tern-02` staging server.",
+     True),
+    (STAGING, "It was relocated from **tern-02**.", True),
+])
+def test_transition_marked_needs_a_marker_in_every_stale_sentence(
+    record, answer, marked
+):
+    result = pr.score_probe(record, answer, diag(), user_values=[],
+                            locus="kernel")
+    assert result["stale_present"] is True
+    assert result["transition_marked"] is marked
+
+
+@pytest.mark.parametrize("sentence", [
+    "Your sync was previously in Juniper.",
+    "Your sync is no longer in Juniper.",
+    "Use Birch instead of Juniper.",
+    "Your sync used to be in Juniper.",
+    "Your sync was formerly in Juniper.",
+    "Your sync was originally in Juniper.",
+    "Your sync is not in Juniper anymore.",
+    "Your sync is not any more in Juniper.",
+    "Birch will replace Juniper.",
+    "Birch replaced Juniper.",
+    "Birch is replacing Juniper.",
+    "Birch is the replacement for Juniper.",
+    "Birch replaces Juniper.",
+    # A capitalized marker at the start of a sentence counts too.
+    "Replacing Juniper, Birch now hosts the sync.",
+    "Previously the sync met in Juniper.",
+    "It moved from Juniper.",
+    *(f"It moved from {word} Juniper room." for word in
+      ("the", "a", "an", "our", "my", "your", "their", "his", "her")),
+])
+def test_each_change_marker_names_the_stale_value_as_past(sentence):
+    assert score("recency", sentence)["transition_marked"] is True
+
+
+@pytest.mark.parametrize("sentence", [
+    "Your sync is in Juniper.",
+    # "from" before another word, or two words before the value.
+    "From now on, your sync is in Juniper.",
+    "It moved from the old Juniper room.",
+    "We moved from Birch to Juniper.",
+    "Juniper, as you heard from me.",
+    # "from" counts as a word only.
+    "It follows therefrom Juniper is booked.",
+    # Markers dropped by Amendment 2, and near misses of the kept ones.
+    "Your sync moved to Juniper.",
+    "Your sync switched to Juniper.",
+    "Your sync changed to Juniper.",
+    "Your sync is in the previous Juniper room.",
+    "Juniper is used for the sync.",
+    "Ask me any more questions about Juniper.",
+    "Juniper is irreplaceable.",
+])
+def test_other_words_do_not_mark_the_stale_value(sentence):
+    result = score("recency", sentence)
+    assert result["stale_present"] is True
+    assert result["transition_marked"] is False
+
+
+def test_from_before_an_alias_marks_the_stale_value():
+    result = pr.score_probe(STAGING, "It took over from tern.", diag(),
+                            user_values=[], locus="kernel")
+    assert result["matched_forbidden"] == ["tern"]
+    assert result["transition_marked"] is True
 
 
 @pytest.mark.parametrize("answer, passed", [
@@ -559,6 +659,30 @@ def test_native_cap_bound_reads_the_listings(fetched, visible, k, cap):
     assert result["budget_bound"] is None
 
 
+def test_native_cap_bound_uses_the_consumers_own_fetch_size():
+    """A V4 consumer fetches 5 rows, not the harness's 10: its fetch
+    fills its own k while 16 rows are visible, so the cap bound."""
+    def cap(k=10, visible=16, **counts):
+        return score("recall", "x", counts=counts, locus="native",
+                     visible_stored_rows=visible, k=k)["cap_bound"]
+
+    assert cap(own_fetched=5, top_k_used={"own": 5}) is True
+    # 7 visible rows: more than the consumer's 5, fewer than the
+    # harness's 10, so only the consumer's own k says the cap bound.
+    assert cap(own_fetched=5, top_k_used={"own": 5}, visible=7) is True
+    assert cap(own_fetched=5, top_k_used={"own": 5}, visible=5) is False
+    assert cap(own_fetched=5, top_k_used={"own": 10, "shared": 0}) is False
+    assert cap(own_fetched=10, top_k_used={"own": 16}) is False
+    # Without the consumer's own size, the k argument stands.
+    assert cap(own_fetched=5) is False
+    assert cap(own_fetched=5, k=5) is True
+    # The library loci keep their own rule.
+    library = score("recall", "x", counts={
+        "own_fetched": 5, "top_k_used": {"own": 5}, "after_threshold": 5,
+        "after_cap": 5, "after_budget": 5}, visible_stored_rows=16)
+    assert library["cap_bound"] is False
+
+
 # -- other diagnostics ---------------------------------------------------
 
 def test_answer_length_and_the_users_other_values():
@@ -598,6 +722,7 @@ def test_the_semantic_score_never_changes_passed(answer, best, only):
     scored = score("recency", answer, SYNC_UPDATE, embed=embed)
     assert scored["semantic_best"] == pytest.approx(best)
     assert scored["semantic_only"] is only
+    assert scored["semantic_error"] is None
     assert plain["semantic_best"] is None
     assert plain["semantic_only"] is None
     semantic = ("semantic_best", "semantic_only")
@@ -635,13 +760,58 @@ def test_semantic_only_starts_at_the_threshold(cosine, only):
     assert pr.SEMANTIC_THRESHOLD == 0.85
 
 
-def test_degenerate_embeddings():
+class ResponseError(Exception):
+    """Like ``ollama.ResponseError``: a plain ``Exception``, not an
+    ``OSError``."""
+
+
+@pytest.mark.parametrize("raised, expected", [
+    (ConnectionError("Ollama refused the connection"),
+     "ConnectionError: Ollama refused the connection"),
+    (ResponseError("model not found"), "ResponseError: model not found"),
+])
+@pytest.mark.parametrize("kind, answer", [
+    ("recall", "You report to Dana Whitfield."),
+    ("recency", "Your sync is in the Juniper room."),
+    ("contradiction", "You live in Ljubljana."),
+])
+def test_an_embedding_failure_is_recorded_and_changes_nothing_else(
+    kind, answer, raised, expected
+):
+    """An embed call that raises (Ollama down, or a model it does not
+    have) leaves the semantic fields None and says why; the pass and
+    every other field are the ones without the diagnostic, and nothing
+    propagates."""
+    def unreachable(texts):
+        raise raised
+
+    def others(result):
+        return {k: v for k, v in result.items() if k != "semantic_error"}
+
+    plain = score(kind, answer, SYNC_UPDATE)
+    failed = score(kind, answer, SYNC_UPDATE, embed=unreachable)
+    assert failed["semantic_error"] == expected
+    assert failed["semantic_best"] is None
+    assert failed["semantic_only"] is None
+    assert plain["semantic_error"] is None
+    assert others(failed) == others(plain)
+
+
+def test_malformed_embeddings_are_recorded_as_semantic_errors():
     zero = score("recall", "Hm.", embed=lambda texts: [[0.0, 0.0]] * 2)
     assert zero["semantic_best"] == 0.0
-    with pytest.raises(ValueError, match="vectors"):
-        score("recall", "One. Two.", embed=lambda texts: [[1.0]])
-    with pytest.raises(ValueError, match="length"):
-        score("recall", "Hm.", embed=lambda texts: [[1.0], [1.0, 0.0]])
+    assert zero["semantic_error"] is None
+    too_few = score("recall", "One. Two.", embed=lambda texts: [[1.0]])
+    assert too_few["semantic_error"] == (
+        "ValueError: embed returned 1 vectors for 3 texts")
+    ragged = score("recall", "Hm.",
+                   embed=lambda texts: [[1.0], [1.0, 0.0]])
+    assert ragged["semantic_error"] == (
+        "ValueError: embedding vectors differ in length")
+    for result in (too_few, ragged):
+        assert result["semantic_best"] is None
+        assert result["semantic_only"] is None
+        assert result["passed"] is False
 
 
 def test_every_expected_value_must_appear_and_any_forbidden_one_fails():
@@ -734,6 +904,22 @@ def test_mcnemar_exact_refuses_bad_counts(b, c):
         pr.mcnemar_exact(b, c)
 
 
+def test_the_t_interval_is_none_below_two_values():
+    """One score has no degrees of freedom: no interval, not a
+    zero-width one."""
+    assert pr.t_interval([]) == (None, None)
+    assert pr.t_interval([4.0]) == (None, None)
+    low, high = stats.t.interval(0.95, 1, loc=4.5, scale=stats.sem([4, 5]))
+    assert pr.t_interval([4.0, 5.0]) == pytest.approx((low, high))
+    # Equal scores: the formula's own zero-width value.
+    assert pr.t_interval([4, 4]) == (4.0, 4.0)
+    one = pr.summarize([{"type": "integration", "integration_score": 4}])
+    assert one["integration"]["n"] == 1
+    assert one["integration"]["mean"] == 4.0
+    assert one["integration"]["ci_low"] is None
+    assert one["integration"]["ci_high"] is None
+
+
 # -- summaries -----------------------------------------------------------
 
 def test_summarize_groups_by_probe_type():
@@ -791,6 +977,28 @@ def test_summarize_groups_by_probe_type():
                                  scale=stats.sem([5, 4, 2]))
     assert (scored["ci_low"], scored["ci_high"]) == pytest.approx(
         (low, high))
+
+
+def test_summarize_counts_semantic_errors_per_type():
+    def timed_out(texts):
+        raise TimeoutError("embed timed out")
+
+    results = [
+        score("recall", "Whitfield.", embed=timed_out),
+        score("recall", "No idea.", embed=timed_out),
+        score("recall", "Whitfield.", embed=FakeEmbedder()),
+        score("recall", "Whitfield."),
+        score("recency", "Birch.", embed=FakeEmbedder()),
+        score("contradiction", "Ljubljana.", embed=timed_out),
+        score("deletion", "I have no record."),
+    ]
+    summary = pr.summarize(results)
+    assert summary["recall"]["semantic_error"] == 2
+    # The errors decide no pass.
+    assert (summary["recall"]["n"], summary["recall"]["passed"]) == (4, 3)
+    assert summary["recency"]["semantic_error"] == 0
+    assert summary["contradiction"]["semantic_error"] == 1
+    assert "semantic_error" not in summary["deletion"]
 
 
 def test_summarize_reports_unknown_bounds_and_empty_rates_as_none():

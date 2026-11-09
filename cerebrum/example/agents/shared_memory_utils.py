@@ -588,7 +588,11 @@ def run_v2_session(
 
     - ``write(content, metadata)`` stores one row; its reply names the
       ids stored (the kernel's ``create_memory`` reply, the library's id,
-      native's list of ids);
+      native's list of ids). A locus that stores other metadata than it
+      was given (its defaults, a variant's changes) leaves what it
+      stored in ``metadata``: the replicated and native writes do; a
+      kernel create leaves it as sent, and the harness records the
+      kernel's writes from its create capture instead;
     - ``list_rows(user_id)`` lists the agent's own rows for the user;
     - ``delete(user_id, memory_id)`` deletes one of them.
 
@@ -608,8 +612,11 @@ def run_v2_session(
     used, which a V2 variant rewrites), ``events`` (one record per event
     run: ``event_id, type, fact_key, memory_ids, stored_rows,
     deleted_ids, found_ids, error``), ``stored_rows`` (rows written),
-    ``deleted_ids``, ``written`` (each write's metadata as sent; a locus
-    may fill defaults into it in place), ``writer_failed, error,
+    ``deleted_ids``, ``written`` (the metadata of each write that
+    succeeded, as ``write`` left it: in the replicated and native loci
+    what the row was stored with, for a kernel create the metadata as
+    sent, since the harness records kernel writes from its create
+    capture; a failed write is not in it), ``writer_failed, error,
     token_usage}`` (None: no LLM call).
     """
     problem = _session_problem(payload)
@@ -653,8 +660,12 @@ def run_v2_session(
                 metadata = v2_write_metadata(
                     agent, memory_type, session, event
                 )
-                written.append(metadata)
                 ids = reply_ids(write(event["utterance"], metadata))
+                # Only now, so a failed write is never recorded as
+                # written; by now a replicated or native locus has left
+                # in ``metadata`` what it stored (Amendment 2, "Stored
+                # metadata"); a kernel create leaves it as sent.
+                written.append(metadata)
                 record["memory_ids"] = ids
                 record["stored_rows"] = len(ids)
         except Exception as e:  # every failure fails the writer

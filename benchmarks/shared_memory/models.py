@@ -10,10 +10,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from benchmarks.shared_memory.conditions import locus_of
 from cerebrum.config.config_manager import config
+
+
+def _error_text(value: Any) -> Optional[str]:
+    """An error field's value as text: None (or any falsy value) for no
+    error, a string as it is, anything else through ``str``, so a
+    producer that sends an exception or a dict still leaves a record
+    the results file can load."""
+    if not value:
+        return None
+    return value if isinstance(value, str) else str(value)
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +173,18 @@ class InjectionDiagnostics(BaseModel):
     # The block as the consumer received it (Subtask 10); None in older
     # files, "" when nothing was injected.
     block_text: Optional[str] = None
+    # Benchmark v2, Amendment 2: why the block cannot be trusted. The
+    # library's own or shared fetch failed (``"own: ...; shared: ..."``),
+    # or the kernel's injector raised; such a block looks like an empty
+    # store, so the harness fails the user. None when nothing failed,
+    # and in older files.
+    retrieval_error: Optional[str] = None
+    injection_error: Optional[str] = None
+
+    @field_validator("retrieval_error", "injection_error", mode="before")
+    @classmethod
+    def _as_error_text(cls, value: Any) -> Optional[str]:
+        return _error_text(value)
 
 
 class JudgeFreeMeasures(BaseModel):
@@ -285,8 +307,18 @@ class SessionRecord(BaseModel):
     session: int
     writer: str
     user_id: Optional[str] = None
+    # One record per event the writer ran. Since Amendment 2 a write
+    # event's ``memory_ids`` and ``stored_rows`` are the writer's rows
+    # in the listing after the session whose ``provenance_event`` is
+    # the event (every fact Mem0 extracted from it), and
+    # ``reported_ids`` the ids the writer's reply named (the kernel's
+    # Mem0 add names only the first). Both are None when no listing
+    # followed (the session or its listing failed). A revoke keeps its
+    # ``found_ids`` and ``deleted_ids``.
     events: List[Dict[str, Any]] = []
-    stored_rows: int = 0
+    # The write events' ``stored_rows`` summed; None as above. Older
+    # files hold the replies' count.
+    stored_rows: Optional[int] = None
     deleted_ids: List[str] = []
     writer_failed: bool = False
     error: Optional[str] = None
@@ -310,8 +342,13 @@ class ProbeResult(BaseModel):
     target_session: Optional[int] = None
     echo_event: Optional[str] = None
     observed: str = ""
+    # Why the turn failed the user (a consumer error, a failed
+    # retrieval or injection, a block not built at session 7). Such a
+    # turn is recorded but never scored: ``passed`` is None and every
+    # match and block field keeps its default (Amendment 2).
     error: Optional[str] = None
-    # The pass rule's outcome; None for integration (judged).
+    # The pass rule's outcome; None for integration (judged) and for a
+    # turn with an error.
     passed: Optional[bool] = None
     expected_present: Optional[bool] = None
     stale_present: Optional[bool] = None
@@ -332,6 +369,10 @@ class ProbeResult(BaseModel):
     other_values_in_answer: List[str] = []
     semantic_best: Optional[float] = None
     semantic_only: Optional[bool] = None
+    # The semantic diagnostic's embedding failure, recorded instead of
+    # stopping the run (Amendment 2); it decides no pass. None when the
+    # embedding worked or was not called, and in older files.
+    semantic_error: Optional[str] = None
     deleted_ids_in_block: List[str] = []
     contaminated: Optional[bool] = None
     visible_stored_rows: Optional[int] = None
@@ -340,6 +381,11 @@ class ProbeResult(BaseModel):
     integration_score: Optional[int] = None
     token_usage: Optional[Dict[str, Any]] = None
     latency_seconds: Optional[float] = None
+
+    @field_validator("semantic_error", mode="before")
+    @classmethod
+    def _as_error_text(cls, value: Any) -> Optional[str]:
+        return _error_text(value)
 
 
 class TrialResult(BaseModel):

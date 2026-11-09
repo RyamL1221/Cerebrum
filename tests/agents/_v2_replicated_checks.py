@@ -1,8 +1,9 @@
 """Benchmark v2 in the replicated locus (AIOS docs/BENCHMARK_V2.md):
 scripted sessions written through the kernel's library, revoke through
 ``MemoryPipeline.list_own`` and ``delete``, the calendar writer, session
-ages in the assistant's block and its stamped conversation note, and a
-variant reaching a v2 write.
+ages in the assistant's block and its stamped conversation note, a
+variant reaching a v2 write, and ``written`` holding the metadata each
+row was stored with (Amendment 2, "Stored metadata").
 
 Not collected by the suite: ``test_v2_writers.py`` runs this file in a
 fresh interpreter, because the replicated agents import the kernel's
@@ -260,3 +261,82 @@ def test_v1_makes_a_shared_event_private(store):
         agent.run(payload(2, [event("e1", "add", "client", "Initech")]))
     (row,) = rows_of(backend)
     assert row.metadata["sharing_policy"] == "private"
+
+
+# -- what a write records (Amendment 2, "Stored metadata") ------------------
+
+
+def test_a_v3_write_is_recorded_as_stored_private_and_owned(store):
+    """V3 sends a shared event's row without owner and policy, and the
+    library stores it owned by the writer and private. ``written`` says
+    so; it said shared (review storage-1 / trial-05), which counted the
+    writer as lost instead of withheld."""
+    backend, _ = store
+    agent = writer(replicated.ReplicatedTaskAgent, "task_agent")
+    with apply_variant(variants.variant("V3"), agent, "task_agent",
+                       "replicated"):
+        result = agent.run(payload(2, [
+            event("e1", "add", "client", "Initech")]))
+    (row,) = rows_of(backend)
+    (written,) = result["written"]
+    assert written["sharing_policy"] == "private"
+    assert row.metadata["sharing_policy"] == "private"
+    assert written["owner_agent"] == row.metadata["owner_agent"]
+    assert written["owner_agent"] == "task_agent"
+    assert written["provenance_event"] == "e1"
+
+
+@pytest.mark.parametrize("code", [None, "V1", "V3", "V5"])
+def test_written_is_the_metadata_each_row_was_stored_with(store, code):
+    """Every key ``written`` records has the stored row's value (the
+    store adds the note's own fields), with or without a variant."""
+    backend, _ = store
+    agent = writer(replicated.ReplicatedProfileAgent, "profile_agent")
+    variant = variants.variant(code) if code else None
+    with apply_variant(variant, agent, "profile_agent", "replicated"):
+        result = agent.run(payload(1, [
+            event("e1", "add", "pet", "Mochi"),
+            event("e2", "private", "interview", "Halcyon Robotics"),
+        ]))
+    stored = {c.metadata["provenance_event"]: c.metadata
+              for c in rows_of(backend)}
+    assert [w["provenance_event"] for w in result["written"]] == [
+        "e1", "e2"]
+    for written in result["written"]:
+        row = stored[written["provenance_event"]]
+        assert {key: row.get(key) for key in written} == written
+        assert written["created_at"]  # the library's, as stored
+
+
+def test_a_write_the_store_refuses_is_not_recorded(store):
+    """A write that raised stored nothing, so ``written`` is empty (it
+    held the row's metadata, recorded before the write)."""
+    backend, _ = store
+    agent = writer(replicated.ReplicatedProfileAgent, "profile_agent")
+    with patch.object(backend, "add",
+                      side_effect=RuntimeError("store down")):
+        result = agent.run(payload(1, [event("e1", "add", "pet", "Mochi")]))
+    assert result["writer_failed"] is True
+    assert "store down" in result["error"]
+    assert result["written"] == []
+    assert rows_of(backend) == []
+
+
+def test_the_assistant_stamps_its_probe_on_its_turn_as_before(store):
+    """The replicated assistant writes its turn itself, stamped with
+    the probe id; its kernel request carries no session and no
+    ``provenance_event`` (only the kernel assistant sends them)."""
+    backend, chat = store
+    profile = writer(replicated.ReplicatedProfileAgent, "profile_agent")
+    profile.run(payload(1, [event("e1", "add", "city", "Tallinn")]))
+    assistant = replicated.ReplicatedAssistantAgent(
+        "assistant_agent",
+        replicated.ReplicatedMemory("inhouse", config("session")))
+    assistant.user_id = USER
+    assistant.session, assistant.probe_id = 7, "p_privacy"
+    assistant.run("Which city do I live in?")
+    (turn,) = rows_of(backend, "assistant_agent")
+    assert turn.metadata["provenance_event"] == "p_privacy"
+    assert turn.metadata["session"] == 7
+    assert set(chat.call_args.kwargs) == {
+        "agent_name", "messages", "base_url", "llms", "user_id"}

@@ -1,11 +1,14 @@
 """Benchmark v2's generator (NeurIPS Subtask 14, AIOS
 docs/BENCHMARK_V2.md, "Generation"): determinism, ground truth that
-agrees with the script, and the paraphrase rules.
+agrees with the script, and the paraphrase rules, including Amendment
+2's meaning checks and the revision-2 build that reuses revision 1.
 
 The ground-truth checks re-derive each rule from the script itself
 rather than calling the generator's own validator, then also run that
-validator on every user.
+validator on every user. Every paraphraser here is a fake: nothing
+calls a network.
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -21,6 +24,12 @@ REPO = Path(__file__).resolve().parents[2]
 BASE = dataset.load("users_v1")
 WRITERS = ("profile_agent", "task_agent", "calendar_agent")
 ROLES = ("recall", "recency", "contradiction", "deletion", "privacy")
+# The contradict templates Amendment 2 rewrote, and revision 1's text.
+OLD_CONTRADICT = {
+    "conference": "The conference I'm presenting at is {value}.",
+    "one_on_one": "My weekly one-on-one is with {value}.",
+    "teammate": "My pairing partner is {value}.",
+}
 
 
 @pytest.fixture(scope="module")
@@ -338,3 +347,676 @@ def test_the_header_records_the_seed_and_rules(tmp_path):
     assert header["format_version"] == 2 and header["seed"] == 20261108
     assert header["pilot"] == {"pilot_v2": 30}
     assert header["base"]["sha256"] == BASE.sha256
+
+
+# -- meaning checks (Amendment 2, "Generation") ---------------------------
+
+def catalog_template(slot, etype):
+    """The catalog's template of ``slot`` for an event type."""
+    definition = synth_v2.SLOTS[slot]
+    return definition.add if etype in ("add", "private") else getattr(
+        definition, etype)
+
+
+def problems_of(slot, etype, value, text, aliases=()):
+    """``paraphrase_problems`` of ``text`` as an utterance of an event
+    of ``slot`` (its template filled with ``value``)."""
+    template = catalog_template(slot, etype).format(value=value or "",
+                                                    species="dog")
+    own = None if value is None else (value, tuple(aliases))
+    event = {"type": etype, "slot": slot, "template": template}
+    return synth_v2.paraphrase_problems(text, own, [], event)
+
+
+TOPIC = "it must still say what the fact is about: "
+ONLY = "it must still say this is the only one ('only')"
+# Real revision-1 utterances (users_v2.jsonl, sha256 768a37ac...), the
+# amendment's own example, and events of the types revision 1 never got
+# wrong.
+LOST_MEANING = {
+    "conference contradict (Amendment 2)": (
+        "conference", "contradict", "Fjordstack",
+        "I'm giving a presentation at Fjordstack.", ONLY),
+    "conference contradict (u003-e13)": (
+        "conference", "contradict", "Fjordstack",
+        "I'm giving a presentation at the Fjordstack conference.", ONLY),
+    "one-on-one contradict (u000-e11)": (
+        "one_on_one", "contradict", "Sofia Lindqvist",
+        "I have a weekly one-on-one scheduled with Sofia Lindqvist.", ONLY),
+    "teammate contradict (u005-e17)": (
+        "teammate", "contradict", "Freya Holmberg",
+        "The person I'm paired with is Freya Holmberg.", ONLY),
+    "client contradict (u014-e08)": (
+        "client", "contradict", "Ravelstone Security",
+        "The company I'm working with on my project is Ravelstone "
+        "Security.", "it must still say client"),
+    "teammate add (u001-e05)": (
+        "teammate", "add", "Jonas Albrecht",
+        "I'm collaborating with Jonas Albrecht on this project.",
+        TOPIC + "use 'pairing'"),
+    "teammate revoke (u004-e20)": (
+        "teammate", "revoke", None,
+        "Kindly erase from memory the person I'm teaming up with.",
+        TOPIC + "use 'pairing'"),
+    "lawyer private (u004-e12)": (
+        "lawyer", "private", "Ewan Calloway",
+        "Keep this private: I'm scheduled to meet with Ewan Calloway next "
+        "month.", TOPIC + "use 'lawyer'"),
+    "codename add (u001-e07)": (
+        "codename", "add", "Kittiwake",
+        "Privately, we refer to the project as Kittiwake.",
+        "it marks a shared fact as private ('privately'); drop that"),
+    "update without a change word": (
+        "sync_room", "update", "Larch",
+        "Our weekly team sync is in the Larch room.",
+        "it must still say the fact changed: use 'moved'"),
+    "revoke without a forget word": (
+        "pet", "revoke", None, "I'd rather you didn't keep my pet's name.",
+        "it must still ask to forget it: use 'forget'"),
+    "private fact without a marker": (
+        "doctor", "private", "Okafor",
+        "I have a follow-up appointment with Dr. Okafor.",
+        "it must still say this is private: use 'private'"),
+    "echo marked private": (
+        "teammate_session", "add", "Greta Sandvik",
+        "Confidentially, I have a pairing session with Greta Sandvik this "
+        "week.",
+        "it marks a shared fact as private ('confidentially'); drop that"),
+    # No false privacy on any shared event type of a role slot.
+    "update marked private": (
+        "home_city", "update", "Ghent", "Privately, I've moved to Ghent.",
+        "it marks a shared fact as private ('privately'); drop that"),
+    "contradict marked private": (
+        "manager", "contradict", "Dana Whitfield",
+        "Confidentially, my manager is Dana Whitfield.",
+        "it marks a shared fact as private ('confidentially'); drop that"),
+    "revoke marked private": (
+        "pet", "revoke", None, "Please secretly forget my pet's name.",
+        "it marks a shared fact as private ('secretly'); drop that"),
+}
+
+
+@pytest.mark.parametrize("slot, etype, value, text, problem",
+                         LOST_MEANING.values(), ids=LOST_MEANING.keys())
+def test_a_paraphrase_that_no_longer_says_its_fact_is_rejected(
+        slot, etype, value, text, problem):
+    assert problem in problems_of(slot, etype, value, text)
+
+
+KEPT_MEANING = {
+    "conference contradict": (
+        "conference", "contradict", "Fjordstack",
+        "Fjordstack is the only conference where I'm giving a talk."),
+    "one-on-one contradict": (
+        "one_on_one", "contradict", "Sofia Lindqvist",
+        "Sofia Lindqvist is the only person I have a weekly 1:1 with."),
+    "teammate contradict": (
+        "teammate", "contradict", "Freya Holmberg",
+        "Freya Holmberg is my sole pairing partner on this project."),
+    "client contradict": (
+        "client", "contradict", "Ravelstone Security",
+        "Ravelstone Security is the client for my project."),
+    "teammate add": (
+        "teammate", "add", "Jonas Albrecht",
+        "Jonas Albrecht and I are paired up on this project."),
+    "teammate revoke": (
+        "teammate", "revoke", None,
+        "Kindly erase from memory the person I'm pairing with."),
+    "lawyer private": (
+        "lawyer", "private", "Ewan Calloway",
+        "Keep this private: I'm meeting my attorney, Ewan Calloway, next "
+        "month."),
+    "codename add": (
+        "codename", "add", "Kittiwake",
+        "We refer to the project as Kittiwake internally."),
+    "update": (
+        "sync_room", "update", "Larch",
+        "Our weekly team sync is now in the Larch room."),
+    "private doctor": (
+        "doctor", "private", "Okafor",
+        "Just between us, I'm seeing Dr. Okafor for a follow-up."),
+    "echo": (
+        "teammate_session", "add", "Greta Sandvik",
+        "This week I've got a pairing session with Greta Sandvik."),
+    # Fillers are exempt: the secrets store's own template says secrets.
+    "filler": (
+        "secrets_store", "add", "Doppler", "Our secrets are kept in Doppler."),
+}
+
+
+@pytest.mark.parametrize("slot, etype, value, text", KEPT_MEANING.values(),
+                         ids=KEPT_MEANING.keys())
+def test_a_paraphrase_that_keeps_its_meaning_is_accepted(slot, etype,
+                                                         value, text):
+    assert problems_of(slot, etype, value, text) == []
+
+
+def test_without_an_event_paraphrase_problems_checks_what_it_did_before():
+    text = "Privately, we refer to the project as Kittiwake."
+    own = ("Kittiwake", ())
+    assert synth_v2.paraphrase_problems(text, own, []) == []
+    assert synth_v2.paraphrase_problems(
+        text, own, [], {"type": "add", "slot": "codename",
+                        "template": "Internally we call the project "
+                                    "Kittiwake."}) == [
+        "it marks a shared fact as private ('privately'); drop that"]
+
+
+@pytest.mark.parametrize("cue, text, hit", [
+    ("pair*", "We paired up last week.", True),
+    ("pair*", "I'm pairing with Jonas.", True),
+    ("pair*", "I repaired the laptop.", False),
+    ("for", "We build it for Kestrel.", True),
+    ("for", "Before the launch, the form was due.", False),
+    ("one on one", "My weekly one-on-one is with Dana.", True),
+    ("1:1", "My weekly 1:1 is with Dana.", True),
+    ("dr", "I see Dr. Okafor on Monday.", True),
+    ("dr", "I drive to the office.", False),
+    ("code name*", "The project is code-named Basalt.", True),
+    ("off the record", "Off the record: they're hiring.", True),
+    ("only", "It's the one I'm presenting at.", False),
+])
+def test_a_cue_matches_whole_words_and_a_star_matches_any_ending(cue, text,
+                                                                 hit):
+    assert synth_v2.has_cue(text, (cue,)) is hit
+
+
+def cues(text):
+    return tuple(text.split(", "))
+
+
+AMENDMENT_2_CUES = {
+    "home_city": "live, lives, living, home, reside*, based, move*, "
+                 "relocat*",
+    "chat_app": "chat*, messag*, communicat*",
+    "pet": "pet, pets, dog, cat, parrot, rabbit, ferret",
+    "manager": "manager, report*, boss, supervisor, manag*",
+    "interview": "interview*",
+    "side_business": "startup*, start up, side, business, venture",
+    "client": "client*, customer*, for",
+    "codename": "codename*, code name*, call*, refer*, name*, known as, "
+                "internally",
+    "teammate": "pair*",
+    "staging_host": "staging, stage",
+    "acquisition": "acqui*, buy*, bought, purchas*, merg*, takeover",
+    "poaching": "hire*, hiring, recruit*, poach*, lure*, team lead, "
+                "headhunt*",
+    "sync_room": "sync*, meeting*",
+    "conference": "conference*, present*, talk*, speak*, keynote",
+    "one_on_one": "one on one, 1 on 1, 1:1, one to one",
+    "offsite_city": "offsite*, off site, retreat*",
+    "doctor": "dr, doctor*, appointment*, physician*, medical, clinic*",
+    "lawyer": "lawyer*, attorney*, legal, counsel*, solicitor*",
+}
+
+
+def test_the_catalog_carries_the_amendment_2_cues_and_templates():
+    only = cues("only, sole, single, just one, no other, exclusively")
+    # Exactly the role and private slots carry cues, these ones.
+    assert {s.name: s.cues for s in synth_v2.CATALOG if s.cues} == {
+        name: cues(text) for name, text in AMENDMENT_2_CUES.items()}
+    assert {s.name for s in synth_v2.CATALOG if s.cues} == {
+        s.name for s in synth_v2.CATALOG if s.kind in ("role", "private")}
+    conflict = {s.name: s.conflict for s in synth_v2.CATALOG if s.conflict}
+    assert conflict == {"conference": only, "one_on_one": only,
+                        "teammate": only,
+                        "client": ("client*", "customer*")}
+    assert synth_v2.CHANGE_WORDS == cues(
+        "move*, switch*, chang*, relocat*, now, new, transfer*, shift*, "
+        "replac*, instead, no longer")
+    assert synth_v2.FORGET_WORDS == cues(
+        "forget*, delet*, remov*, eras*, drop*, discard*, wipe*, clear*, "
+        "purg*")
+    assert synth_v2.PRIVATE_MARKERS == cues(
+        "private, privately, confidential*, between us, off the record, "
+        "to yourself, secret*, discreet*")
+    contradict = {s.name: s.contradict for s in synth_v2.CATALOG
+                  if s.name in OLD_CONTRADICT}
+    assert contradict == {
+        "conference": "The only conference I'm presenting at is {value}.",
+        "one_on_one": "My only weekly one-on-one is with {value}.",
+        "teammate": "My only pairing partner on this project is {value}.",
+    }
+
+
+def test_every_catalog_template_passes_every_check_of_its_event_type():
+    assert synth_v2.catalog_problems() == []
+    for slot in synth_v2.CATALOG:
+        if slot.kind == "private":
+            templates = {"private": slot.add}
+        else:
+            templates = {"add": slot.add, "update": slot.update,
+                         "contradict": slot.contradict,
+                         "revoke": slot.revoke}
+        pool = (synth_v2.SLOTS[slot.echo_of].pool if slot.kind == "echo"
+                else slot.pool)
+        for etype, template in templates.items():
+            if template is None:
+                continue
+            for value, aliases in ([(None, ())] if etype == "revoke"
+                                   else synth_v2.POOLS[pool]):
+                for species in synth_v2.SPECIES:
+                    text = template.format(value=value, species=species)
+                    own = None if value is None else (value, aliases)
+                    event = {"type": etype, "slot": slot.name,
+                             "template": text}
+                    assert synth_v2.paraphrase_problems(
+                        text, own, [], event) == [], (slot.name, text)
+
+
+def test_no_pool_value_states_a_cue_of_its_slot_by_itself():
+    # Two forms name the topic by design: "Dr. <surname>" says doctor,
+    # and Rocket.Chat's name says chat. Any other value that matched
+    # would let a paraphrase pass a check on the value alone.
+    allowed = {("chat_app", "Rocket.Chat")} | {
+        ("doctor", f"Dr. {value}") for value, _ in synth_v2.POOLS["doctors"]}
+    lists = (synth_v2.ONLY_WORDS, synth_v2.CHANGE_WORDS,
+             synth_v2.FORGET_WORDS, synth_v2.PRIVATE_MARKERS)
+    for slot in synth_v2.CATALOG:
+        if slot.kind not in ("role", "private"):
+            continue
+        for value, aliases in synth_v2.POOLS[slot.pool]:
+            for form in (value, *aliases):
+                said = any(synth_v2.has_cue(form, c)
+                           for c in (slot.cues, slot.conflict) + lists)
+                assert not said or (slot.name, form) in allowed, (slot, form)
+
+
+def test_a_paraphrase_that_drops_its_topic_is_retried_with_the_words_to_use():
+    user = synth_v2.build_user(4, BASE.users[4])
+    (add,) = [e for e in events_of(user)
+              if e["slot"] == "teammate" and e["type"] == "add"]
+
+    def answers(request):
+        if request.text == add["template"] and request.attempt == 0:
+            return request.text.replace("pairing", "collaborating")
+        return request.text
+    para = scripted(answers)
+    again = synth_v2.build_user(4, BASE.users[4], paraphraser=para)
+    calls = [c for c in para.calls if c.text == add["template"]]
+    assert [c.attempt for c in calls] == [0, 1]
+    assert calls[1].feedback == TOPIC + "use 'pairing'"
+    (kept,) = [e for e in events_of(again) if e["event_id"] ==
+               add["event_id"]]
+    assert kept["utterance"] == add["template"] and kept["paraphrased"]
+
+
+# Revision 1's utterances of user 4 (pilot user 4, the spec's H = 2
+# privacy case) that lost what their fact is about.
+REVISION_1_USER_4 = {
+    "u004-e03": "I'm collaborating with Greta Sandvik for this project.",
+    "u004-e12": "Keep this private: I'm scheduled to meet with Ewan "
+                "Calloway next month.",
+    "u004-e20": "Kindly erase from memory the person I'm teaming up with.",
+}
+
+
+def test_the_dataset_check_reports_utterances_that_no_longer_say_their_fact():
+    user = synth_v2.build_user(4, BASE.users[4])
+    for e in events_of(user):
+        if e["event_id"] in REVISION_1_USER_4:
+            e["utterance"] = REVISION_1_USER_4[e["event_id"]]
+            e["paraphrased"] = True
+    assert synth_v2.validate_user(user, BASE.users[4], reproduce=False) == [
+        f"user 4: u004-e03 utterance: {TOPIC}use 'pairing'",
+        f"user 4: u004-e12 utterance: {TOPIC}use 'lawyer'",
+        f"user 4: u004-e20 utterance: {TOPIC}use 'pairing'",
+    ]
+
+
+def test_the_paraphrase_prompt_asks_to_keep_what_the_fact_says():
+    request = synth_v2.ParaphraseRequest(
+        text="I'm pairing with Jonas Albrecht on this project.",
+        event_type="add", keep=("Jonas Albrecht",), seed=1, attempt=0)
+    system = synth_v2.paraphrase_messages(request)[0]["content"]
+    for rule in ("keep the words that say what the fact is about",
+                 'keep the word "only"', "that a fact changed",
+                 "keep a request to forget something",
+                 "do not call a fact private, confidential or secret "
+                 "unless the sentence does"):
+        assert rule in system
+
+
+def test_the_scripts_of_users_0_to_4_match_the_committed_users_v2():
+    # Read only: revision 2 keeps every script of revision 1 (Amendment
+    # 2, "How revision 2 is built"); only three contradict templates
+    # change.
+    committed = dataset.load("users_v2")
+    keys = ("event_id", "type", "slot", "fact_key", "value", "aliases",
+            "old_value", "target_event", "echo_of", "sharing")
+
+    def script(user):
+        return [(s["session"], s["writer"],
+                 [[e[k] for k in keys] for e in s["events"]])
+                for s in user["sessions"]]
+    for i in range(5):
+        drawn, stored = synth_v2.build_user(i, BASE.users[i]), \
+            committed.users[i]
+        assert script(drawn) == script(stored), i
+        assert drawn["probes"] == stored["probes"], i
+        for new, old in zip(events_of(drawn), events_of(stored)):
+            assert new["template"] == old["template"] or (
+                new["type"] == "contradict"
+                and new["slot"] in OLD_CONTRADICT), new["event_id"]
+
+
+# -- revision 2: reuse of an earlier revision -----------------------------
+
+def read_jsonl(path):
+    lines = [json.loads(x) for x in Path(path).read_text().splitlines()]
+    return lines[0], lines[1:]
+
+
+def write_jsonl(path, header, users):
+    Path(path).write_text("".join(json.dumps(r) + "\n"
+                                  for r in [header] + users))
+
+
+def sha256_of(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def frankly(request):
+    """A paraphraser whose answers pass every check."""
+    return "Frankly, " + request.text
+
+
+def paraphrasable(user):
+    return [(k, e) for k, e in enumerate(events_of(user))
+            if e["type"] in synth_v2.PARAPHRASED]
+
+
+@pytest.fixture
+def earlier(tmp_path):
+    """A paraphrased two-user file shaped like revision 1: its header
+    has no revision field."""
+    path = tmp_path / "revision1.jsonl"
+    synth_v2.generate(path, n=2, model="fake/model",
+                      paraphraser=scripted(
+                          lambda r: "Honestly, " + r.text))
+    header, users = read_jsonl(path)
+    del header["revision"]
+    write_jsonl(path, header, users)
+    return path
+
+
+def rebuild(earlier, tmp_path, para, n=2):
+    """Revision 2 built from ``earlier``; its users."""
+    out = tmp_path / "revision2.jsonl"
+    synth_v2.generate(out, n=n, model="fake/model", paraphraser=para,
+                      reuse=earlier)
+    return read_jsonl(out)[1]
+
+
+def role_add(user):
+    """The position and event of the user's first add of a role slot."""
+    return next((k, e) for k, e in enumerate(events_of(user))
+                if e["type"] == "add"
+                and synth_v2.SLOTS[e["slot"]].kind == "role")
+
+
+def test_reuse_keeps_a_passing_utterance_byte_for_byte_without_a_call(
+        earlier, tmp_path):
+    header, users = read_jsonl(earlier)
+    # A fresh paraphrase is stripped, so trailing spaces show the text
+    # is the stored one, byte for byte.
+    paraphrasable(users[0])[0][1]["utterance"] += "  "
+    write_jsonl(earlier, header, users)
+    para = scripted(frankly)
+    again = rebuild(earlier, tmp_path, para)
+    assert para.calls == []
+    for old, new in zip(users, again):
+        assert [e["utterance"] for e in events_of(new)] == [
+            e["utterance"] for e in events_of(old)]
+        generation = new["generation"]
+        assert generation["reused"] == len(paraphrasable(old))
+        assert generation["reparaphrased"] == generation["unmatched"] == 0
+        assert generation["paraphrase_calls"] == 0
+
+
+def test_reuse_retries_a_failing_utterance_from_attempt_1_with_it_as_previous(
+        earlier, tmp_path):
+    header, users = read_jsonl(earlier)
+    position, event = role_add(users[0])
+    failing = "Privately, " + event["template"]
+    event["utterance"] = failing
+    write_jsonl(earlier, header, users)
+    para = scripted(frankly)
+    again = rebuild(earlier, tmp_path, para)
+    (call,) = para.calls
+    assert (call.text, call.attempt, call.previous) == (
+        event["template"], 1, failing)
+    assert call.feedback == ("it marks a shared fact as private "
+                             "('privately'); drop that")
+    assert call.seed == synth_v2.paraphrase_seed(synth_v2.SEED, 1, 0,
+                                                 position)
+    new = events_of(again[0])[position]
+    assert new["utterance"] == "Frankly, " + event["template"]
+    assert new["paraphrased"]
+    generation = again[0]["generation"]
+    assert generation["reparaphrased"] == 1
+    assert generation["unmatched"] == 0
+    assert generation["paraphrase_calls"] == 1
+    assert generation["paraphrase_attempts"][event["event_id"]] == 2
+    assert generation["rejections"][event["event_id"]] == [call.feedback]
+
+
+def test_a_reused_failure_that_keeps_failing_falls_back_after_four_attempts(
+        earlier, tmp_path):
+    header, users = read_jsonl(earlier)
+    position, event = role_add(users[0])
+    event["utterance"] = "Privately, " + event["template"]
+    write_jsonl(earlier, header, users)
+    para = scripted(lambda r: "I mentioned something earlier.")
+    again = rebuild(earlier, tmp_path, para)
+    assert [c.attempt for c in para.calls] == [1, 2, 3]
+    new = events_of(again[0])[position]
+    assert new["utterance"] == new["template"] and not new["paraphrased"]
+    generation = again[0]["generation"]
+    assert generation["fallbacks"] == [event["event_id"]]
+    assert generation["paraphrase_attempts"][event["event_id"]] == \
+        synth_v2.PARAPHRASE_RETRIES + 1
+    assert len(generation["rejections"][event["event_id"]]) == \
+        synth_v2.PARAPHRASE_RETRIES + 1
+
+
+def test_reuse_paraphrases_a_changed_template_from_attempt_0(earlier,
+                                                             tmp_path):
+    header, users = read_jsonl(earlier)
+    # User 0 contradicts its weekly one-on-one; revision 1 had the old
+    # template and an utterance that does not conflict.
+    position, event = next((k, e) for k, e in enumerate(events_of(users[0]))
+                           if e["type"] == "contradict")
+    assert event["slot"] == "one_on_one"
+    event["template"] = OLD_CONTRADICT["one_on_one"].format(
+        value=event["value"])
+    event["utterance"] = ("I have a weekly one-on-one scheduled with "
+                          f"{event['value']}.")
+    write_jsonl(earlier, header, users)
+    para = scripted(frankly)
+    again = rebuild(earlier, tmp_path, para)
+    (call,) = para.calls
+    assert call.text == f"My only weekly one-on-one is with {event['value']}."
+    assert (call.attempt, call.previous, call.feedback) == (0, None, None)
+    assert call.seed == synth_v2.paraphrase_seed(synth_v2.SEED, 0, 0,
+                                                 position)
+    assert events_of(again[0])[position]["utterance"] == "Frankly, " + \
+        call.text
+    assert again[0]["generation"]["unmatched"] == 1
+
+
+@pytest.mark.parametrize("key, change", [
+    ("value", lambda e: "Otherplace"),
+    ("aliases", lambda e: list(e["aliases"]) + ["Otherplace"]),
+    ("type", lambda e: "update"),
+    ("slot", lambda e: "pet"),
+])
+def test_reuse_needs_every_key_of_the_event_to_be_equal(
+        earlier, tmp_path, key, change):
+    """An earlier utterance is reused only for the same type, slot,
+    template, value and aliases (``REUSE_KEYS``): one key changed and
+    the event is paraphrased from attempt 0."""
+    header, users = read_jsonl(earlier)
+    position, event = role_add(users[0])
+    event[key] = change(event)  # template and utterance kept
+    write_jsonl(earlier, header, users)
+    para = scripted(frankly)
+    again = rebuild(earlier, tmp_path, para)
+    (call,) = para.calls
+    assert (call.attempt, call.previous, call.feedback) == (0, None, None)
+    assert again[0]["generation"]["unmatched"] == 1
+    assert set(synth_v2.REUSE_KEYS) == {"type", "slot", "template",
+                                        "value", "aliases"}
+
+
+@pytest.mark.parametrize("how, match", [
+    ("fewer users", "fewer than the 3"),
+    ("another seed", "seed"),
+    ("another model", "model"),
+    ("part of a file", "reuse the whole file"),
+])
+def test_reuse_refuses_a_source_this_run_could_not_have_produced(
+        earlier, tmp_path, monkeypatch, how, match):
+    """A reused utterance must be one this run could have produced, from
+    a whole file: a limited name would leave the users past its limit
+    to be paraphrased again, silently, under the file's sha256."""
+    options = {"n": 2, "seed": synth_v2.SEED, "model": "fake/model",
+               "reuse": earlier}
+    if how == "fewer users":
+        options["n"] = 3
+    elif how == "another seed":
+        options["seed"] = synth_v2.SEED + 1
+    elif how == "another model":
+        options["model"] = "other/model"
+    else:
+        # A name for the file's first user, as pilot_v2 is for
+        # users_v2 (an absolute path joins past DATA_DIR).
+        monkeypatch.setitem(synth_v2.dataset_module.NAMED, "part",
+                            (str(earlier), 1))
+        options.update(n=1, reuse="part")
+    with pytest.raises(ValueError, match=match):
+        synth_v2.generate(tmp_path / "out.jsonl",
+                          paraphraser=scripted(frankly), **options)
+
+
+def test_a_partial_file_from_another_reuse_source_is_refused(earlier,
+                                                             tmp_path):
+    """A resumed run cannot mix two reuse sources: the partial file's
+    stamp names the one it was built from."""
+    out = tmp_path / "out.jsonl"
+    partial = out.with_name(out.name + ".partial.jsonl")
+    stamp = {"type": "partial", "seed": synth_v2.SEED,
+             "model": "fake/model", "mode": "llm",
+             "generator_sha256": synth_v2.generator_sha256(),
+             "reuse_sha256": "0" * 64}
+    partial.write_text(json.dumps(stamp) + "\n")
+    with pytest.raises(ValueError, match="other settings"):
+        synth_v2.generate(out, n=2, model="fake/model",
+                          paraphraser=scripted(frankly), reuse=earlier)
+
+
+def test_generate_refuses_a_catalog_that_breaks_its_own_rules(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(synth_v2, "catalog_problems",
+                        lambda: ["home_city add: a template problem"])
+    with pytest.raises(ValueError, match="breaks its rules"):
+        synth_v2.generate(tmp_path / "x.jsonl", n=1)
+
+
+def test_build_user_refuses_another_users_record_to_reuse(earlier):
+    _, users = read_jsonl(earlier)
+    with pytest.raises(ValueError, match="reused user 1 is not user 0"):
+        synth_v2.build_user(0, BASE.users[0], paraphraser=scripted(frankly),
+                            reuse=users[1])
+
+
+def test_parallel_workers_write_what_one_worker_writes(earlier, tmp_path):
+    """``--workers`` builds users on a thread pool; the records it writes
+    are the ones a single worker writes."""
+    files = {}
+    for workers in (1, 2):
+        out = tmp_path / f"workers{workers}.jsonl"
+        synth_v2.generate(out, n=2, model="fake/model",
+                          paraphraser=scripted(frankly), reuse=earlier,
+                          workers=workers)
+        files[workers] = read_jsonl(out)[1]
+    assert files[1] == files[2]
+    assert [u["index"] for u in files[2]] == [0, 1]
+
+
+def test_reuse_paraphrases_an_earlier_fallback_from_attempt_0(earlier,
+                                                              tmp_path):
+    header, users = read_jsonl(earlier)
+    position, event = role_add(users[0])
+    event["utterance"], event["paraphrased"] = event["template"], False
+    write_jsonl(earlier, header, users)
+    para = scripted(frankly)
+    again = rebuild(earlier, tmp_path, para)
+    (call,) = para.calls
+    assert (call.text, call.attempt) == (event["template"], 0)
+    assert events_of(again[0])[position]["paraphrased"]
+    assert again[0]["generation"]["unmatched"] == 1
+
+
+def test_reuse_needs_a_paraphraser(earlier, tmp_path):
+    with pytest.raises(ValueError, match="needs a paraphraser"):
+        synth_v2.generate(tmp_path / "x.jsonl", n=1, reuse=earlier)
+    with pytest.raises(SystemExit):
+        synth_v2.main(["generate", "--out", str(tmp_path / "y.jsonl"),
+                       "--no-paraphrase", "--reuse", str(earlier)])
+
+
+def test_the_cli_passes_reuse_to_generate(earlier, tmp_path, monkeypatch):
+    para = scripted(frankly)
+    monkeypatch.setattr(synth_v2, "LiteLLMParaphraser", lambda model: para)
+    out = tmp_path / "cli.jsonl"
+    assert synth_v2.main(["generate", "--out", str(out), "--n", "2",
+                          "--model", "fake/model",
+                          "--reuse", str(earlier)]) == 0
+    header, _ = read_jsonl(out)
+    assert header["reuse"] == {"sha256": sha256_of(earlier), "revision": 1}
+    assert para.calls == []
+
+
+def test_the_header_records_revision_2_and_the_file_it_reused(earlier,
+                                                              tmp_path):
+    fresh = synth_v2.generate(tmp_path / "fresh.jsonl", n=1)
+    assert fresh["revision"] == synth_v2.REVISION == 2
+    assert "reuse" not in fresh
+    out = tmp_path / "revision2.jsonl"
+    header = synth_v2.generate(out, n=2, model="fake/model",
+                               paraphraser=scripted(frankly), reuse=earlier)
+    assert header["revision"] == 2
+    assert header["reuse"] == {"sha256": sha256_of(earlier), "revision": 1}
+    assert synth_v2.validate_header(fresh, 1, limited=False) == []
+    assert synth_v2.validate_header(header, 2, limited=False) == []
+    # check reads both revisions; a rebuild from revision 2 is allowed.
+    old, new = synth_v2.check(str(earlier)), synth_v2.check(str(out))
+    assert old["problems"] == new["problems"] == []
+    assert (old["summary"]["revision"], new["summary"]["revision"]) == (1, 2)
+    assert new["summary"]["reuse"] == header["reuse"]
+    assert new["summary"]["reused_events"] == sum(
+        len(paraphrasable(u)) for u in read_jsonl(earlier)[1])
+    again = synth_v2.generate(tmp_path / "again.jsonl", n=2,
+                              model="fake/model",
+                              paraphraser=scripted(frankly), reuse=out)
+    assert again["reuse"] == {"sha256": sha256_of(out), "revision": 2}
+    assert synth_v2.validate_header(again, 2, limited=False) == []
+
+
+@pytest.mark.parametrize("change", [
+    {"revision": 3}, {"revision": "2"}, {"revision": True},
+    {"reuse": {"sha256": "abc", "revision": 1}},
+    {"reuse": {"sha256": "0" * 64}},
+    {"reuse": {"sha256": "0" * 64, "revision": 3}},
+    {"revision": 1, "reuse": {"sha256": "0" * 64, "revision": 2}},
+], ids=["future", "text", "bool", "short sha", "no revision", "newer",
+        "newer than the file"])
+def test_validate_header_rejects_a_malformed_revision_or_reuse(change,
+                                                               tmp_path):
+    header = synth_v2.generate(tmp_path / "v2.jsonl", n=1)
+    assert synth_v2.validate_header(
+        dict(header, reuse={"sha256": "0" * 64, "revision": 1}), 1,
+        limited=False) == []
+    assert synth_v2.validate_header(dict(header, **change), 1,
+                                    limited=False)

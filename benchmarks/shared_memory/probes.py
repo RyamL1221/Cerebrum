@@ -13,10 +13,12 @@ consumer's injection diagnostics (a dict shaped like
 ``InjectionDiagnostics.model_dump()``): the pass rule of its type, the
 match fields, the block checks and the other per-probe diagnostics of
 the spec. Only the exact matcher decides a pass. The semantic score
-(an injected ``embed`` callable) is recorded and never changes one.
+(an injected ``embed`` callable) is recorded and never changes one; an
+embedding failure is recorded as ``semantic_error``, not raised.
 ``summarize`` groups scored probes by type into pass rates with 95%
-Wilson intervals (``wilson``); ``mcnemar_exact`` is the paired test
-for locus contrasts.
+Wilson intervals (``wilson``) and the integration mean with its 95%
+t-interval (``t_interval``); ``mcnemar_exact`` is the paired test for
+locus contrasts.
 
 Sentences (``split_sentences``) are split at newlines and after ``.``,
 ``!`` or ``?`` followed by whitespace. That is enough for the two
@@ -78,10 +80,19 @@ LOCI = ("kernel", "replicated", "native")
 CONSUMER = "assistant_agent"
 # Where an injected row came from (``row_source``).
 SOURCES = ("target", "echo", "other_fact", "conversation", "unknown")
-# Words that mark a stale value as past in an answer sentence.
-TRANSITION_MARKERS = ("from", "previously", "formerly", "no longer",
-                      "used to", "instead of", "moved", "switched",
-                      "replaced", "changed")
+# What marks a stale value as past in an answer sentence (Amendment 2):
+# one of these phrases, matched as words like a value;
+TRANSITION_MARKERS = ("previously", "no longer", "instead of", "used to",
+                      "formerly", "originally", "anymore", "not any more")
+# a word that starts with this stem, a form of "replace" (replace,
+# replaced, replacing, replacement);
+REPLACE_STEM = "replac"
+# or "from" right before the stale value or an alias, with at most one
+# of these between ("moved from the Juniper room"). Any other "from" is
+# no marker: "From what I have on file, you deploy to tern-02" asserts
+# the stale value.
+FROM_DETERMINERS = ("the", "a", "an", "our", "my", "your", "their",
+                    "his", "her")
 # The cosine from which an answer sentence counts as close to the
 # fact's sentence (a diagnostic only).
 SEMANTIC_THRESHOLD = 0.85
@@ -96,8 +107,8 @@ RESULT_KEYS = (
     "stale_in_block", "rows_with_expected", "rows_with_stale",
     "rows_with_forbidden", "newest_target_row_has_stale", "cap_bound",
     "budget_bound", "answer_words", "other_values_in_answer",
-    "semantic_best", "semantic_only", "deleted_ids_in_block",
-    "contaminated",
+    "semantic_best", "semantic_only", "semantic_error",
+    "deleted_ids_in_block", "contaminated",
 )
 # The keys of each row in ``rows_with_*``.
 ROW_KEYS = ("memory_id", "owner_agent", "memory_type", "fact_key",
@@ -185,9 +196,40 @@ def split_sentences(text: Optional[str]) -> List[str]:
     return [part.strip() for part in parts if part and part.strip()]
 
 
-def _marked(sentence: str) -> bool:
-    """Whether ``sentence`` holds a transition marker (as a word)."""
-    return any(value_in(sentence, marker) for marker in TRANSITION_MARKERS)
+# Between two words of a normalized text: anything but a letter or a
+# digit, so that Markdown around a value ("from the `tern-02` server")
+# does not hide the "from" before it.
+_GAP = r"[^0-9a-z]+"
+_REPLACE_FORM = re.compile(r"(?<![0-9a-z])" + REPLACE_STEM)
+_FROM_BEFORE = (r"(?<![0-9a-z])from" + _GAP + r"(?:(?:"
+                + "|".join(FROM_DETERMINERS) + r")" + _GAP + r")?")
+
+
+def _from_before(sentence: str, stale: List[Any]) -> bool:
+    """Whether ``sentence`` has "from" right before a stale value or
+    alias, with at most one ``FROM_DETERMINERS`` word between."""
+    text = normalize(sentence)
+    for entry in stale:
+        value, aliases = _forms(entry)
+        for form in [value, *aliases]:
+            needle = normalize(form)
+            if not needle:
+                continue
+            pattern = _FROM_BEFORE + re.escape(needle) + r"(?![0-9a-z])"
+            if re.search(pattern, text):
+                return True
+    return False
+
+
+def _marked(sentence: str, stale: List[Any]) -> bool:
+    """Whether ``sentence`` holds a change marker for the ``stale``
+    entries: a ``TRANSITION_MARKERS`` phrase or a form of "replace" (as
+    words), or "from" right before a stale value (``_from_before``)."""
+    if any(value_in(sentence, marker) for marker in TRANSITION_MARKERS):
+        return True
+    if _REPLACE_FORM.search(normalize(sentence)):
+        return True
+    return _from_before(sentence, stale)
 
 
 def _fact_events(probe: Any) -> set:
@@ -241,20 +283,18 @@ def _report(row: Any, source: str) -> Dict[str, Any]:
 
 # -- the pieces of a probe's score ---------------------------------------
 
-def _transition_marked(answer: str, expected: List[Any],
-                       stale: List[Any]) -> bool:
+def _transition_marked(answer: str, stale: List[Any]) -> bool:
     """Whether the answer names the stale value as past: some sentence
-    holds the stale value, the expected value and a marker, and every
-    sentence that holds the stale value holds a marker (an answer that
-    also asserts the stale value elsewhere is not marked)."""
+    names it (its value or an alias), and every sentence that names it
+    holds a change marker (``_marked``), so an answer that also asserts
+    it elsewhere is not marked. The new value need not be in the same
+    sentence ("Previously, it was in the Saffron room.")."""
     stale_sentences = [
         s for s in split_sentences(answer) if _carries(s, stale)
     ]
-    if not stale_sentences:
-        return False
-    if not all(_marked(s) for s in stale_sentences):
-        return False
-    return any(_carries(s, expected) for s in stale_sentences)
+    return bool(stale_sentences) and all(
+        _marked(s, stale) for s in stale_sentences
+    )
 
 
 def _newest_target_has_stale(injected: List[Any], sources: List[str],
@@ -289,15 +329,20 @@ def _bounds(diagnostics: dict, locus: str,
             k: int) -> Tuple[Optional[bool], Optional[bool]]:
     """``(cap_bound, budget_bound)``. Kernel and replicated: the cap
     dropped a row (``after_cap < after_threshold``), the budget dropped
-    one (``after_budget < after_cap``). Native: the fetch filled ``k``
-    while the user's visible stored rows exceed ``k`` (None without
-    ``visible_stored_rows``); native has no budget (None). None where a
-    count is missing."""
+    one (``after_budget < after_cap``). Native: the fetch filled the
+    consumer's own fetch size while the user's visible stored rows
+    exceed it (None without ``visible_stored_rows``). That size is
+    ``top_k_used["own"]`` from the diagnostics when present (a V4
+    consumer fetches 5), else ``k``. Native has no budget (None). None
+    where a count is missing."""
     if locus == "native":
         fetched = _count(diagnostics.get("own_fetched"))
         if fetched is None or visible_stored_rows is None:
             return None, None
-        return fetched >= k and visible_stored_rows > k, None
+        size = _count(_get(diagnostics.get("top_k_used"), "own"))
+        if size is None:
+            size = k
+        return fetched >= size and visible_stored_rows > size, None
     after_threshold = _count(diagnostics.get("after_threshold"))
     after_cap = _count(diagnostics.get("after_cap"))
     after_budget = _count(diagnostics.get("after_budget"))
@@ -403,10 +448,14 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
     semantic diagnostic (``semantic_best``: the best cosine between
     ``fact_sentence`` and an answer sentence; ``semantic_only``: it is
     at least ``SEMANTIC_THRESHOLD`` while the expected value is not in
-    the answer); without it both are None. ``locus`` chooses the
+    the answer); without it both are None. If the diagnostic fails (the
+    embed call raises, or returns vectors it cannot compare), both are
+    None and ``semantic_error`` holds ``"<ExceptionType>: <message>"``;
+    nothing is raised and no other field changes. ``locus`` chooses the
     ``cap_bound`` / ``budget_bound`` rule; native needs
     ``visible_stored_rows`` (the user's visible stored rows, from the
-    listings) and the fetch size ``k``.
+    listings), and its fetch size is the consumer's own
+    (``top_k_used["own"]`` in ``diagnostics``), else ``k``.
     """
     kind = _get(probe, "type")
     expected = list(_get(probe, "expected") or [])
@@ -468,15 +517,19 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
         diagnostics, locus, visible_stored_rows, k
     )
 
-    semantic_best = semantic_only = None
+    semantic_best = semantic_only = semantic_error = None
     fact_sentence = _get(probe, "fact_sentence")
     if embed is not None and has_expected and fact_sentence:
-        semantic_best = _semantic_best(fact_sentence, answer, embed)
-        semantic_only = bool(
-            semantic_best is not None
-            and semantic_best >= SEMANTIC_THRESHOLD
-            and not expected_present
-        )
+        try:
+            semantic_best = _semantic_best(fact_sentence, answer, embed)
+        except Exception as e:  # a diagnostic never stops a run
+            semantic_error = f"{type(e).__name__}: {e}"
+        else:
+            semantic_only = bool(
+                semantic_best is not None
+                and semantic_best >= SEMANTIC_THRESHOLD
+                and not expected_present
+            )
 
     deleted = {str(memory_id) for memory_id in deleted_ids or ()}
     deleted_in_block: List[str] = []
@@ -502,8 +555,7 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
         "matched_expected": matched_expected,
         "matched_forbidden": matched_forbidden,
         "transition_marked": (
-            bool(stale_present)
-            and _transition_marked(answer, expected, forbidden)
+            bool(stale_present) and _transition_marked(answer, forbidden)
             if has_stale else None
         ),
         "expected_in_block": (in_block(expected, every=True)
@@ -524,6 +576,7 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
         ),
         "semantic_best": semantic_best,
         "semantic_only": semantic_only,
+        "semantic_error": semantic_error,
         "deleted_ids_in_block": deleted_in_block,
         "contaminated": contaminated,
     }
@@ -586,13 +639,19 @@ def _true_count(results: List[Any], key: str) -> Optional[int]:
     return sum(1 for value in values if value)
 
 
-def _t_interval(values: List[float]) -> Tuple[float, float]:
-    """The 95% t-interval of the mean of ``values`` (n > 0)."""
+def t_interval(
+    values: List[float],
+) -> Tuple[Optional[float], Optional[float]]:
+    """The 95% t-interval ``(low, high)`` of the mean of ``values``;
+    ``(None, None)`` for fewer than 2 values, where it is undefined (no
+    degrees of freedom), rather than a zero-width interval."""
+    if len(values) < 2:
+        return None, None
     mean = statistics.fmean(values)
-    sd = statistics.stdev(values) if len(values) > 1 else 0.0
+    sd = statistics.stdev(values)
     if sd == 0:
         return mean, mean
-    from scipy import stats  # only for an integration summary
+    from scipy import stats  # only for an integration interval
 
     half = stats.t.ppf(0.975, len(values) - 1) * sd / math.sqrt(len(values))
     return mean - half, mean + half
@@ -607,13 +666,14 @@ def _integration_score(result: Any) -> Optional[float]:
 
 
 def _summarize_integration(results: List[Any]) -> Optional[Dict[str, Any]]:
-    """The integration scores' ``n``, ``mean`` with its 95% t-interval,
-    ``share_ge_4`` and ``unscored``; None when no result has a score."""
+    """The integration scores' ``n``, ``mean`` with its 95% t-interval
+    (None for one score), ``share_ge_4`` and ``unscored``; None when no
+    result has a score."""
     scores = [float(s) for s in map(_integration_score, results)
               if s is not None]
     if not scores:
         return None
-    low, high = _t_interval(scores)
+    low, high = t_interval(scores)
     return {
         "n": len(scores),
         "mean": statistics.fmean(scores),
@@ -633,6 +693,9 @@ def _summarize_passes(kind: str, results: List[Any]) -> Dict[str, Any]:
     out["contaminated"] = sum(1 for r in results if _get(r, "contaminated"))
     if kind in EXPECTED_TYPES:
         out["semantic_only"] = _true_count(results, "semantic_only")
+        out["semantic_error"] = sum(
+            1 for r in results if _get(r, "semantic_error")
+        )
     if kind in STALE_TYPES:
         out["lenient"] = _proportion(
             _get(result, "expected_present") for result in results
@@ -660,13 +723,15 @@ def summarize(probe_results: Iterable[Any]) -> Dict[str, Dict[str, Any]]:
     counted in ``unscored``, not in ``n``) and how many probes had the
     cap and the budget bind (None where no probe knows), were
     ``contaminated`` and, for recall, recency and contradiction, were
-    ``semantic_only``. Recency and contradiction add the ``lenient``
-    rate (``expected_present`` alone) and the split of answers that
-    name both values (``names_both``, of which ``named_as_past`` were
+    ``semantic_only`` or carry a ``semantic_error`` (how many). Recency
+    and contradiction add the ``lenient`` rate (``expected_present``
+    alone) and the split of answers that name both values
+    (``names_both``, of which ``named_as_past`` were
     transition-marked). Deletion and privacy add where the forbidden
     value appeared. Integration has no pass rate: it is reported, as
-    ``n``, ``mean`` with a 95% t-interval and ``share_ge_4``, only when
-    its results carry an ``integration_score``.
+    ``n``, ``mean`` with a 95% t-interval (None for one score) and
+    ``share_ge_4``, only when its results carry an
+    ``integration_score``.
     """
     groups: Dict[str, List[Any]] = {}
     for result in probe_results:

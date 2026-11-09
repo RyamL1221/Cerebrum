@@ -250,11 +250,30 @@ class _ReplicatedWriter:
     def _v2_create(self, content: str, metadata: Dict[str, Any]) -> str:
         """Store one v2 row as the kernel stores a create request: the
         request's note (``note_from_request``) through the agent's
-        current pipeline, which fills the required metadata into it."""
+        current pipeline, which fills the required metadata into it.
+
+        Once the row is stored, ``metadata`` holds the metadata it was
+        stored with, which ``run_v2_session`` records in ``written``
+        (as v1's ``_upsert`` returns ``note.metadata``). The note
+        shares the dict until a variant's write replaces the note's
+        metadata with its own copy (``variants.base``): a V3 row is
+        stored with the library's owner and private default, and is
+        recorded so, not as the shared row it was sent as. A write
+        that raises is not copied back, and ``run_v2_session`` does
+        not record it; without a variant the library may already have
+        filled its defaults (``created_at``) into ``metadata``."""
         note = self.memory.library.note_from_request(
             {"content": content, "metadata": metadata}
         )
-        return self.memory.pipeline.write(self.agent_name, self.user_id, note)
+        memory_id = self.memory.pipeline.write(
+            self.agent_name, self.user_id, note
+        )
+        # A snapshot first: without a variant the note's metadata is
+        # ``metadata`` itself, which clear() would empty.
+        stored = dict(note.metadata or {})
+        metadata.clear()
+        metadata.update(stored)
+        return memory_id
 
     def _v2_list(self, user_id: str) -> List[dict]:
         return self.memory.list_own(self.agent_name, user_id)

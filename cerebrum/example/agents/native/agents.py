@@ -622,6 +622,10 @@ class NativeAssistantAgent:
             "block_recency_unit": recency_unit,
             # No write barrier in native: none waited (a kernel key).
             "barrier_waits": [],
+            # Native's search raises instead of returning an error, and
+            # the user then fails; the keys say no error was hidden.
+            "retrieval_error": None,
+            "injection_error": None,
             "session": session,
             "block_text": block,
             "injected_memories": [

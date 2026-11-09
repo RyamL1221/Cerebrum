@@ -22,10 +22,12 @@ class AssistantAgent:
     - auto_inject retrieves and injects relevant memories into context
 
     Benchmark v2 (AIOS docs/BENCHMARK_V2.md) sets ``session``, the
-    current session the block's ages count from, sent with the request
-    (the kernel stamps it on the stored turn), and ``probe_id``, which
-    the kernel has no channel for: it writes the conversation itself.
-    Both default to None, and the request is then sent as before.
+    current session the block's ages count from, and ``probe_id``, the
+    probe being answered. Each goes with the request when set
+    (``session``, and ``probe_id`` as ``provenance_event``), and the
+    kernel stamps both on the conversation turn it stores, as the
+    replicated and native assistants stamp their own. Both default to
+    None, and the request is then sent as before.
     """
 
     def __init__(self, agent_name: str, llms: list | None = None):
@@ -64,10 +66,16 @@ class AssistantAgent:
             # Append user query
             self.messages.append({"role": "user", "content": task_input})
 
-            # The current session (benchmark v2) goes with the request
-            # when set; without one the request is sent as before.
+            # The current session and the probe's id (benchmark v2) go
+            # with the request only when set, so a request without them
+            # is sent as before.
             session = getattr(self, "session", None)
-            extra = {} if session is None else {"session": session}
+            probe_id = getattr(self, "probe_id", None)
+            extra = {}
+            if session is not None:
+                extra["session"] = session
+            if probe_id is not None:
+                extra["provenance_event"] = probe_id
 
             # Call LLM — kernel handles memory injection and extraction
             response = llm_chat(

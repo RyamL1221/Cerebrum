@@ -298,6 +298,55 @@ def test_an_empty_memory_id_is_a_write_that_stored_no_row():
     assert result["stored_rows"] == 0 and not result["writer_failed"]
 
 
+@pytest.mark.parametrize("reply,message", [
+    (None, "create: no reply"),
+    ({"response": {"success": False, "error": "boom"}}, "create: boom"),
+    (RuntimeError("down"), "RuntimeError: down"),
+    (42, "create: unexpected reply int"),
+])
+def test_a_failed_write_is_not_recorded_in_written(reply, message):
+    """``written`` holds the writes that succeeded (Amendment 2,
+    "Stored metadata"): a failed write stored nothing, so it is no
+    memory written. It used to be recorded before it was sent."""
+    sent = []
+
+    def write(content, metadata):
+        sent.append(metadata)
+        if len(sent) == 1:
+            return "m0"
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    result = smu.run_v2_session(
+        Writer(), {"session": 2, "events": HISTORY[1:4]}, "profile",
+        write=write, list_rows=None, delete=None,
+    )
+    assert result["writer_failed"] and result["error"].startswith(message)
+    assert len(sent) == 2  # the second write was sent and failed
+    assert result["written"] == [sent[0]]
+    assert result["written"][0]["provenance_event"] == "e1"
+
+
+def test_written_records_what_the_write_left_in_the_metadata():
+    """A locus that stores other metadata than it was sent leaves what
+    it stored in the dict (the library's defaults, a variant's
+    changes); ``written`` records that, not the dict as sent."""
+    def write(content, metadata):
+        del metadata["sharing_policy"]  # as V3 sends it
+        metadata["sharing_policy"] = "private"  # the library's default
+        metadata["created_at"] = "2026-11-08T00:00:00+00:00"
+        return "m0"
+
+    result = smu.run_v2_session(
+        Writer(), {"session": 2, "events": HISTORY[1:2]}, "profile",
+        write=write, list_rows=None, delete=None,
+    )
+    (written,) = result["written"]
+    assert written["sharing_policy"] == "private"
+    assert written["created_at"] == "2026-11-08T00:00:00+00:00"
+
+
 def test_result_shape():
     result = run(Writer(), HISTORY[:2], Locus(), session=3)
     assert set(result) == {
@@ -1035,6 +1084,25 @@ def test_native_variants_change_a_v2_write(inhouse, code):
         assert stored["content"] == metadata["structured"]
         assert json.loads(stored["content"])["value"] == "Mochi"
     assert "write" not in vars(agent.memory)  # restored
+
+
+@pytest.mark.parametrize("code", [None, "V1", "V3", "V5"])
+def test_native_written_is_what_each_row_was_stored_with(inhouse, code):
+    """A native write changes the metadata dict in place (its
+    ``created_at`` and ``agent_id``, a variant's changes), so
+    ``written`` is what each row was stored with, as before the
+    Amendment 2 change that records a write only once it succeeded."""
+    agent = native_writer(native.NativeProfileAgent, "profile_agent",
+                          inhouse())
+    variant = variants.variant(code) if code else None
+    with apply_variant(variant, agent, "profile_agent", "native"):
+        result = agent.run(payload(1, [HISTORY[1], HISTORY[5]]))
+    stored = {r["metadata"]["provenance_event"]: r["metadata"]
+              for r in agent.list_own_rows()}
+    assert [w["provenance_event"] for w in result["written"]] == [
+        "e1", "e5"]
+    for written in result["written"]:
+        assert written == stored[written["provenance_event"]]
 
 
 # -- the replicated locus, in a fresh interpreter -----------------------------

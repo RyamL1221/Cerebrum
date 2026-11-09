@@ -4,7 +4,11 @@ the pass matrix, the echo split, binding counts, the functional check's
 criteria and the paired kernel - replicated contrast."""
 import json
 
+import pytest
+from scipy import stats
+
 from benchmarks.shared_memory import bench_v2_analysis as ba
+from benchmarks.shared_memory import probes as pr
 
 TYPES = ("deletion", "privacy", "recall", "recency", "contradiction",
          "integration")
@@ -183,3 +187,61 @@ def test_the_matrix_counts_contamination_and_marked_transitions(tmp_path):
             rows["contradiction"]["named_as_past"],
             rows["contradiction"]["contaminated"]) == (1, 0, 0)
     assert rows["recall"]["contaminated"] == 0
+
+
+def test_integration_rows_carry_the_t_interval_of_the_mean(tmp_path):
+    """The integration mean comes with its 95% t-interval, none for a
+    single score (Amendment 2), in the rows and in the markdown."""
+    scored = [trial(i, ALL_PASS) for i in range(3)]
+    for t, value in zip(scored, (5, 4, 2)):
+        t["integration_score"] = value
+    write(tmp_path, "qwen", "kinh", "h0_kernel_shared", scored)
+    write(tmp_path, "qwen", "kmem0", "h0_kernel_shared",
+          [trial(0, ALL_PASS)])
+    cells = ba.load(tmp_path)
+    integration = ba.integration_rows(cells)
+    rows = {r["backend"]: r for r in integration}
+    low, high = stats.t.interval(0.95, 2, loc=11 / 3,
+                                 scale=stats.sem([5, 4, 2]))
+    inhouse = rows["inhouse"]
+    assert (inhouse["n"], inhouse["mean"]) == (3, pytest.approx(11 / 3))
+    assert (inhouse["ci_low"], inhouse["ci_high"]) == pytest.approx(
+        (low, high))
+    single = rows["mem0"]
+    assert single["n"] == 1
+    assert single["ci_low"] is None and single["ci_high"] is None
+    text = ba.markdown(cells, [], [], [], [], integration)
+    assert ("| model | locus | backend | condition | n | mean | ci_low | "
+            "ci_high | sd | share_ge_4 |") in text
+    assert f"| 3.67 | {low:.2f} | {high:.2f} | 1.53 |" in text
+    # One score: no interval and no standard deviation.
+    assert single["sd"] is None
+    assert "| 1 | 4 |  |  |  | 1.00 |" in text
+
+
+def test_named_as_past_counts_what_the_scorer_marks(tmp_path):
+    """The matrix reads ``transition_marked`` as the scorer records it:
+    pilot user 4's answer, which names the stale room as past in a
+    sentence of its own, counts; one that asserts both does not."""
+    recency = {
+        "probe_id": "u004-p4-recency", "type": "recency",
+        "slot": "sync_room", "question": "Which room is the sync in?",
+        "expected": [{"value": "Larch", "aliases": []}],
+        "forbidden": [{"value": "Saffron", "aliases": []}],
+        "target_event": "u004-e11", "source_events": ["u004-e07",
+                                                      "u004-e11"],
+    }
+    answers = (
+        "Your weekly team sync is now held in the Larch room. Previously, "
+        "it was in the Saffron room, but it has been relocated.",
+        "Your weekly team sync is in the Larch room or the Saffron room.",
+    )
+    trials = [{"trial_index": i, "failed": False, "probe_results": [
+        pr.score_probe(recency, answer, {"block_text": ""}, user_values=[],
+                       locus="kernel")]}
+        for i, answer in enumerate(answers)]
+    write(tmp_path, "qwen", "kinh", "h0_kernel_shared", trials)
+    rows = {r["probe"]: r for r in ba.cell_rows(ba.load(tmp_path))}
+    assert (rows["recency"]["names_both"],
+            rows["recency"]["named_as_past"]) == (2, 1)
+    assert (rows["recency"]["passed"], rows["recency"]["n"]) == (0, 2)

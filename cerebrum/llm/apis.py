@@ -180,6 +180,11 @@ class LLMQuery(Query):
     # The caller's current session (benchmark v2): the memory block
     # gives each row its age in sessions ("2 sessions ago").
     session: Optional[int] = Field(default=None)
+    # The event the request answers (benchmark v2: the probe id): the
+    # kernel stamps it on the conversation turn it stores, as
+    # ``metadata.provenance_event``, as the replicated and native
+    # assistants stamp their own turns.
+    provenance_event: Optional[str] = Field(default=None)
 
     class Config:
         arbitrary_types_allowed = True
@@ -245,6 +250,7 @@ def llm_chat(
         llms: List[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
         session: Optional[int] = None,
+        provenance_event: Optional[str] = None,
     ) -> LLMResponse:
     """
     Perform a chat interaction with the LLM.
@@ -264,7 +270,10 @@ def llm_chat(
         user_id: The end user the request is for (memory scope)
         session: The caller's current session, for session ages in
             the memory block (benchmark v2); None leaves them off
-        
+        provenance_event: The event the request answers (benchmark v2:
+            the probe id), which the kernel stamps on the conversation
+            turn it stores; None stamps none
+
     Returns:
         LLMResponse containing the generated response
         
@@ -319,6 +328,7 @@ def llm_chat(
         action_type="chat",
         user_id=user_id,
         session=session,
+        provenance_event=provenance_event,
     )
     return send_request(agent_name, query, base_url)
 
