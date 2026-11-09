@@ -688,15 +688,27 @@ def user_values(user: V2UserData) -> List[Dict[str, Any]]:
 
 def visible_rows(user: V2UserData, outcome: HistoryOutcome,
                  turn: ProbeTurn) -> int:
-    """The rows the consumer could see at a probe: the writers' shared
-    rows in its partition after the history, plus its own rows when the
-    probe began."""
+    """The rows the native consumer could see at a probe, by its own
+    rules (``native/sharing.py``): the writers' rows after the history in
+    the partition it searched (its ``resolved_user_id``; a V2 consumer's
+    is rewritten), only the shared ones unless it reported not checking
+    visibility (a V3 consumer, ``no_visibility``), plus its own rows when
+    the probe began."""
+    diagnostics = turn.diagnostics or {}
+    partition = diagnostics.get("resolved_user_id") or user.user_id
+    checks_visibility = diagnostics.get("visibility_checked") is not False
     history = next(l for l in outcome.listings if l["after"] == "history")
-    shared = sum(
-        1 for name in WRITERS for row in history["rows"].get(name, [])
-        if (row.get("metadata") or {}).get("sharing_policy") == "shared"
-        and (row.get("metadata") or {}).get("user_id") == user.user_id)
-    return shared + turn.consumer_rows_before
+    writers = 0
+    for name in WRITERS:
+        for row in history["rows"].get(name, []):
+            metadata = row.get("metadata") or {}
+            if metadata.get("user_id") != partition:
+                continue
+            if (checks_visibility
+                    and metadata.get("sharing_policy") != "shared"):
+                continue
+            writers += 1
+    return writers + turn.consumer_rows_before
 
 
 def iter_turns(outcome: HistoryOutcome) -> Iterable[ProbeTurn]:

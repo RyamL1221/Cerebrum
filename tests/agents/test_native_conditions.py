@@ -161,6 +161,30 @@ def test_another_agents_private_memory_never_reaches_the_block(harness, method):
     assert diagnostics.after_visibility == 2
 
 
+@pytest.mark.parametrize("checks", [True, False])
+def test_the_native_consumer_reports_whether_it_checked_visibility(
+        harness, checks):
+    """The harness's visible_stored_rows reads it (history.visible_rows):
+    a consumer that skips the rule (V3, no_visibility) sees another
+    agent's private row, and the record says so."""
+    _, chat = harness
+    pipeline = MethodPipeline(method="native_inhouse")
+    _, task, assistant = pipeline._native("inhouse")
+    task.memory.write(
+        [{"role": "user", "content": "secret plan"}], "secret plan",
+        "task_agent", memory_metadata("task_agent",
+                                      TRIAL.user_id + "__native_inhouse",
+                                      "task_context", "private"),
+    )
+    assistant.check_visibility = checks
+    result = pipeline.run_trial(TRIAL)
+    raw = result.assistant_result["injection_diagnostics"]
+    assert raw["visibility_checked"] is checks
+    assert result.injection_diagnostics.visibility_checked is checks
+    block = chat.call_args.kwargs["messages"][0]["content"]
+    assert ("secret plan" in block) is (not checks)
+
+
 def test_native_diagnostics_have_the_kernel_keys(harness):
     result = MethodPipeline(method="native_inhouse").run_trial(TRIAL)
     raw = result.assistant_result["injection_diagnostics"]

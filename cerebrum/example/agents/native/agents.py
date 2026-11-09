@@ -567,6 +567,7 @@ class NativeAssistantAgent:
             self.relevance_threshold, self.block_format,
             recency=recency, recency_unit=recency_unit,
             session=self.session,
+            visibility_checked=self.check_visibility,
         )
         diagnostics.update(latency)
         return {
@@ -595,11 +596,13 @@ class NativeAssistantAgent:
     def _diagnostics(user_id, k, rows, counts, kept, block,
                      threshold=None, block_format="native", *,
                      recency=False, recency_unit="time",
-                     session=None) -> dict:
+                     session=None, visibility_checked=None) -> dict:
         """The kernel's diagnostic keys, filled by the agent: the recency
-        settings it followed, the current ``session``, and per injected
-        row its text as printed (without the age), ``fact_key``,
-        ``session`` and ``provenance_event`` (benchmark v2)."""
+        settings it followed, the current ``session``, whether it applied
+        the visibility rule (``visibility_checked``: a V3 consumer or the
+        ``no_visibility`` control does not), and per injected row its
+        text as printed (without the age), ``fact_key``, ``session`` and
+        ``provenance_event`` (benchmark v2)."""
         scores_present = any(r["score"] is not None for r in rows)
         return {
             "resolved_user_id": user_id,
@@ -607,6 +610,7 @@ class NativeAssistantAgent:
             "shared_fetched": 0,
             "after_partition": counts["after_partition"],
             "after_visibility": counts["after_visibility"],
+            "visibility_checked": visibility_checked,
             "after_dedupe": counts["after_visibility"],
             "scores_present": scores_present,
             "threshold_used": threshold,

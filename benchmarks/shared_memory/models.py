@@ -153,6 +153,10 @@ class InjectionDiagnostics(BaseModel):
     shared_fetched: int = 0
     after_partition: int = 0
     after_visibility: int = 0
+    # Whether the consumer applied the visibility rule: reported by the
+    # native consumer, False for a V3 consumer and under no_visibility;
+    # None where the kernel or the library enforces it.
+    visibility_checked: Optional[bool] = None
     after_dedupe: int = 0
     scores_present: bool = False
     threshold_used: Optional[float] = None
@@ -227,8 +231,9 @@ class WrittenMemoryRecord(BaseModel):
 
 
 class MemoryCounts(BaseModel):
-    """Counts of the memories the profile and task agents created in a
-    trial, derived from its ``written_memories``."""
+    """Counts of the memories the writers created in a trial (v1: the
+    profile and task agents; v2: all three writers, one per write
+    event), derived from its ``written_memories``."""
 
     total: int = 0
     shared: int = 0

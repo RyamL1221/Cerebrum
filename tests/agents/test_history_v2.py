@@ -25,6 +25,7 @@ from benchmarks.shared_memory.models import (
 )
 from benchmarks.shared_memory.pipeline import AgentPipeline, VariantRunner
 from benchmarks.shared_memory.probes import score_probe
+from cerebrum.example.agents.native.sharing import in_partition, visible
 from cerebrum.example.agents.shared_memory_utils import WriterError
 from cerebrum.utils import usage
 
@@ -1011,3 +1012,87 @@ def test_a_failed_v2_trial_records_what_ran(tmp_path):
     o.judge.evaluate.assert_not_called()
     again = TrialResult.model_validate_json(trial.model_dump_json())
     assert again.probe_results[1].error == privacy.error
+
+
+# -- the native consumer's visible stored rows (native cap_bound) ------------
+
+class NativeRulesConsumer(FakeConsumer):
+    """The native consumer's own rules over the store
+    (``native/sharing.py``): the rows of the partition it serves, only
+    the visible ones unless ``check_visibility`` is off, and
+    ``visibility_checked`` in its diagnostics. It writes its
+    conversation through ``memory.write``, where V3 strips metadata."""
+
+    def __init__(self, store, log, **options):
+        super().__init__(store, log, **options)
+        self.check_visibility = True
+        self.memory = SimpleNamespace(write=self._write)
+
+    def _write(self, messages, text, agent_name, metadata):
+        return self.store.add(agent_name, text, metadata)
+
+    def run(self, question):
+        self.log.append(("probe", self.session, self.probe_id))
+        rows = [r for r in self.store.rows.values()
+                if in_partition(self.user_id, r["metadata"])
+                and (not self.check_visibility
+                     or visible(history.CONSUMER, r["metadata"]))]
+        diagnostics = dict(block_diagnostics(rows, self.session,
+                                             self.user_id),
+                           visibility_checked=self.check_visibility)
+        answer = self.answer(question)
+        self.memory.write(
+            [{"role": "user", "content": question}],
+            f"User: {question}\nAssistant: {answer}", history.CONSUMER,
+            {"user_id": self.user_id, "session": self.session,
+             "provenance_event": self.probe_id,
+             "owner_agent": history.CONSUMER, "sharing_policy": "private"})
+        return {"result": answer, "injection_diagnostics": diagnostics,
+                "token_usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                                "total_tokens": 15}}
+
+
+@pytest.mark.parametrize("variants, control, partition, all_policies", [
+    (None, None, "base", False),
+    ({"assistant_agent": "V2"}, None, "alias", False),
+    ({"assistant_agent": "V3"}, None, "base", True),
+    (None, "no_visibility", "base", True),
+])
+def test_native_visible_rows_follow_the_consumers_partition_and_visibility(
+        variants, control, partition, all_policies):
+    """visible_stored_rows counts what the native consumer could fetch:
+    the writers' rows in the partition it searched (a V2 consumer's is
+    its rewritten id, which holds none of them) and, when it does not
+    check visibility (V3, no_visibility), the private ones too; plus
+    its own rows when the probe began. It used to count the writers'
+    shared rows under the base id for every consumer."""
+    locus = managed("native", consumer=NativeRulesConsumer)
+    user = v2_user()
+    _, outcome = run(locus, user, control=control, variants=variants)
+    assert outcome.failure is None
+    uid = user.user_id if partition == "base" else \
+        f"{user.user_id}@users.example"
+    listed = next(l for l in outcome.listings
+                  if l["after"] == "history")["rows"]
+    metadata = [r["metadata"] for name in history.WRITERS
+                for r in listed.get(name, [])]
+    expected = sum(1 for m in metadata if m.get("user_id") == uid and (
+        all_policies or m.get("sharing_policy") == "shared"))
+    shared_base = sum(1 for m in metadata if m.get("user_id") ==
+                      user.user_id and m.get("sharing_policy") == "shared")
+    if variants is None and control is None:
+        assert expected == shared_base  # the reference count is unchanged
+    elif all_policies:
+        assert expected > shared_base  # the user's private fact
+    else:
+        assert expected == 0 < shared_base  # the V2 alias holds none
+    results = history.score_turns(user, outcome, "native")
+    for turn, result in zip(outcome.turns, results):
+        assert result.diagnostics.visibility_checked is (not all_policies)
+        assert result.visible_stored_rows == (
+            expected + turn.consumer_rows_before)
+        # The fake injects every row it can see, so its own count checks
+        # both halves, its own rows (a V2 consumer's, under its alias)
+        # included.
+        assert result.visible_stored_rows == (
+            result.diagnostics.injected_count)
