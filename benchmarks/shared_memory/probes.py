@@ -1,8 +1,11 @@
 """Judge-free scoring of benchmark v2's probes (NeurIPS Subtask 14, AIOS
 docs/BENCHMARK_V2.md, "Scoring" and "Diagnostics per probe").
 
-The matcher here is the one rule every v2 check uses: the scorer, the
-generator's distinctness checks (``synth_v2.py``) and the analysis.
+The matcher (the AIOS memory library's ``aios/memory/pipeline/
+matching.py``, re-exported here) is the one rule every v2 check uses:
+the scorer, the generator's distinctness checks (``synth_v2.py``), the
+analysis, and the library's forget, so that what counts as exposure is
+what revocation removes.
 Text is casefolded, accents are stripped, and runs of whitespace and
 the punctuation ``-`` ``_`` ``.`` ``/`` collapse to one space. A value
 matches when it appears with a non-alphanumeric character, or the
@@ -30,38 +33,49 @@ gives ``Dr.`` and ``Okafor ...``). No pass rule reads sentences.
 import math
 import re
 import statistics
-import unicodedata
 from statistics import NormalDist
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-_COLLAPSE = re.compile(r"[\s\-_./]+")
+import importlib.util
+import sys
+
+from cerebrum.example.agents.replicated.library import aios_root
+
+# The matcher is the AIOS memory library's (aios/memory/pipeline/
+# matching.py), so whatever the scorer counts as exposure is what the
+# library's forget removes (AIOS docs/DELETION_AND_SUPERSESSION.md).
+# Loaded from the AIOS checkout by file path, as a module of its own:
+# importing ``aios`` here would bind this checkout's ``aios/`` stub and
+# break the replicated agents' loader (``replicated/library.py``).
+MATCHER_PATH = aios_root() / "aios" / "memory" / "pipeline" / "matching.py"
+_MATCHER_MODULE = "benchmarks.shared_memory._library_matching"
 
 
-def normalize(text: Optional[str]) -> str:
-    """``text`` casefolded, without accents, with whitespace and
-    ``- _ . /`` runs collapsed to one space."""
-    decomposed = unicodedata.normalize("NFKD", text or "")
-    plain = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return _COLLAPSE.sub(" ", plain.casefold()).strip()
+def _library_matcher():
+    """The library's matcher module, loaded once from ``MATCHER_PATH``."""
+    if _MATCHER_MODULE in sys.modules:
+        return sys.modules[_MATCHER_MODULE]
+    spec = importlib.util.spec_from_file_location(
+        _MATCHER_MODULE, MATCHER_PATH
+    )
+    if spec is None or not MATCHER_PATH.is_file():
+        raise ImportError(
+            f"the memory library's matcher is not at {MATCHER_PATH}: set "
+            "AIOS_ROOT to the AIOS checkout"
+        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules[_MATCHER_MODULE] = module
+    return module
 
 
-def value_in(text: Optional[str], value: Optional[str]) -> bool:
-    """Whether ``value`` appears in ``text`` under the matcher."""
-    needle = normalize(value)
-    if not needle:
-        return False
-    pattern = r"(?<![0-9a-z])" + re.escape(needle) + r"(?![0-9a-z])"
-    return re.search(pattern, normalize(text)) is not None
-
-
-def match_any(text: Optional[str], value: Optional[str],
-              aliases: Iterable[str] = ()) -> Optional[str]:
-    """The first of ``value`` and its ``aliases`` that appears in
-    ``text`` (as given), or None."""
-    for form in [value, *aliases]:
-        if form and value_in(text, form):
-            return form
-    return None
+_matching = _library_matcher()
+# Re-exported: the scorer, synth_v2.py, history.py and the analysis
+# import these names from here.
+normalize = _matching.normalize
+value_in = _matching.value_in
+match_any = _matching.match_any
+match_forms = _matching.match_forms
 
 
 # -- constants -----------------------------------------------------------
@@ -108,7 +122,7 @@ RESULT_KEYS = (
     "rows_with_forbidden", "newest_target_row_has_stale", "cap_bound",
     "budget_bound", "answer_words", "other_values_in_answer",
     "semantic_best", "semantic_only", "semantic_error",
-    "deleted_ids_in_block", "contaminated",
+    "deleted_ids_in_block", "contaminated", "retired_in_block",
 )
 # The keys of each row in ``rows_with_*``.
 ROW_KEYS = ("memory_id", "owner_agent", "memory_type", "fact_key",
@@ -425,7 +439,8 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
                 user_values: Iterable[Any], deleted_ids: Iterable[str] = (),
                 embed: Optional[Embed] = None, locus: str,
                 visible_stored_rows: Optional[int] = None,
-                k: int = 10) -> Dict[str, Any]:
+                k: int = 10,
+                retired_events: Iterable[str] = ()) -> Dict[str, Any]:
     """Score one probe turn (the keys are ``RESULT_KEYS``).
 
     ``probe`` is the dataset's probe record (a dict or a model):
@@ -456,6 +471,12 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
     ``visible_stored_rows`` (the user's visible stored rows, from the
     listings), and its fetch size is the consumer's own
     (``top_k_used["own"]`` in ``diagnostics``), else ``k``.
+
+    ``retired_events`` are the user's earlier statements of facts with a
+    later statement (``history.retired_events``, from the dataset, not
+    the store's marks); ``retired_in_block`` lists the injected rows
+    whose ``provenance_event`` is one of them (Amendment 4). It decides
+    no pass.
     """
     kind = _get(probe, "type")
     expected = list(_get(probe, "expected") or [])
@@ -539,6 +560,12 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
                 and memory_id not in deleted_in_block):
             deleted_in_block.append(memory_id)
 
+    retired = {str(event) for event in retired_events or ()}
+    retired_in_block = [
+        str(row.get("memory_id")) for row in injected
+        if str(row.get("provenance_event")) in retired
+    ]
+
     contaminated = any(
         rows and all(row["source"] == "conversation" for row in rows)
         for rows in (rows_with_expected, rows_with_stale,
@@ -579,6 +606,7 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
         "semantic_error": semantic_error,
         "deleted_ids_in_block": deleted_in_block,
         "contaminated": contaminated,
+        "retired_in_block": retired_in_block,
     }
 
 

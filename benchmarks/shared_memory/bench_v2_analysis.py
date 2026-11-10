@@ -8,7 +8,10 @@ as AIOS ``scripts/run_bench_v2.sh`` writes them and reports:
   deletion split into echo and non-echo users, with 95% Wilson
   intervals, the lenient recency and contradiction rates, and how often
   the cap and the budget bound;
-- the functional check's criteria, each with its evidence;
+- the functional check's criteria, each with its evidence (since
+  Amendment 4 the budget's binding is reported, not required, and the
+  library's deletion, supersession and guard have criteria of their
+  own);
 - for the smoke: the integration mean per cell with its 95%
   t-interval, kernel against replicated per probe type (paired over
   users, exact McNemar), and the share of identical in-house blocks;
@@ -48,7 +51,12 @@ CELLS = {
     "native_mem0": ("native", "mem0"),
     "native_inhouse": ("native", "inhouse"),
 }
-PHASE_BACKEND = {"kmem0": "mem0", "kinh": "inhouse"}
+# The driver's kernel phases; "_ns" runs the no_supersession control
+# in a kernel of its own (Amendment 4).
+PHASE_BACKEND = {"kmem0": "mem0", "kinh": "inhouse",
+                 "kmem0_ns": "mem0", "kinh_ns": "inhouse"}
+# The loci that run the library's forget and supersession.
+LIBRARY_LOCI = ("kernel", "replicated")
 
 
 def load(root: Path) -> Dict[tuple, dict]:
@@ -238,11 +246,153 @@ def criteria(cells: Dict[tuple, dict]) -> List[dict]:
     })
     budget = sum(budget for (m, l, b), (_, _, budget) in bound.items()
                  if b == "inhouse")
+    # Amendment 4: reported, not required ("holds" is None).
     out.append({
-        "criterion": "the budget binds in some probe of a kernel or "
-                     "replicated in-house cell (H = 0 and H = 2)",
-        "holds": budget > 0,
+        "criterion": "the budget's binding in kernel and replicated "
+                     "in-house cells (H = 0 and H = 2): reported, not "
+                     "required",
+        "holds": None,
         "evidence": f"{budget} probes with a binding budget",
+    })
+    if any(key[1] in LIBRARY_LOCI for key in cells):
+        out += library_criteria(cells)
+    return out
+
+
+def _trials(cells: Dict[tuple, dict], pred) -> List[tuple]:
+    """``(key, trial)`` for every trial, failed ones included, of the
+    cells whose key ``pred`` accepts."""
+    return [(key, trial) for key, cell in sorted(cells.items())
+            if pred(*key) for trial in cell["trials"]]
+
+
+def _events(trial: dict, kind: Optional[str] = None) -> List[dict]:
+    """The trial's session events (of type ``kind``), each with its
+    session's writer as ``writer``."""
+    return [dict(event, writer=session.get("writer"))
+            for session in trial.get("sessions") or []
+            for event in session.get("events") or []
+            if kind is None or event.get("type") == kind]
+
+
+def library_criteria(cells: Dict[tuple, dict]) -> List[dict]:
+    """Amendment 4's criteria, at H = 0 in the kernel and replicated
+    cells on both backends: deletion is complete and goes through the
+    forget, and writer_scoped fails some echo user; no block holds a
+    retired row, and no_supersession puts one in some block; the guard
+    was armed and dropped nothing; every Mem0 forget scrubbed a
+    message. A failed trial or an unscored probe counts against a
+    criterion, never for it."""
+    out = []
+    ref = lambda m, l, b, c: l in LIBRARY_LOCI and c == "h0"  # noqa: E731
+    h0_like = lambda m, l, b, c: (  # noqa: E731
+        l in LIBRARY_LOCI and c != "h2")
+    trials = _trials(cells, ref)
+
+    passes = fails = unscored = failed = residue = 0
+    revokes = not_forget = 0
+    for _, trial in trials:
+        if trial.get("failed"):
+            failed += 1
+            continue
+        for probe in trial.get("probe_results") or []:
+            if probe["type"] != "deletion":
+                continue
+            if probe.get("passed") is None:
+                unscored += 1
+            elif probe["passed"]:
+                passes += 1
+            else:
+                fails += 1
+        residue += bool(trial.get("revoked_value_rows"))
+        for event in _events(trial, "revoke"):
+            revokes += 1
+            not_forget += event.get("revoke_path") != "forget"
+    out.append({
+        "criterion": "kernel and replicated delete completely at H = 0: "
+                     "every deletion probe passes, no carrier is left "
+                     "and every revoke went through the forget",
+        "holds": bool(trials) and passes > 0 and not (
+            fails or unscored or failed or residue or not_forget),
+        "evidence": f"{len({k for k, _ in trials})} cells: {passes} pass, "
+                    f"{fails} fail, {unscored} unscored, {failed} failed "
+                    f"trials; {residue} trials with revoked_value_rows; "
+                    f"{not_forget} of {revokes} revokes not through the "
+                    "forget",
+    })
+
+    scoped = [p for key, cell in cells.items()
+              if key[1] in LIBRARY_LOCI and key[3] == "writer_scoped"
+              for p in _probes(cell["trials"], "deletion", echo=True)
+              if p.get("passed") is not None]
+    out.append({
+        "criterion": "writer_scoped fails some echo user in a kernel or "
+                     "replicated cell",
+        "holds": any(not p["passed"] for p in scoped),
+        "evidence": f"{sum(not p['passed'] for p in scoped)} of "
+                    f"{len(scoped)} echo-user deletion probes fail",
+    })
+
+    def retired_counts(pred):
+        probes = missing = holding = 0
+        for _, trial in _trials(cells, pred):
+            if trial.get("failed"):
+                continue
+            for probe in trial.get("probe_results") or []:
+                probes += 1
+                found = probe.get("retired_in_block")
+                missing += found is None
+                holding += bool(found)
+        return probes, missing, holding
+
+    probes, missing, holding = retired_counts(ref)
+    _, _, ns_holding = retired_counts(
+        lambda m, l, b, c: l in LIBRARY_LOCI and c == "no_supersession")
+    out.append({
+        "criterion": "no kernel or replicated block holds a retired row "
+                     "at H = 0, and no_supersession puts one in some "
+                     "block",
+        "holds": probes > 0 and not missing and not holding
+        and ns_holding > 0,
+        "evidence": f"h0: {holding} of {probes} probes hold one "
+                    f"({missing} unrecorded); no_supersession: "
+                    f"{ns_holding} probes hold one",
+    })
+
+    probes = absent = dropped = unarmed = 0
+    for _, trial in _trials(cells, h0_like):
+        if trial.get("failed"):
+            continue
+        forgot = any(event.get("revoke_path") == "forget"
+                     for event in _events(trial, "revoke"))
+        for probe in trial.get("probe_results") or []:
+            probes += 1
+            diagnostics = probe.get("diagnostics") or {}
+            if diagnostics.get("after_tombstone") is None:
+                absent += 1
+            dropped += bool(diagnostics.get("tombstoned_rows"))
+            if forgot and not diagnostics.get("tombstoned_forms"):
+                unarmed += 1
+    out.append({
+        "criterion": "the guard was armed and dropped nothing in the "
+                     "kernel and replicated cells at H = 0",
+        "holds": probes > 0 and not (absent or dropped or unarmed),
+        "evidence": f"{probes} probes: {absent} without the guard's "
+                    f"stage, {unarmed} unarmed after a forget, "
+                    f"{dropped} with a dropped row",
+    })
+
+    scrubs = [((event.get("forget") or {}).get("scrubbed") or {})
+              .get("messages") or 0
+              for key, trial in trials if key[2] == "mem0"
+              and not trial.get("failed")
+              for event in _events(trial, "revoke")
+              if event.get("revoke_path") == "forget"]
+    out.append({
+        "criterion": "every Mem0 forget at H = 0 scrubbed a message",
+        "holds": bool(scrubs) and all(n > 0 for n in scrubs),
+        "evidence": f"{sum(n > 0 for n in scrubs)} of {len(scrubs)} "
+                    f"forgets ({sum(scrubs)} messages)",
     })
     return out
 
@@ -603,9 +753,81 @@ def integration_base_rows(cells: Dict[tuple, dict]) -> List[dict]:
     return rows
 
 
+def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per kernel and replicated cell (Amendment 4): the revokes and how
+    they went (through the forget or the owner), what the forgets
+    deleted by reason and how many rows of other agents, the forgets
+    that found no value, the history scrub's counts, and what later
+    writes swept or had suppressed."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        if locus not in LIBRARY_LOCI:
+            continue
+        row = {**_key(model, locus, backend, condition), "revokes": 0,
+               "forget": 0, "deleted": 0, "fact_key": 0, "value": 0,
+               "alias": 0, "other_agents": 0, "no_values": 0,
+               "messages": 0, "history": 0, "swept": 0, "suppressed": 0}
+        for trial in cell["trials"]:
+            if trial.get("failed"):
+                continue
+            for event in _events(trial, "revoke"):
+                row["revokes"] += 1
+                report = event.get("forget")
+                if event.get("revoke_path") != "forget" or not report:
+                    continue
+                row["forget"] += 1
+                for entry in report.get("deleted") or []:
+                    row["deleted"] += 1
+                    reason = entry.get("reason")
+                    if reason in ("fact_key", "value", "alias"):
+                        row[reason] += 1
+                    row["other_agents"] += (
+                        entry.get("owner_agent") != event.get("writer"))
+                row["no_values"] += not report.get("values_count")
+                scrubbed = report.get("scrubbed") or {}
+                row["messages"] += scrubbed.get("messages") or 0
+                row["history"] += scrubbed.get("history") or 0
+            for event in _events(trial):
+                row["swept"] += len(event.get("swept_ids") or [])
+                row["suppressed"] += bool(event.get("suppressed"))
+        rows.append(row)
+    return rows
+
+
+def supersession_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per cell (Amendment 4): the rows writes retired, the earlier
+    statements' rows after the history (``retired_rows``, from the
+    dataset) and how many carry a mark, the probes whose block held a
+    retired row, and the rows the selection excluded as retired."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        row = {**_key(model, locus, backend, condition), "retired": 0,
+               "earlier_rows": 0, "marked": 0, "probes": 0,
+               "retired_in_block": 0, "excluded": 0}
+        for trial in cell["trials"]:
+            if trial.get("failed"):
+                continue
+            for event in _events(trial):
+                row["retired"] += len(event.get("retired_ids") or [])
+            for earlier in trial.get("retired_rows") or []:
+                row["earlier_rows"] += 1
+                row["marked"] += bool(earlier.get("superseded_by"))
+            for probe in trial.get("probe_results") or []:
+                row["probes"] += 1
+                row["retired_in_block"] += bool(
+                    probe.get("retired_in_block"))
+                row["excluded"] += len(
+                    (probe.get("diagnostics") or {}).get("superseded_rows")
+                    or [])
+        rows.append(row)
+    return rows
+
+
 def readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
     """Every reading above, by name."""
-    return {"exposure": exposure_rows(cells),
+    return {"forgets": forget_rows(cells),
+            "supersession": supersession_rows(cells),
+            "exposure": exposure_rows(cells),
             "carriers": carrier_rows(cells),
             "stored_carriers": stored_carrier_rows(cells),
             "misses": miss_rows(cells),
@@ -617,6 +839,24 @@ def readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
 
 CELL_KEYS = ["model", "locus", "backend", "condition"]
 READING_SECTIONS = [
+    ("forgets", "Revokes and the forget (Amendment 4)",
+     "Per kernel and replicated cell: revokes, those that went through "
+     "the forget, the rows the forgets deleted (by reason: the slot's "
+     "`fact_key`, a `value` or an `alias`; `other_agents`: rows of "
+     "agents other than the revoking writer), forgets that found no "
+     "value, the Mem0 history scrub (`messages` deleted, `history` "
+     "records cleared), and rows later writes `swept` and writes "
+     "`suppressed`.",
+     ["revokes", "forget", "deleted", "fact_key", "value", "alias",
+      "other_agents", "no_values", "messages", "history", "swept",
+      "suppressed"]),
+    ("supersession", "Supersession (Amendment 4)",
+     "`retired`: rows writes marked retired; `earlier_rows`: the "
+     "earlier statements' rows after the history (from the dataset) and "
+     "how many carry a mark (`marked`); probes whose block held a "
+     "retired row; rows the selection excluded as retired.",
+     ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
+      "excluded"]),
     ("exposure", "Trial-level exposure (deletion, privacy)",
      "A probe checks only its own block and answer. `exposed`: trials "
      "whose forbidden value appears in any probe's block or answer; "

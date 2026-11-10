@@ -214,15 +214,29 @@ def check_kernel_mode(kernel_url: str, method: str) -> None:
 V2_SETTINGS = {"max_injected_memories": 10, "max_memory_tokens": 300,
                "relevance_threshold": 0.0, "block_format": "compact"}
 V2_BARRIER_TIMEOUT_MS = 60_000
+# Amendment 4: supersession on, except under its control.
+V2_SUPERSESSION = "exclude"
+NO_SUPERSESSION = "no_supersession"
+
+
+def expected_supersession(control: Optional[str]) -> str:
+    """The ``memory.supersession`` a v2 cell of the kernel or replicated
+    locus runs with: ``off`` under ``no_supersession``, else
+    ``exclude`` (Amendment 4)."""
+    return "off" if control == NO_SUPERSESSION else V2_SUPERSESSION
 
 
 def check_v2_settings(kernel_url: str, method: str,
-                      recency: bool = True) -> dict:
+                      recency: bool = True,
+                      control: Optional[str] = None) -> dict:
     """Fail unless the kernel's memory settings are benchmark v2's
     (AIOS docs/BENCHMARK_V2.md, "Pre-flight"); return what was checked,
     for the results file. A kernel method needs injection on and, since
     Amendment 3, the kernel's conversation extraction off: a probe
-    writes nothing."""
+    writes nothing. Since Amendment 4 a kernel or replicated method
+    needs ``supersession`` as the control has it
+    (``expected_supersession``), and a kernel method a tombstone file
+    and, on Mem0, a history file of the store's own."""
     response = requests.get(f"{kernel_url}/memory/config", timeout=10)
     response.raise_for_status()
     body = response.json()
@@ -248,11 +262,31 @@ def check_v2_settings(kernel_url: str, method: str,
             problems.append("a kernel method needs auto_inject on and "
                             "auto_extract off (Amendment 3: probes write "
                             "nothing)")
+        if not body.get("tombstones_path"):
+            problems.append("a kernel method needs memory.tombstones_path "
+                            "(tombstones in memory would not survive a "
+                            "restart)")
+        history_path = body.get("history_db_path")
+        shared = os.path.join(os.path.expanduser("~"), ".mem0")
+        under_shared = bool(history_path) and (
+            os.path.abspath(history_path) + os.sep).startswith(shared + os.sep)
+        if body.get("provider") == "mem0" and (
+                not history_path or under_shared):
+            problems.append(f"Mem0's history file is {history_path!r}, not "
+                            "one of the store's own (Amendment 4)")
+    if locus_of(method) in ("kernel", "replicated"):
+        want = expected_supersession(control)
+        if pipeline.get("supersession") != want:
+            problems.append(f"supersession is "
+                            f"{pipeline.get('supersession')!r}, not "
+                            f"{want!r} (Amendment 4)")
     if problems:
         raise SystemExit("benchmark v2 pre-flight: " + "; ".join(problems))
     return {"pipeline": pipeline, "auto_inject": body.get("auto_inject"),
             "auto_extract": body.get("auto_extract"),
-            "pipeline_version": body.get("pipeline_version")}
+            "pipeline_version": body.get("pipeline_version"),
+            "tombstones_path": body.get("tombstones_path"),
+            "history_db_path": body.get("history_db_path")}
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1052,6 +1086,7 @@ class EvaluationOrchestrator:
             **base, **common,
             reappeared_memory_ids=history.reappeared_ids(outcome),
             revoked_value_rows=history.revoked_value_rows(user, outcome),
+            retired_rows=history.retired_rows(user, outcome),
             assistant_response=integration.observed,
             injection_diagnostics=integration.diagnostics,
             judge_free=judge_free_measures.measure(
@@ -1298,7 +1333,8 @@ def main():
     preflight = None
     if dataset_spec is not None and dataset_spec.version == 2:
         preflight = check_v2_settings(kernel_url, args.method,
-                                      recency=not args.no_recency)
+                                      recency=not args.no_recency,
+                                      control=args.control)
 
     orchestrator = EvaluationOrchestrator(
         trials=args.trials,

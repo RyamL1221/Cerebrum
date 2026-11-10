@@ -185,10 +185,27 @@ def test_the_native_consumer_reports_whether_it_checked_visibility(
     assert ("secret plan" in block) is (not checks)
 
 
+# The stages of the library's selection that native has no counterpart
+# of (Amendment 4: supersession and the tombstone guard). Its consumer
+# is unchanged by Amendment 4, so the record holds None for them.
+LIBRARY_ONLY_KEYS = {"after_supersession", "superseded_rows",
+                     "after_tombstone", "tombstoned_rows",
+                     "tombstoned_forms"}
+
+
 def test_native_diagnostics_have_the_kernel_keys(harness):
+    """Native fills every kernel diagnostics key, except the library's
+    Amendment 4 stages, which it does not run: those it leaves unset
+    (None in the record), never a count that would claim a guard
+    ran."""
     result = MethodPipeline(method="native_inhouse").run_trial(TRIAL)
     raw = result.assistant_result["injection_diagnostics"]
-    assert set(InjectionDiagnostics.model_fields) <= set(raw)
+    assert LIBRARY_ONLY_KEYS <= set(InjectionDiagnostics.model_fields)
+    assert set(InjectionDiagnostics.model_fields) - LIBRARY_ONLY_KEYS \
+        <= set(raw)
+    assert all(raw.get(key) is None for key in LIBRARY_ONLY_KEYS)
+    recorded = result.injection_diagnostics
+    assert all(getattr(recorded, key) is None for key in LIBRARY_ONLY_KEYS)
     assert raw["scores_present"] is True
     assert raw["threshold_used"] is None
     assert result.latency_seconds < sum(result.assistant_result["timing"].values()) + 1e-9

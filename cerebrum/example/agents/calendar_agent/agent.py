@@ -23,6 +23,7 @@ from cerebrum.config.config_manager import config
 from cerebrum.memory.apis import (  # noqa: F401
     create_memory,
     delete_memory,
+    forget_memories,
     list_memories,
     update_memory,
 )
@@ -88,7 +89,7 @@ class CalendarAgent:
             return run_v2_session(
                 self, session, MEMORY_TYPE_CALENDAR,
                 write=self._v2_create, list_rows=self._v2_list,
-                delete=self._v2_delete,
+                delete=self._v2_delete, forget=self._v2_forget,
             )
         extraction = self.extract(task_input)
         logger.warning("CalendarAgent: %s", V2_ONLY)
@@ -119,6 +120,14 @@ class CalendarAgent:
             base_url=aios_kernel_url, user_id=user_id,
         )
 
+    def _v2_forget(self, user_id: str, fact_key: str) -> dict:
+        """The user's forget of a fact (Amendment 4): the kernel deletes
+        every carrier of its values, whoever wrote it."""
+        return forget_memories(
+            agent_name=self.agent_name, fact_key=fact_key,
+            user_id=user_id, base_url=aios_kernel_url,
+        )
+
     def list_own_rows(self, user_id: Optional[str] = None) -> list:
         """The rows this agent owns for ``user_id`` (default: its
         ``user_id``) as ``{memory_id, content, metadata}``, up to
@@ -126,3 +135,4 @@ class CalendarAgent:
         ``WriterError`` when the listing fails."""
         uid = require_user_id(user_id or self.user_id)
         return listed_rows(self._v2_list(uid))
+

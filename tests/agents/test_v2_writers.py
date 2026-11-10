@@ -6,6 +6,13 @@ mocked at the agents' module names; native in-house runs on a real
 Chroma store in a temporary directory with a fake embedder; native Mem0
 on a fake client. The replicated locus is checked in a fresh
 interpreter (``_v2_replicated_checks.py``; known issue 18).
+
+Amendment 4 (AIOS docs/DELETION_AND_SUPERSESSION.md): a revoke goes
+through the user's forget where the locus has one (kernel, replicated)
+and through the owner's list and delete otherwise (native, and the
+writer_scoped control); every statement carries ``value_aliases``; a
+write's record keeps what it swept, retired and lifted; the SDK's
+``forget_memories``.
 """
 import hashlib
 import json
@@ -19,6 +26,7 @@ import chromadb
 import pytest
 from chromadb.config import Settings
 
+from benchmarks.shared_memory.probes import match_forms
 from cerebrum.example.agents import shared_memory_utils as smu
 from cerebrum.example.agents import variants
 from cerebrum.example.agents.assistant_agent import agent as assistant_module
@@ -115,10 +123,12 @@ class Locus:
                            is not None)
 
 
-def run(agent, events, locus, session=2, memory_type="profile"):
+def run(agent, events, locus, session=2, memory_type="profile",
+        forget=None):
     return smu.run_v2_session(
         agent, {"session": session, "events": events}, memory_type,
         write=locus.write, list_rows=locus.list_rows, delete=locus.delete,
+        forget=forget,
     )
 
 
@@ -347,7 +357,15 @@ def test_written_records_what_the_write_left_in_the_metadata():
     assert written["created_at"] == "2026-11-08T00:00:00+00:00"
 
 
+EVENT_KEYS = {"event_id", "type", "fact_key", "memory_ids", "stored_rows",
+              "deleted_ids", "found_ids", "error"}
+
+
 def test_result_shape():
+    """The session result's keys, and each event record's: since
+    Amendment 4 a write's also hold what it swept, retired and lifted
+    and ``suppressed``; a revoke's its ``revoke_path`` and ``forget``
+    report."""
     result = run(Writer(), HISTORY[:2], Locus(), session=3)
     assert set(result) == {
         "agent_name", "result", "session", "user_id", "events",
@@ -358,15 +376,18 @@ def test_result_shape():
     assert (result["agent_name"], result["session"], result["user_id"]) == (
         "profile_agent", 3, USER)
     assert result["token_usage"] is None and result["error"] is None
-    assert set(result["events"][0]) == {
-        "event_id", "type", "fact_key", "memory_ids", "stored_rows",
-        "deleted_ids", "found_ids", "error",
-    }
+    assert set(result["events"][0]) == EVENT_KEYS | {
+        "swept_ids", "retired_ids", "lifted", "suppressed"}
     assert result["events"][1] == {
         "event_id": "e1", "type": "add", "fact_key": "pet",
         "memory_ids": ["m1"], "stored_rows": 1, "deleted_ids": [],
-        "found_ids": [], "error": None,
+        "found_ids": [], "error": None, "swept_ids": [], "retired_ids": [],
+        "lifted": [], "suppressed": False,
     }
+    revoked = run(Writer(), [event("e9", "revoke", "pet")],
+                  Locus(rows=sibling_rows()))
+    assert set(revoked["events"][0]) == EVENT_KEYS | {"revoke_path",
+                                                      "forget"}
 
 
 @pytest.mark.parametrize("bad,reason", [
@@ -435,6 +456,255 @@ def test_listed_rows_and_reply_ids():
     assert smu.reply_error(True) is None
 
 
+# -- Amendment 4: aliases, the forget, a write's outcome --------------------
+
+STATEMENTS = [
+    ("add", {}),
+    ("update", {"target_event": "e0"}),
+    ("contradict", {"target_event": "e0"}),
+    ("private", {}),
+    ("add", {"echo_of": "e0", "target_event": "e0"}),  # an echo
+]
+
+
+@pytest.mark.parametrize("kind,links", STATEMENTS)
+@pytest.mark.parametrize("aliases", [[], ["Sandvik"],
+                                     ["Dr. Okafor", "Okafor"]])
+def test_every_statement_carries_its_aliases_as_json(kind, links, aliases):
+    """A write of an event with a value carries ``value_aliases``, the
+    event's aliases as a JSON string (``'[]'`` for none: Chroma refuses
+    an empty list), as a key of its own: ``structured`` keeps its three
+    keys (V5 stores it as a row's content). The forget reads it."""
+    statement = dict(event("e1", kind, "manager", "Greta Sandvik", **links),
+                     aliases=aliases)
+    metadata = smu.v2_write_metadata(Writer(), "profile", 2, statement)
+    assert metadata["value_aliases"] == json.dumps(aliases)
+    assert json.loads(metadata["value_aliases"]) == aliases
+    assert set(json.loads(metadata["structured"])) == {
+        "fact_key", "value", "event_type"}
+
+
+def test_a_base_event_carries_no_value_aliases():
+    """A base event states no value, so its write has no
+    ``value_aliases``; every other write of a session has it."""
+    base = event("e0", "base", "base_profile", utterance="My name is Ana.",
+                 fields={"user_name": "Ana Li"})
+    assert "value_aliases" not in smu.v2_write_metadata(
+        Writer(), "profile", 1, base)
+    locus = Locus()
+    run(Writer(), HISTORY, locus)
+    aliases = {m["provenance_event"]: m.get("value_aliases")
+               for _, m in locus.creates}
+    assert aliases == {"e0": None, **{e["event_id"]: "[]"
+                                      for e in HISTORY[1:]}}
+
+
+FORGET_REPORT = {
+    "user_id": USER, "fact_key": "pet", "requested_by": "profile_agent",
+    "listed": 7, "values_count": 1, "forms_count": 2,
+    "values": ["Mochi"],
+    "deleted": [
+        {"memory_id": "p0", "owner_agent": "profile_agent",
+         "reason": "fact_key"},
+        {"memory_id": "e0", "owner_agent": "calendar_agent",
+         "reason": "value"},
+        {"memory_id": "p1", "owner_agent": "task_agent",
+         "reason": "fact_key"},
+        {"memory_id": "a0", "owner_agent": "task_agent", "reason": "alias"},
+    ],
+    "not_found": ["p2"],
+    "scrubbed": {"messages": 2, "history": 1},
+}
+# The report keys a revoke's record keeps (no other agent's text, and
+# not the caller's readable values).
+RECORDED = ("deleted", "values_count", "forms_count", "scrubbed",
+            "listed", "not_found")
+
+
+class Forget:
+    """A locus's forget: records its calls and returns ``reply`` (or
+    raises it)."""
+
+    def __init__(self, reply=None):
+        self.reply, self.calls = reply, []
+
+    def __call__(self, user_id, fact_key):
+        self.calls.append((user_id, fact_key))
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return self.reply
+
+
+@pytest.mark.parametrize("shape", ["kernel", "library"])
+def test_a_revoke_goes_through_the_users_forget(shape):
+    """With a forget and ``forget_scope`` "user" (the default), a revoke
+    is the user's forget, not the owner's list and delete:
+    ``revoke_path`` "forget"; ``found_ids`` the rows deleted for the
+    slot (reason ``fact_key``), whoever owned them; ``deleted_ids``
+    every row deleted, of any owner, so the reappearance check covers
+    the echo too; the report's ids, counts and scrub counts are
+    recorded, and nothing else. The kernel's reply holds the report in
+    ``metadata``; the library's is the report."""
+    reply = (dict(FORGET_REPORT) if shape == "library" else
+             {"response": {"success": True, "metadata": FORGET_REPORT}})
+    forget, locus = Forget(reply), Locus(rows=sibling_rows())
+    result = run(Writer(), [event("e9", "revoke", "pet")], locus,
+                 forget=forget)
+    [record] = result["events"]
+    assert forget.calls == [(USER, "pet")]
+    assert record["revoke_path"] == "forget" and record["error"] is None
+    assert record["found_ids"] == ["p0", "p1"]
+    assert record["deleted_ids"] == ["p0", "e0", "p1", "a0"]
+    assert result["deleted_ids"] == ["p0", "e0", "p1", "a0"]
+    assert record["forget"] == {key: FORGET_REPORT[key] for key in RECORDED}
+    assert locus.lists == [] and locus.deletes == []
+    assert not result["writer_failed"]
+
+
+@pytest.mark.parametrize("scope,given", [("user", False), ("writer", True)])
+def test_without_the_forget_a_revoke_is_the_owners(scope, given):
+    """Without a forget (native) or with ``forget_scope`` "writer" (the
+    writer_scoped control), a revoke lists the owner's rows and deletes
+    those of the slot, as in Subtask 14 (``revoke_path`` "owner", no
+    report); the forget is never called."""
+    forget = Forget() if given else None
+    locus = Locus(rows=sibling_rows())
+    result = run(Writer(forget_scope=scope), [event("e9", "revoke", "pet")],
+                 locus, forget=forget)
+    [record] = result["events"]
+    assert record["revoke_path"] == "owner" and record["forget"] is None
+    assert record["found_ids"] == record["deleted_ids"] == ["p0", "p1",
+                                                            "p2"]
+    assert locus.lists == [USER]
+    assert forget is None or forget.calls == []
+
+
+def test_the_no_delete_control_lists_and_forgets_nothing():
+    """no_delete (``delete_on_revoke`` False) neither deletes nor
+    forgets, even where the locus has a forget: it lists the owner's
+    rows and records what it found (``revoke_path`` "owner")."""
+    forget, locus = Forget(), Locus(rows=sibling_rows())
+    result = run(Writer(delete_on_revoke=False),
+                 [event("e9", "revoke", "pet")], locus, forget=forget)
+    [record] = result["events"]
+    assert forget.calls == [] and locus.deletes == []
+    assert locus.lists == [USER]
+    assert record["revoke_path"] == "owner"
+    assert record["found_ids"] == ["p0", "p1", "p2"]
+    assert record["deleted_ids"] == [] and not result["writer_failed"]
+
+
+@pytest.mark.parametrize("reply,message", [
+    (None, "forget: no reply"),
+    ({"response": {"success": False, "error": "no tombstone store"}},
+     "forget: no tombstone store"),
+    ({"response": {"success": False}}, "forget: success is false"),
+    ({"response": {"success": True}}, "forget: the reply holds no report"),
+    ({"response": {"success": True, "metadata": {"deleted": "p0"}}},
+     "forget: the reply holds no report"),
+    ({"values_count": 1}, "forget: the reply holds no report"),
+    (RuntimeError("provider down"), "RuntimeError: provider down"),
+])
+def test_a_failed_forget_fails_the_writer(reply, message):
+    """A forget whose reply is an error or holds no report, or that
+    raises, fails the writer, and the session stops there: no later
+    event runs and the revoke records nothing deleted."""
+    forget, locus = Forget(reply), Locus(rows=sibling_rows())
+    result = run(Writer(), [event("e9", "revoke", "pet"),
+                            event("e2", "add", "city", "Tallinn")],
+                 locus, forget=forget)
+    assert result["writer_failed"] is True and result["error"] == message
+    [record] = result["events"]
+    assert record["error"] == message and record["revoke_path"] is None
+    assert record["found_ids"] == record["deleted_ids"] == []
+    assert locus.creates == [] and locus.deletes == []
+
+
+@pytest.mark.parametrize("scope", ["team", "", None])
+def test_an_invalid_forget_scope_fails_the_writer(scope):
+    """``forget_scope`` is "user" or "writer": any other value fails the
+    writer before any event runs, so a mistyped control cannot quietly
+    revoke one way or the other."""
+    forget, locus = Forget(), Locus(rows=sibling_rows())
+    result = run(Writer(forget_scope=scope),
+                 HISTORY + [event("e9", "revoke", "pet")], locus,
+                 forget=forget)
+    assert result["writer_failed"] is True
+    assert "forget_scope must be one of" in result["error"]
+    assert result["events"] == [] and result["session"] == 2
+    assert locus.creates == locus.lists == [] and forget.calls == []
+
+
+OUTCOME = {"swept": [{"memory_id": "s1", "owner_agent": "task_agent"},
+                     "s2"],
+           "retired": ["r1"], "lifted": ["Mochi"], "suppressed": False}
+SUPPRESSED = {"swept": [{"memory_id": "x1", "owner_agent": "task_agent"}],
+              "retired": [], "lifted": [], "suppressed": True}
+NOTHING = {"swept_ids": [], "retired_ids": [], "lifted": [],
+           "suppressed": False}
+RECORDED_OUTCOME = {"swept_ids": ["s1", "s2"], "retired_ids": ["r1"],
+                    "lifted": ["Mochi"], "suppressed": False}
+
+
+@pytest.mark.parametrize("reply,ids,recorded", [
+    # The kernel's create reply: the outcome is its metadata.
+    ({"response": {"success": True, "memory_id": "k1",
+                   "metadata": OUTCOME}}, ["k1"], RECORDED_OUTCOME),
+    # A write the kernel suppressed: its own row was swept, no id.
+    ({"response": {"success": True, "memory_id": "",
+                   "metadata": SUPPRESSED}}, [],
+     {**NOTHING, "swept_ids": ["x1"], "suppressed": True}),
+    # The replicated writer's reply, the kernel's shape.
+    ({"memory_id": "r9", "metadata": OUTCOME}, ["r9"], RECORDED_OUTCOME),
+    ({"memory_id": "", "metadata": SUPPRESSED}, [],
+     {**NOTHING, "swept_ids": ["x1"], "suppressed": True}),
+    # Native's ids, and a kernel from before Amendment 4: no outcome.
+    (["n1", "n2"], ["n1", "n2"], NOTHING),
+    ({"response": {"success": True, "memory_id": "k3"}}, ["k3"], NOTHING),
+    # Metadata that is not an outcome (no "suppressed").
+    ({"response": {"success": True, "memory_id": "k4",
+                   "metadata": {"swept": ["k9"]}}}, ["k4"], NOTHING),
+])
+def test_a_writes_outcome_is_recorded(reply, ids, recorded):
+    """A write's record keeps what the write did next (Amendment 4):
+    the ids it swept (rows of any agent carrying a forgotten value),
+    the ids it retired, the values it lifted and whether it was
+    suppressed, from the kernel's reply metadata or the replicated
+    writer's dict; nothing from native's id list."""
+    result = smu.run_v2_session(
+        Writer(), {"session": 2, "events": HISTORY[1:2]}, "profile",
+        write=lambda content, metadata: reply, list_rows=None,
+        delete=None,
+    )
+    [record] = result["events"]
+    assert not result["writer_failed"]
+    assert record["memory_ids"] == ids
+    assert {key: record[key] for key in NOTHING} == recorded
+
+
+def test_forget_memories_sends_a_forget_memory_query():
+    """The SDK's ``forget_memories`` sends a ``MemoryQuery`` of
+    operation ``forget_memory`` with the user and the slot in
+    ``params``, to the given kernel (default: the configured one), and
+    returns the kernel's reply."""
+    from cerebrum.memory import apis
+
+    reply = {"response": {"success": True, "metadata": FORGET_REPORT}}
+    with patch.object(apis, "send_request", return_value=reply) as send:
+        assert apis.forget_memories("task_agent", "pet", USER,
+                                    base_url="http://kernel:9") is reply
+        apis.forget_memories(agent_name="task_agent", fact_key="pet",
+                             user_id=USER)
+    (agent_name, query, base_url), default = (
+        send.call_args_list[0].args, send.call_args_list[1].args)
+    assert (agent_name, base_url) == ("task_agent", "http://kernel:9")
+    assert isinstance(query, apis.MemoryQuery)
+    assert query.operation_type == "forget_memory"
+    assert query.params == {"user_id": USER, "fact_key": "pet"}
+    assert default[2] == apis.aios_kernel_url
+    assert default[1].params == {"user_id": USER, "fact_key": "pet"}
+
+
 # -- the kernel locus ------------------------------------------------------
 
 KERNEL_WRITERS = [
@@ -447,8 +717,12 @@ KERNEL_WRITERS = [
 
 
 class FakeKernel:
-    """The kernel's create, owner-only list and owner-only delete, as
-    the SDK replies to them."""
+    """The kernel's create, owner-only list, owner-only delete and the
+    user's forget (Amendment 4), as the SDK replies to them. A forget
+    deletes, whoever owns it, every row of the user whose ``fact_key``
+    is the slot and every row that carries a form of the slot's values
+    (its rows' ``structured`` value and ``value_aliases``), and replies
+    with the kernel's report in ``metadata``."""
 
     def __init__(self):
         self.rows = {}
@@ -477,6 +751,39 @@ class FakeKernel:
         del self.rows[memory_id]
         return {"response": {"success": True, "memory_id": memory_id}}
 
+    def forget(self, agent_name, fact_key, user_id, base_url=None):
+        rows = [r for r in self.rows.values()
+                if r["metadata"].get("user_id") == user_id]
+        values = {}
+        for row in rows:
+            metadata = row["metadata"]
+            if metadata.get("fact_key") == fact_key and metadata.get(
+                    "structured"):
+                value = json.loads(metadata["structured"]).get("value")
+                if value:
+                    values[value] = json.loads(
+                        metadata.get("value_aliases") or "[]")
+        forms = [*values, *(a for aliases in values.values()
+                            for a in aliases)]
+        deleted = []
+        for row in rows:
+            form = match_forms(row["content"], forms)
+            if row["metadata"].get("fact_key") == fact_key:
+                reason = "fact_key"
+            elif form is not None:
+                reason = "value" if form in values else "alias"
+            else:
+                continue
+            del self.rows[row["memory_id"]]
+            deleted.append({"memory_id": row["memory_id"],
+                            "owner_agent": row["metadata"]["owner_agent"],
+                            "reason": reason})
+        return {"response": {"success": True, "metadata": {
+            "deleted": deleted, "values_count": len(values),
+            "forms_count": len(forms),
+            "scrubbed": {"messages": 0, "history": 0},
+            "listed": len(rows), "not_found": []}}}
+
 
 @pytest.fixture
 def kernel():
@@ -485,6 +792,7 @@ def kernel():
     calls = SimpleNamespace(create=MagicMock(side_effect=fake.create),
                             list=MagicMock(side_effect=fake.list),
                             delete=MagicMock(side_effect=fake.delete),
+                            forget=MagicMock(side_effect=fake.forget),
                             fake=fake)
     patches = []
     for module, *_ in KERNEL_WRITERS:
@@ -492,6 +800,7 @@ def kernel():
             patch.object(module, "create_memory", calls.create),
             patch.object(module, "list_memories", calls.list),
             patch.object(module, "delete_memory", calls.delete),
+            patch.object(module, "forget_memories", calls.forget),
         ]
     patches.append(patch.object(assistant_module, "list_memories",
                                 calls.list))
@@ -534,7 +843,10 @@ def test_kernel_writer_sends_keyword_creates(kernel, module, cls, name,
 @pytest.mark.parametrize("module,cls,name,memory_type", KERNEL_WRITERS)
 def test_kernel_revoke_lists_and_deletes_through_the_module(
         kernel, module, cls, name, memory_type):
-    agent = kernel_writer(cls, name)
+    """Under writer_scoped (``forget_scope`` "writer") a kernel writer
+    revokes as in Subtask 14: its own listing and deletes, through its
+    module's SDK calls; another writer's row of the slot survives."""
+    agent = kernel_writer(cls, name, forget_scope="writer")
     agent.run(payload(1, [event("e1", "add", "pet", "Mochi"),
                           event("e2", "add", "city", "Tallinn")]))
     # A sibling fact of e1's write (Mem0 copies its metadata), and
@@ -545,6 +857,7 @@ def test_kernel_revoke_lists_and_deletes_through_the_module(
     result = agent.run(payload(4, [event("e9", "revoke", "pet")]))
     record = result["events"][0]
     assert record["found_ids"] == record["deleted_ids"] == ["k0", "s1"]
+    assert record["revoke_path"] == "owner"
     assert kernel.list.call_args.kwargs == {
         "agent_name": name, "user_id": USER,
         "base_url": module.aios_kernel_url, "k": smu.V2_LIST_LIMIT}
@@ -554,18 +867,59 @@ def test_kernel_revoke_lists_and_deletes_through_the_module(
         for mid in ("k0", "s1")]
     # k3: the other writer's row (the fake numbers by row count).
     assert sorted(kernel.fake.rows) == ["k1", "k3"]
+    assert kernel.forget.call_count == 0
 
 
-def test_kernel_writer_failure_is_loud(kernel):
-    """A delete the kernel refuses fails the writer (no silent skip)."""
-    agent = kernel_writer(task_module.TaskAgent, "task_agent")
+@pytest.mark.parametrize("module,cls,name,memory_type", KERNEL_WRITERS)
+def test_kernel_revoke_forgets_through_the_module(
+        kernel, module, cls, name, memory_type):
+    """Amendment 4: a kernel writer's revoke is the user's forget, sent
+    through its module's ``forget_memories`` with keyword arguments (as
+    the harness patches the module's calls by name), never its own
+    listing and deletes. It reaches the slot's rows (``found_ids``) and
+    another writer's echo of the value (in ``deleted_ids`` only)."""
+    agent = kernel_writer(cls, name)
+    agent.run(payload(1, [event("e1", "add", "pet", "Mochi"),
+                          event("e2", "add", "city", "Tallinn")]))
+    kernel.fake.rows["s1"] = dict(kernel.fake.rows["k0"], memory_id="s1")
+    kernel.fake.create("other_agent", "I booked a vet visit for Mochi.", {
+        "fact_key": "pet_vet_visit", "user_id": USER,
+        "owner_agent": "other_agent"})
+    lists = kernel.list.call_count
+    result = agent.run(payload(4, [event("e9", "revoke", "pet")]))
+    [record] = result["events"]
+    assert kernel.forget.call_count == 1
+    assert kernel.forget.call_args.args == ()
+    assert kernel.forget.call_args.kwargs == {
+        "agent_name": name, "fact_key": "pet", "user_id": USER,
+        "base_url": module.aios_kernel_url}
+    assert record["revoke_path"] == "forget"
+    assert record["found_ids"] == ["k0", "s1"]
+    assert record["deleted_ids"] == ["k0", "s1", "k3"]
+    assert [d["owner_agent"] for d in record["forget"]["deleted"]] == [
+        name, name, "other_agent"]
+    assert kernel.list.call_count == lists
+    assert kernel.delete.call_count == 0
+    assert sorted(kernel.fake.rows) == ["k1"]
+
+
+@pytest.mark.parametrize("operation,message", [
+    ("delete", "delete: Memory not found"),
+    ("forget", "forget: Memory not found"),
+])
+def test_kernel_writer_failure_is_loud(kernel, operation, message):
+    """A delete (writer_scoped) or a forget the kernel refuses fails the
+    writer (no silent skip), and the session stops there."""
+    agent = kernel_writer(task_module.TaskAgent, "task_agent",
+                          forget_scope="writer" if operation == "delete"
+                          else "user")
     agent.run(payload(2, [event("e1", "add", "client", "Initech")]))
-    kernel.delete.side_effect = lambda **kw: {"response": {
+    getattr(kernel, operation).side_effect = lambda **kw: {"response": {
         "success": False, "error": "Memory not found"}}
     result = agent.run(payload(5, [event("e9", "revoke", "client"),
                                    event("e2", "add", "host", "atlas")]))
     assert result["writer_failed"] is True
-    assert result["error"] == "delete: Memory not found"
+    assert result["error"] == message
     assert kernel.create.call_count == 1  # the later add never ran
 
 
@@ -630,8 +984,10 @@ def test_kernel_variants_change_a_v2_create(kernel, module, cls, name,
         assert "sharing_policy" not in metadata
         assert metadata["provenance_event"] == "e1"
         # The kernel fills in the writer as owner: it still lists and
-        # deletes its row.
+        # deletes its row (its own revoke, writer_scoped).
+        agent.forget_scope = "writer"
         revoked = agent.run(payload(4, [event("e9", "revoke", "pet")]))
+        assert revoked["events"][0]["revoke_path"] == "owner"
         assert revoked["events"][0]["deleted_ids"] == ["k0"]
     else:
         assert sent["content"] == metadata["structured"]
@@ -640,8 +996,12 @@ def test_kernel_variants_change_a_v2_create(kernel, module, cls, name,
     assert module.create_memory is kernel.create
 
 
-def test_kernel_v2_variant_uses_the_rewritten_user(kernel):
-    agent = kernel_writer(task_module.TaskAgent, "task_agent")
+@pytest.mark.parametrize("scope", ["writer", "user"])
+def test_kernel_v2_variant_uses_the_rewritten_user(kernel, scope):
+    """A V2 writer writes, and revokes, under its rewritten user id:
+    its own listing (writer_scoped) or the user's forget names it."""
+    agent = kernel_writer(task_module.TaskAgent, "task_agent",
+                          forget_scope=scope)
     with apply_variant(variants.variant("V2"), agent, "task_agent",
                        "kernel"):
         result = agent.run(payload(2, [event("e1", "add", "host", "atlas"),
@@ -649,7 +1009,10 @@ def test_kernel_v2_variant_uses_the_rewritten_user(kernel):
     alias = f"{USER}@users.example"
     assert result["user_id"] == alias
     assert kernel.create.call_args.kwargs["metadata"]["user_id"] == alias
-    assert kernel.list.call_args.kwargs["user_id"] == alias
+    if scope == "writer":
+        assert kernel.list.call_args.kwargs["user_id"] == alias
+    else:
+        assert kernel.forget.call_args.kwargs["user_id"] == alias
     assert result["events"][1]["deleted_ids"] == ["k0"]
 
 

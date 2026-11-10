@@ -159,7 +159,9 @@ def _kernel_write(variant: Variant, agent: Any, restore: _Restore) -> None:
 def _replicated_pipeline(variant: Variant, agent: Any, role: str,
                          restore: _Restore) -> Any:
     """The agent's pipeline with the variant's retrieval settings: a new
-    ``MemoryPipeline`` over the same provider, barrier and resolver."""
+    ``MemoryPipeline`` over the same provider, barrier, resolver,
+    tombstones (a fresh tombstone store would leave the guard blind)
+    and usage tag."""
     memory = agent.memory
     pipeline = memory.pipeline
     overrides = variant.retrieval(role) if variant.has(
@@ -173,6 +175,7 @@ def _replicated_pipeline(variant: Variant, agent: Any, role: str,
     tuned = memory.library.MemoryPipeline(
         pipeline.provider, settings,
         barrier=pipeline.barrier, resolver=pipeline.resolver,
+        tombstones=pipeline.tombstones, usage_tag=pipeline.usage_tag,
     )
     restore.set(memory, "pipeline", tuned)
     return tuned

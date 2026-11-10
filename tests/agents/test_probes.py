@@ -3,6 +3,7 @@ docs/BENCHMARK_V2.md, "Scoring" and "Diagnostics per probe"): the
 matcher, each probe type's pass rule, the per-row attribution, the
 cap and budget checks, the semantic diagnostic and the statistics."""
 import math
+from pathlib import Path
 import types
 
 import pytest
@@ -234,7 +235,7 @@ def test_every_probe_type_returns_the_contract_keys(kind):
         "rows_with_forbidden", "newest_target_row_has_stale", "cap_bound",
         "budget_bound", "answer_words", "other_values_in_answer",
         "semantic_best", "semantic_only", "semantic_error",
-        "deleted_ids_in_block", "contaminated",
+        "deleted_ids_in_block", "contaminated", "retired_in_block",
     }
     result = score(kind, "Some answer.", SHELL)
     assert tuple(result) == pr.RESULT_KEYS
@@ -1025,3 +1026,52 @@ def test_summarize_reads_models_and_skips_unjudged_integration():
     assert pr.summarize([model])["recall"]["passed"] == 1
     with pytest.raises(ValueError, match="type"):
         pr.summarize([{"passed": True}])
+
+
+def test_the_scorer_runs_the_library_matcher():
+    """The scorer's matcher is the AIOS memory library's module
+    (aios/memory/pipeline/matching.py), the code the library's forget
+    runs, loaded from the AIOS checkout: not a copy (AIOS
+    docs/DELETION_AND_SUPERSESSION.md, "The matcher, shared")."""
+    import inspect
+    from cerebrum.example.agents.replicated.library import aios_root
+
+    library_file = (aios_root() / "aios" / "memory" / "pipeline"
+                    / "matching.py").resolve()
+    for name in ("normalize", "value_in", "match_any", "match_forms"):
+        function = getattr(pr, name)
+        assert Path(inspect.getsourcefile(function)).resolve() \
+            == library_file, name
+
+
+def test_match_forms_returns_the_first_form_found():
+    text = "I pair with Sandvik on Tuesdays."
+    assert pr.match_forms(text, ["Greta Sandvik", "Sandvik"]) == "Sandvik"
+    assert pr.match_forms(text, ["Sandvik", "Tuesdays"]) == "Sandvik"
+    assert pr.match_forms(text, ["Okafor"]) is None
+    assert pr.match_forms(text, ["", None]) is None
+    assert pr.match_forms("we deploy to tern 02", ["tern-02"]) == "tern-02"
+
+
+@pytest.mark.parametrize("kind", pr.PROBE_TYPES)
+def test_retired_in_block_lists_the_injected_rows_of_retired_statements(
+        kind):
+    """``retired_in_block`` (Amendment 4) lists, in block order, exactly
+    the injected rows whose ``provenance_event`` is one of the
+    ``retired_events`` (earlier statements of a fact with a later one,
+    from the dataset, not the store's marks), whatever the probe; it is
+    empty without them, and decides no pass."""
+    rows = (SYNC_ADD, PET_ADD, SYNC_UPDATE,
+            row("We moved the sync to Juniper again.", "a3",
+                event="u0_e05", fact_key="sync_room", session=4))
+    answer = "It is in the Birch room."
+    retired = score(kind, answer, *rows,
+                    retired_events=iter(["u0_e05", "u0_e99"]))
+    assert retired["retired_in_block"] == ["a1", "a3"]
+    plain = score(kind, answer, *rows)
+    assert plain["retired_in_block"] == []
+    assert {k: v for k, v in retired.items() if k != "retired_in_block"} \
+        == {k: v for k, v in plain.items() if k != "retired_in_block"}
+    # A row without provenance is never a retired statement's.
+    assert score(kind, answer, conversation_row("x", "c1"), SYNC_ADD,
+                 retired_events=["u0_e05"])["retired_in_block"] == ["a1"]

@@ -45,7 +45,7 @@ class MemoryQuery(Query):
         params (Dict): Parameters specific to each action type
     """
     query_class: str = "memory"
-    operation_type: Literal["add_memory", "get_memory", "update_memory", "remove_memory", "retrieve_memory", "add_agentic_memory","retrieve_memory_raw", "list_memory"]
+    operation_type: Literal["add_memory", "get_memory", "update_memory", "remove_memory", "retrieve_memory", "add_agentic_memory","retrieve_memory_raw", "list_memory", "forget_memory"]
     params: Dict[str, Any] = Field(default_factory=dict)
     
     class Config:
@@ -284,6 +284,28 @@ def list_memories(agent_name: str,
     if k is not None:
         params["k"] = k
     query = MemoryQuery(operation_type="list_memory", params=params)
+    return send_request(agent_name, query, base_url)
+
+def forget_memories(agent_name: str,
+                    fact_key: str,
+                    user_id: str,
+                    base_url: str = aios_kernel_url) -> MemoryResponse:
+    """Forget a fact for ``user_id``: the user's request, made by any
+    agent that serves the user (AIOS docs/DELETION_AND_SUPERSESSION.md).
+
+    The kernel deletes every row of the user whose ``fact_key`` is
+    ``fact_key`` and every row, of any agent, that carries one of the
+    fact's values or their aliases, scrubs the backend's stored
+    messages, and keeps a tombstone, so no later write or read brings
+    the value back until the user states the fact again. The report is
+    in ``metadata``: the ids deleted with their owners and reasons, the
+    value and form counts, and the scrub's counts. It names no other
+    agent's text.
+    """
+    query = MemoryQuery(
+        operation_type="forget_memory",
+        params={"user_id": user_id, "fact_key": fact_key},
+    )
     return send_request(agent_name, query, base_url)
 
 def search_memories(agent_name: str,

@@ -10,6 +10,7 @@ from cerebrum.llm.apis import llm_chat_with_json_output, parse_json_reply
 from cerebrum.memory.apis import (
     create_memory,
     delete_memory,
+    forget_memories,
     list_memories,
     search_memories,
     update_memory,
@@ -217,7 +218,7 @@ class ProfileAgent:
         return run_v2_session(
             self, session, MEMORY_TYPE_PROFILE,
             write=self._v2_create, list_rows=self._v2_list,
-            delete=self._v2_delete,
+            delete=self._v2_delete, forget=self._v2_forget,
         )
 
     def _v2_create(self, content: str, metadata: dict) -> dict:
@@ -238,6 +239,14 @@ class ProfileAgent:
             base_url=aios_kernel_url, user_id=user_id,
         )
 
+    def _v2_forget(self, user_id: str, fact_key: str) -> dict:
+        """The user's forget of a fact (Amendment 4): the kernel deletes
+        every carrier of its values, whoever wrote it."""
+        return forget_memories(
+            agent_name=self.agent_name, fact_key=fact_key,
+            user_id=user_id, base_url=aios_kernel_url,
+        )
+
     def list_own_rows(self, user_id: Optional[str] = None) -> list:
         """The rows this agent owns for ``user_id`` (default: its
         ``user_id``) as ``{memory_id, content, metadata}``, up to
@@ -245,6 +254,7 @@ class ProfileAgent:
         ``WriterError`` when the listing fails."""
         uid = require_user_id(user_id or getattr(self, "user_id", None))
         return listed_rows(self._v2_list(uid))
+
 
     def _upsert_profile_memory(self, user_id: str, extraction: Extraction) -> list:
         """Search for existing profile memories, update or create.

@@ -184,6 +184,16 @@ class InjectionDiagnostics(BaseModel):
     # and in older files.
     retrieval_error: Optional[str] = None
     injection_error: Optional[str] = None
+    # Amendment 4 (the library's selection; None for native and in
+    # older files): rows left after the supersession stage and the ids
+    # it excluded (retired rows), rows left after the tombstone guard,
+    # the ids it dropped (rows carrying a forgotten value: none after a
+    # complete forget) and how many forgotten forms it held.
+    after_supersession: Optional[int] = None
+    superseded_rows: Optional[List[str]] = None
+    after_tombstone: Optional[int] = None
+    tombstoned_rows: Optional[List[str]] = None
+    tombstoned_forms: Optional[int] = None
 
     @field_validator("retrieval_error", "injection_error", mode="before")
     @classmethod
@@ -380,6 +390,9 @@ class ProbeResult(BaseModel):
     semantic_error: Optional[str] = None
     deleted_ids_in_block: List[str] = []
     contaminated: Optional[bool] = None
+    # Injected rows that are earlier statements of a fact with a later
+    # one (Amendment 4; from the dataset). None in older files.
+    retired_in_block: Optional[List[str]] = None
     visible_stored_rows: Optional[int] = None
     diagnostics: Optional["InjectionDiagnostics"] = None
     judge_scores: Optional[Dict[str, Any]] = None
@@ -471,6 +484,10 @@ class TrialResult(BaseModel):
     deleted_memory_ids: List[str] = []
     reappeared_memory_ids: List[str] = []
     revoked_value_rows: List[Dict[str, Any]] = []
+    # Amendment 4: the rows of earlier statements (retired by the
+    # dataset's order) in the listing after the history, with the mark
+    # each carries (``superseded_by``; None when unmarked).
+    retired_rows: List[Dict[str, Any]] = []
     failed: bool = False
     error_message: Optional[str] = None
 

@@ -34,6 +34,16 @@ from cerebrum.example.agents.profile_agent import agent as profile_module  # noq
 from cerebrum.example.agents.task_agent import agent as task_module  # noqa: E402
 from cerebrum.example.agents.variants import apply_variant  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _store_root(tmp_path, monkeypatch):
+    """Every replicated store's root, and so its tombstone file (AIOS
+    docs/DELETION_AND_SUPERSESSION.md), in a temporary directory:
+    nothing persists in the checkout's .replicated_memory."""
+    monkeypatch.setattr(replicated, "STORE_ROOT",
+                        str(tmp_path / "replicated_memory"))
+
+
 KERNEL_CONFIG = {
     "max_injected_memories": 10,
     "embedding": {"provider": "ollama", "model": "nomic-embed-text",

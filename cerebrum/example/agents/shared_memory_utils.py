@@ -344,7 +344,18 @@ FIELD_FACT_KEY = "fact_key"
 FIELD_EVENT_TYPE = "event_type"
 FIELD_SESSION = "session"
 FIELD_PROVENANCE_EVENT = "provenance_event"
+# A statement's value aliases, as a JSON string (benchmark v2,
+# Amendment 4): the forget matches carriers by every form of a value.
+FIELD_VALUE_ALIASES = "value_aliases"
 MEMORY_NOT_FOUND = "Memory not found"
+# How a revoke deleted (Amendment 4): through the kernel's or the
+# library's user-scoped forget, or by the owner's own list and delete
+# (native, and the writer_scoped control).
+REVOKE_FORGET = "forget"
+REVOKE_OWNER = "owner"
+# ``agent.forget_scope``: "user" revokes through ``forget`` when the
+# locus gives one; "writer" (the writer_scoped control) never does.
+FORGET_SCOPES = ("user", "writer")
 
 
 class WriterError(RuntimeError):
@@ -406,20 +417,27 @@ def v2_write_metadata(
 ) -> Dict[str, Any]:
     """The metadata of one v2 write: the four standard fields,
     ``fact_key``, ``event_type`` (the event's type: an echo is ``add``),
-    ``session`` and ``structured``; then the deployment's
+    ``session``, ``structured`` and, for an event with a value,
+    ``value_aliases`` (its aliases as a JSON string, ``"[]"`` for none:
+    Chroma refuses an empty list); then the deployment's
     ``extra_metadata`` (the harness's provenance); last
     ``provenance_event``, the event's id, which nothing overrides."""
+    fields = {
+        FIELD_FACT_KEY: event[FIELD_FACT_KEY],
+        FIELD_EVENT_TYPE: event["type"],
+        FIELD_SESSION: session,
+        FIELD_STRUCTURED: v2_structured(event),
+    }
+    if isinstance(event.get("value"), str) and event["value"]:
+        fields[FIELD_VALUE_ALIASES] = _json.dumps(
+            [str(alias) for alias in event.get("aliases") or []]
+        )
     metadata = build_memory_metadata(
         owner_agent=agent.agent_name,
         user_id=agent.user_id,
         memory_type=memory_type,
         sharing_policy=v2_sharing_policy(agent, event),
-        **{
-            FIELD_FACT_KEY: event[FIELD_FACT_KEY],
-            FIELD_EVENT_TYPE: event["type"],
-            FIELD_SESSION: session,
-            FIELD_STRUCTURED: v2_structured(event),
-        },
+        **fields,
     )
     metadata.update(getattr(agent, "extra_metadata", None) or {})
     metadata[FIELD_PROVENANCE_EVENT] = event["event_id"]
@@ -475,6 +493,36 @@ def reply_ids(reply: Any) -> List[str]:
     raise WriterError(
         f"create: unexpected reply {type(response).__name__}"
     )
+
+
+def write_outcome(reply: Any) -> Dict[str, Any]:
+    """What a write did after storing (Amendment 4): the ids it
+    ``swept`` (rows of any agent that carried a forgotten value), the
+    ids it ``retired`` (earlier statements of its slot), the values it
+    ``lifted`` (a restatement) and whether it was ``suppressed`` (its
+    own rows carried a forgotten value). From the kernel's reply
+    ``metadata`` or the library's outcome; empty for a reply without
+    one (native, or a kernel before Amendment 4)."""
+    response = _unwrap(reply)
+    if isinstance(response, dict):
+        outcome = response.get("metadata")
+        if isinstance(outcome, dict) and "suppressed" in outcome:
+            return outcome
+    return {}
+
+
+def forget_report(reply: Any) -> Dict[str, Any]:
+    """The report of a forget reply: the kernel's reply ``metadata``,
+    or the library's report itself. Raises ``WriterError`` for an error
+    reply or one without a report."""
+    response = _checked("forget", reply)
+    if isinstance(response, dict) and "deleted" not in response:
+        response = response.get("metadata")
+    if not isinstance(response, dict) or not isinstance(
+        response.get("deleted"), list
+    ):
+        raise WriterError("forget: the reply holds no report")
+    return response
 
 
 def listed_rows(reply: Any) -> List[Dict[str, Any]]:
@@ -556,7 +604,7 @@ def _event_problem(event: Dict[str, Any]) -> Optional[str]:
 
 
 def _event_record(event: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    record = {
         "event_id": event.get("event_id"),
         "type": event.get("type"),
         "fact_key": event.get(FIELD_FACT_KEY),
@@ -566,6 +614,14 @@ def _event_record(event: Dict[str, Any]) -> Dict[str, Any]:
         "found_ids": [],
         "error": None,
     }
+    if event.get("type") == V2_REVOKE:
+        record.update({"revoke_path": None, "forget": None})
+    else:
+        record.update({
+            "swept_ids": [], "retired_ids": [], "lifted": [],
+            "suppressed": False,
+        })
+    return record
 
 
 def _describe(error: Exception) -> str:
@@ -582,6 +638,7 @@ def run_v2_session(
     write: Callable[[str, Dict[str, Any]], Any],
     list_rows: Callable[[str], Any],
     delete: Callable[[str, str], Any],
+    forget: Optional[Callable[[str, str], Any]] = None,
 ) -> Dict[str, Any]:
     """Run one benchmark v2 session (``parse_v2_session``) for
     ``agent``, a writer of ``memory_type``, through its locus's calls:
@@ -596,13 +653,27 @@ def run_v2_session(
     - ``list_rows(user_id)`` lists the agent's own rows for the user;
     - ``delete(user_id, memory_id)`` deletes one of them.
 
+    - ``forget(user_id, fact_key)``, when the locus has one (kernel and
+      replicated, Amendment 4), forgets a fact for the user.
+
     A write event (base, add, update, contradict or private; an echo is
-    an add) stores its utterance with ``v2_write_metadata``. A revoke
+    an add) stores its utterance with ``v2_write_metadata``, and its
+    record keeps what the write did next (``write_outcome``: the ids it
+    swept and retired, the values it lifted, ``suppressed``).
+
+    A revoke goes through ``forget`` when the locus gives one and
+    ``agent.forget_scope`` is ``"user"`` (the default): the user's
+    forget deletes every row of the slot and every row, of any agent,
+    that carries the fact's values, and the record keeps its report
+    (``revoke_path`` ``"forget"``; ``found_ids`` are the slot's rows,
+    ``deleted_ids`` every row deleted). Otherwise (native, or
+    ``forget_scope`` ``"writer"``, the ``writer_scoped`` control) it
     lists the agent's own rows and deletes every one whose
-    ``metadata.fact_key`` is the event's: Mem0 copies a write's metadata
-    onto every fact it extracts, so this reaches a write's sibling
-    facts. With ``agent.delete_on_revoke`` False (the ``no_delete``
-    control) the revoke records the rows it found and deletes nothing.
+    ``metadata.fact_key`` is the event's (``revoke_path`` ``"owner"``):
+    Mem0 copies a write's metadata onto every fact it extracts, so this
+    reaches a write's sibling facts. With ``agent.delete_on_revoke``
+    False (the ``no_delete`` control) the revoke lists the agent's own
+    rows, records the ones it found and deletes nothing.
 
     A reply that is an error (``reply_error``), a listing that returned
     its limit, a malformed event, or any exception fails the writer: the
@@ -611,7 +682,9 @@ def run_v2_session(
     Returns ``{agent_name, result, session, user_id`` (the id the writer
     used, which a V2 variant rewrites), ``events`` (one record per event
     run: ``event_id, type, fact_key, memory_ids, stored_rows,
-    deleted_ids, found_ids, error``), ``stored_rows`` (rows written),
+    deleted_ids, found_ids, error``, and a revoke's ``revoke_path`` and
+    ``forget`` report or a write's ``swept_ids, retired_ids, lifted,
+    suppressed``), ``stored_rows`` (rows written),
     ``deleted_ids``, ``written`` (the metadata of each write that
     succeeded, as ``write`` left it: in the replicated and native loci
     what the row was stored with, for a kernel create the metadata as
@@ -628,6 +701,13 @@ def run_v2_session(
     except WriterError as e:
         return v2_failure(agent, str(e), session)
     deletes = getattr(agent, "delete_on_revoke", True) is not False
+    scope = getattr(agent, "forget_scope", "user")
+    if scope not in FORGET_SCOPES:
+        return v2_failure(
+            agent, f"forget_scope must be one of {FORGET_SCOPES}, "
+            f"got {scope!r}", session,
+        )
+    forgets = deletes and forget is not None and scope == "user"
     records: List[Dict[str, Any]] = []
     written: List[Dict[str, Any]] = []
     error: Optional[str] = None
@@ -640,7 +720,26 @@ def run_v2_session(
                 raise WriterError(
                     f"event {event.get('event_id')!r}: {problem}"
                 )
-            if event["type"] == V2_REVOKE:
+            if event["type"] == V2_REVOKE and forgets:
+                report = forget_report(
+                    forget(user_id, event[FIELD_FACT_KEY])
+                )
+                record["revoke_path"] = REVOKE_FORGET
+                record["forget"] = {
+                    key: report.get(key) for key in (
+                        "deleted", "values_count", "forms_count",
+                        "scrubbed", "listed", "not_found",
+                    )
+                }
+                record["found_ids"] = [
+                    entry["memory_id"] for entry in report["deleted"]
+                    if entry.get("reason") == "fact_key"
+                ]
+                record["deleted_ids"] = [
+                    entry["memory_id"] for entry in report["deleted"]
+                ]
+            elif event["type"] == V2_REVOKE:
+                record["revoke_path"] = REVOKE_OWNER
                 rows = listed_rows(list_rows(user_id))
                 if len(rows) >= V2_LIST_LIMIT:
                     raise WriterError(
@@ -660,7 +759,8 @@ def run_v2_session(
                 metadata = v2_write_metadata(
                     agent, memory_type, session, event
                 )
-                ids = reply_ids(write(event["utterance"], metadata))
+                reply = write(event["utterance"], metadata)
+                ids = reply_ids(reply)
                 # Only now, so a failed write is never recorded as
                 # written; by now a replicated or native locus has left
                 # in ``metadata`` what it stored (Amendment 2, "Stored
@@ -668,6 +768,15 @@ def run_v2_session(
                 written.append(metadata)
                 record["memory_ids"] = ids
                 record["stored_rows"] = len(ids)
+                outcome = write_outcome(reply)
+                record["swept_ids"] = [
+                    entry["memory_id"] if isinstance(entry, dict)
+                    else str(entry)
+                    for entry in outcome.get("swept") or []
+                ]
+                record["retired_ids"] = list(outcome.get("retired") or [])
+                record["lifted"] = list(outcome.get("lifted") or [])
+                record["suppressed"] = bool(outcome.get("suppressed"))
         except Exception as e:  # every failure fails the writer
             record["error"] = error = _describe(e)
             _logger.warning(

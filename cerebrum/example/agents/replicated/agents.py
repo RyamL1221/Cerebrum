@@ -10,11 +10,14 @@ and extractor do. The kernel serves the LLM calls only: no agent here
 makes a kernel memory call.
 
 Benchmark v2 (docs/BENCHMARK_V2.md): the writers run scripted sessions
-(``shared_memory_utils.run_v2_session``) and delete a revoked fact's
-rows through the library's ``MemoryPipeline.list_own`` and ``delete``,
-the code the kernel runs for its list and delete requests; the
-assistant passes the current session to ``MemoryPipeline.inject`` and
-stamps its conversation note.
+(``shared_memory_utils.run_v2_session``) and revoke a fact through the
+library's ``MemoryPipeline.forget`` (Amendment 4), or, under the
+``writer_scoped`` control, through ``MemoryPipeline.list_own`` and
+``delete``: the code the kernel runs for its forget, list and delete
+requests. A store's agents share its tombstones, a SQLite file in the
+store (``tombstones.sqlite``), as the kernel's requests share the
+kernel's. The assistant passes the current session to
+``MemoryPipeline.inject`` and stamps its conversation note.
 """
 import json
 import os
@@ -52,6 +55,15 @@ STORE_ROOT = os.environ.get(
 WRITER_SEARCH_K = 5
 
 
+def store_root(backend: str) -> str:
+    """The condition's store for ``backend``: its Chroma data, Mem0's
+    history file (``history.db``, next to ``chroma``: the provider puts
+    it there) and its tombstones (``tombstones.sqlite``)."""
+    root = os.path.abspath(os.path.join(STORE_ROOT, backend))
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
 def store_config(
     backend: str, embedding: Dict[str, Any], backend_llm: Dict[str, Any],
     backend_extraction: bool = False,
@@ -65,8 +77,7 @@ def store_config(
     construct (``mem0ai`` 2.0.2 builds its default OpenAI client at once
     and wants a key), so it gets the same one, never called.
     """
-    root = os.path.abspath(os.path.join(STORE_ROOT, backend))
-    os.makedirs(root, exist_ok=True)
+    root = store_root(backend)
     mem0 = {"vector_store": {"provider": "chroma", "config": {
         "collection_name": "mem0_memories",
         "path": os.path.join(root, "chroma"),
@@ -89,9 +100,11 @@ class ReplicatedMemory:
 
     def __init__(
         self, backend: str, kernel_config: Dict[str, Any],
-        provider: Any = None,
+        provider: Any = None, tombstones_path: Optional[str] = None,
     ):
-        """``provider`` replaces the backend's client (tests)."""
+        """``provider`` replaces the backend's client (tests).
+        ``tombstones_path`` replaces the store's tombstone file
+        (tests); every agent of a store must use the same one."""
         if backend not in BACKENDS:
             raise ValueError(f"unknown replicated backend {backend!r}")
         pipeline = library.load()
@@ -121,8 +134,20 @@ class ReplicatedMemory:
         self.settings = pipeline.PipelineSettings.from_memory_config(
             kernel_config["pipeline"]
         )
+        # The store's tombstones, shared by its agents through the file
+        # (read on every check), not the kernel's: /memory/config does
+        # not carry the path.
+        self.tombstones_path = tombstones_path or os.path.join(
+            store_root(backend), "tombstones.sqlite"
+        )
+        self.tombstones = pipeline.TombstoneStore(self.tombstones_path)
         # Its own barrier and resolver (the library's defaults).
-        self.pipeline = pipeline.MemoryPipeline(self.provider, self.settings)
+        # The provider's own LLM and embedding calls count to the user
+        # they serve (the library imports no SDK module: it is passed).
+        self.pipeline = pipeline.MemoryPipeline(
+            self.provider, self.settings, tombstones=self.tombstones,
+            usage_tag=usage.tagged,
+        )
         self.version = pipeline.PIPELINE_VERSION
         self.library = pipeline
         self.backend_extraction = bool(
@@ -143,6 +168,13 @@ class ReplicatedMemory:
         """Delete one of ``agent_name``'s rows (``MemoryPipeline.delete``):
         False when it is missing or not the agent's."""
         return self.pipeline.delete(agent_name, user_id, memory_id)
+
+    def forget(
+        self, agent_name: str, user_id: str, fact_key: str,
+    ) -> Dict[str, Any]:
+        """The user's forget of a fact (``MemoryPipeline.forget``): its
+        report (Amendment 4)."""
+        return self.pipeline.forget(agent_name, user_id, fact_key)
 
 
 class _ReplicatedWriter:
@@ -219,7 +251,7 @@ class _ReplicatedWriter:
             return run_v2_session(
                 self, session, self.memory_type,
                 write=self._v2_create, list_rows=self._v2_list,
-                delete=self._v2_delete,
+                delete=self._v2_delete, forget=self._v2_forget,
             )
         self.extractor.llms = self.llms
         extraction = self.extractor.extract(task_input)
@@ -247,7 +279,9 @@ class _ReplicatedWriter:
 
     # -- benchmark v2 (docs/BENCHMARK_V2.md) ---------------------------
 
-    def _v2_create(self, content: str, metadata: Dict[str, Any]) -> str:
+    def _v2_create(
+        self, content: str, metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """Store one v2 row as the kernel stores a create request: the
         request's note (``note_from_request``) through the agent's
         current pipeline, which fills the required metadata into it.
@@ -261,25 +295,33 @@ class _ReplicatedWriter:
         recorded so, not as the shared row it was sent as. A write
         that raises is not copied back, and ``run_v2_session`` does
         not record it; without a variant the library may already have
-        filled its defaults (``created_at``) into ``metadata``."""
+        filled its defaults (``created_at``) into ``metadata``.
+
+        Returns ``{memory_id, metadata}``, the kernel's reply shape:
+        ``metadata`` is what the write did next (the ids it swept and
+        retired, the values it lifted, ``suppressed``; Amendment 4)."""
         note = self.memory.library.note_from_request(
             {"content": content, "metadata": metadata}
         )
+        outcome: Dict[str, Any] = {}
         memory_id = self.memory.pipeline.write(
-            self.agent_name, self.user_id, note
+            self.agent_name, self.user_id, note, outcome=outcome,
         )
         # A snapshot first: without a variant the note's metadata is
         # ``metadata`` itself, which clear() would empty.
         stored = dict(note.metadata or {})
         metadata.clear()
         metadata.update(stored)
-        return memory_id
+        return {"memory_id": memory_id, "metadata": outcome}
 
     def _v2_list(self, user_id: str) -> List[dict]:
         return self.memory.list_own(self.agent_name, user_id)
 
     def _v2_delete(self, user_id: str, memory_id: str) -> bool:
         return self.memory.delete(self.agent_name, user_id, memory_id)
+
+    def _v2_forget(self, user_id: str, fact_key: str) -> Dict[str, Any]:
+        return self.memory.forget(self.agent_name, user_id, fact_key)
 
     def list_own_rows(self, user_id: Optional[str] = None) -> List[dict]:
         """The rows this agent owns for ``user_id`` (default: its

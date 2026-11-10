@@ -99,12 +99,32 @@ def test_the_criteria_hold_only_with_the_evidence(tmp_path):
     privacy = next(c for t, c in by_text.items()
                    if t.startswith("the kernel's privacy"))
     assert privacy["holds"]
-    budget = next(c for t, c in by_text.items() if "budget" in t)
-    # budget=True marks all six probes of that trial.
-    assert budget["holds"] and budget["evidence"].startswith("6 probes")
+    [budget] = [c for t, c in by_text.items() if "budget" in t]
+    # Amendment 4 (Decision 8): the budget's binding is reported, not
+    # required, so the criterion holds None, and its evidence still
+    # counts the probes (budget=True marks all six of that trial).
+    assert budget["criterion"].startswith("the budget's binding")
+    assert budget["holds"] is None
+    assert budget["evidence"] == "6 probes with a binding budget"
     deletion = next(c for t, c in by_text.items()
                     if t.startswith("deletion passes among"))
     assert deletion["holds"]
+
+
+def test_the_budget_is_reported_even_when_it_never_binds(tmp_path):
+    """A budget that bound in no probe is a finding, not a failure: the
+    criterion holds None with a zero count, as when it binds (Decision
+    8), and the report prints it."""
+    write(tmp_path, "qwen", "kinh", "h0_kernel_shared",
+          [trial(0, ALL_PASS)])
+    cells = ba.load(tmp_path)
+    checks = ba.criteria(cells)
+    [budget] = [c for c in checks if "budget" in c["criterion"]]
+    assert budget["holds"] is None
+    assert budget["evidence"] == "0 probes with a binding budget"
+    text = ba.markdown(cells, [], [], checks, [], [])
+    assert (f"| {budget['criterion']} |  | {budget['evidence']} |"
+            in text)
 
 
 def test_a_kernel_privacy_leak_breaks_its_criterion(tmp_path):
@@ -646,9 +666,10 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
     build(tmp_path)
     cells = ba.load(tmp_path)
     extra = ba.readings(cells)
-    assert set(extra) == {"exposure", "carriers", "stored_carriers",
-                          "misses", "slots", "earlier_answers",
-                          "integration_blocks", "integration_base_rows"}
+    assert set(extra) == {"forgets", "supersession", "exposure",
+                          "carriers", "stored_carriers", "misses", "slots",
+                          "earlier_answers", "integration_blocks",
+                          "integration_base_rows"}
     # A probe type with no failure in a cell has no misses row.
     assert all(r["failed"] for r in extra["misses"])
     sections = (ba.cell_rows(cells), ba.binding_rows(cells),
@@ -688,6 +709,13 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
                 + " | ".join(ba.CELL_KEYS + keys) + " |") in text, name
     assert [(name, title, keys)
             for name, title, _, keys in ba.READING_SECTIONS] == [
+        ("forgets", "Revokes and the forget (Amendment 4)",
+         ["revokes", "forget", "deleted", "fact_key", "value", "alias",
+          "other_agents", "no_values", "messages", "history", "swept",
+          "suppressed"]),
+        ("supersession", "Supersession (Amendment 4)",
+         ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
+          "excluded"]),
         ("exposure", "Trial-level exposure (deletion, privacy)",
          ["probe", "n", "passed", "exposed", "passed_exposed"]),
         ("carriers", "Deletion failures by carrier",
@@ -711,6 +739,22 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
          "Integration score by the base rows in the block",
          ["base_rows", "n", "score"])]
     defined = {
+        "forgets": [
+            "Per kernel and replicated cell: revokes, those that went "
+            "through the forget",
+            "the rows the forgets deleted (by reason: the slot's "
+            "`fact_key`, a `value` or an `alias`",
+            "`other_agents`: rows of agents other than the revoking "
+            "writer)", "forgets that found no value",
+            "the Mem0 history scrub (`messages` deleted, `history` records "
+            "cleared)", "rows later writes `swept` and writes "
+            "`suppressed`"],
+        "supersession": [
+            "`retired`: rows writes marked retired",
+            "`earlier_rows`: the earlier statements' rows after the "
+            "history (from the dataset) and how many carry a mark "
+            "(`marked`)", "probes whose block held a retired row",
+            "rows the selection excluded as retired"],
         "exposure": [
             "A probe checks only its own block and answer.",
             "`exposed`: trials whose forbidden value appears in any "
@@ -757,3 +801,376 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
         assert all(p in notes[name] for p in phrases), name
     assert json.loads(out.read_text())["readings"] == json.loads(
         json.dumps(extra, default=str))
+
+
+# -- Amendment 4: the library's criteria and readings ------------------------
+
+FORGET = {"deleted": [
+    {"memory_id": "m1", "owner_agent": "profile_agent", "reason": "fact_key"},
+    {"memory_id": "m2", "owner_agent": "calendar_agent", "reason": "value"},
+    {"memory_id": "m3", "owner_agent": "task_agent", "reason": "alias"}],
+    "values_count": 1, "forms_count": 2, "listed": 9, "not_found": []}
+CARRIER = {"listing": "history", "memory_id": "m2",
+           "owner_agent": "calendar_agent", "provenance_event": "e8",
+           "fact_key": "retro", "revoke_event": "e9", "value": "Mattermost"}
+
+
+def lib_trial(index, backend="inhouse", echo=False, path="forget",
+              native=False):
+    """A user's trial with complete Amendment 4 evidence. A kernel or
+    replicated one: a revoke through the forget (``path``), deleting the
+    profile writer's fact row, the calendar writer's echo and an alias
+    row (a Mem0 forget scrubbed two messages and a history record); an
+    update that retired a row; a write that swept a row and was
+    suppressed; every probe passing, the guard armed (two forms; none
+    without a forget) and dropping nothing, no retired row in a block;
+    no carrier left; both earlier statements' rows marked. A native one
+    revokes by its owner, retires nothing and reports no library stage,
+    and its recency block holds the stale row."""
+    forgot = path == "forget" and not native
+    mem0 = backend == "mem0"
+    revoke = {"event_id": "e9", "type": "revoke",
+              "revoke_path": "owner" if native else path,
+              "forget": dict(FORGET, scrubbed={
+                  "messages": 2 if mem0 else 0,
+                  "history": 1 if mem0 else 0}) if forgot else None,
+              "found_ids": ["m1"],
+              "deleted_ids": ["m1", "m2", "m3"] if forgot else ["m1"]}
+    update = {"event_id": "e11", "type": "update", "swept_ids": [],
+              "retired_ids": [] if native else ["m5"], "lifted": [],
+              "suppressed": False}
+    rewrite = {"event_id": "e12", "type": "add",
+               "swept_ids": [] if native else ["m4"], "retired_ids": [],
+               "lifted": [], "suppressed": not native}
+    probes = []
+    for kind in TYPES:
+        p = probe(kind, ALL_PASS.get(kind), echo=echo and kind == "deletion",
+                  retired_in_block=["m5"] if native and kind == "recency"
+                  else [])
+        if not native:
+            p["diagnostics"].update(
+                after_supersession=6, superseded_rows=["m5"],
+                after_tombstone=6, tombstoned_rows=[],
+                tombstoned_forms=2 if forgot else 0)
+        probes.append(p)
+    return {"trial_index": index, "failed": False, "probe_results": probes,
+            "sessions": [
+                {"session": 4, "writer": "profile_agent", "events": [update]},
+                {"session": 6, "writer": "profile_agent",
+                 "events": [revoke, rewrite]}],
+            "revoked_value_rows": [],
+            "retired_rows": [
+                {"memory_id": "m5", "owner_agent": "profile_agent",
+                 "provenance_event": "e7", "fact_key": "room",
+                 "superseded_by": None if native else "e11"},
+                {"memory_id": "m6", "owner_agent": "task_agent",
+                 "provenance_event": "e3", "fact_key": "city",
+                 "superseded_by": None if native else "e10"}],
+            "integration_score": 4}
+
+
+def probe_of(trial, kind):
+    return next(p for p in trial["probe_results"] if p["type"] == kind)
+
+
+def build_library(root):
+    """Complete evidence for Amendment 4's criteria. At H = 0 the kernel
+    and replicated cells on both backends; and what the criteria must
+    not count: an H = 2 cell with a carrier left and no guard stage
+    (reported, not required); no_delete, revoking by its owner and
+    failing deletion; writer_scoped, failing its echo user by the
+    owner's revoke; no_supersession, a retired row in a block; native,
+    which runs neither the forget nor supersession."""
+    for phase, cell, backend in (
+            ("kinh", "h0_kernel_shared", "inhouse"),
+            ("kmem0", "h0_kernel_shared", "mem0"),
+            ("agent", "h0_replicated_inhouse", "inhouse"),
+            ("agent", "h0_replicated_mem0", "mem0")):
+        write(root, "qwen", phase, cell, [lib_trial(0, backend),
+                                          lib_trial(1, backend, echo=True)])
+    h2 = lib_trial(0)
+    h2["revoked_value_rows"] = [CARRIER]
+    for p in h2["probe_results"]:
+        del p["diagnostics"]["after_tombstone"]
+    write(root, "qwen", "agent", "h2_replicated_inhouse", [h2])
+    kept = lib_trial(0, path="owner")
+    probe_of(kept, "deletion")["passed"] = False
+    write(root, "qwen", "kinh", "no_delete_kernel_shared", [kept])
+    scoped = lib_trial(0, echo=True, path="owner")
+    probe_of(scoped, "deletion")["passed"] = False
+    write(root, "qwen", "kinh", "writer_scoped_kernel_shared",
+          [lib_trial(1, path="owner"), scoped])
+    ns = lib_trial(0)
+    probe_of(ns, "recency")["retired_in_block"] = ["m5"]
+    write(root, "qwen", "kinh_ns", "no_supersession_kernel_shared", [ns])
+    native = lib_trial(0, echo=True, native=True)
+    probe_of(native, "deletion")["passed"] = False
+    write(root, "qwen", "agent", "h0_native_mem0", [native])
+
+
+LIBRARY_CRITERIA = {
+    "delete": "kernel and replicated delete completely at H = 0",
+    "scoped": "writer_scoped fails some echo user",
+    "retired": "no kernel or replicated block holds a retired row",
+    "guard": "the guard was armed and dropped nothing",
+    "scrub": "every Mem0 forget at H = 0 scrubbed a message",
+}
+
+
+def library_checks(cells):
+    """``library_criteria`` by name; each appears once."""
+    found = ba.library_criteria(cells)
+    assert len(found) == len(LIBRARY_CRITERIA)
+    return {name: next(c for c in found if c["criterion"].startswith(text))
+            for name, text in LIBRARY_CRITERIA.items()}
+
+
+def library_cells(root):
+    build_library(root)
+    return ba.load(root)
+
+
+def h0(cells, locus="kernel", backend="inhouse"):
+    return cells[("qwen", locus, backend, "h0")]["trials"]
+
+
+def revoke_of(trial):
+    return next(e for s in trial["sessions"] for e in s["events"]
+                if e["type"] == "revoke")
+
+
+def test_the_library_criteria_hold_with_complete_evidence(tmp_path):
+    """Amendment 4's criteria hold on complete evidence, and the
+    evidence counts what each one read: H = 0 only for deletion,
+    retired rows and the scrub (H = 2 is reported, not required); every
+    condition but H = 2 for the guard; writer_scoped's echo users;
+    native in none."""
+    checks = library_checks(library_cells(tmp_path))
+    assert {name: c["holds"] for name, c in checks.items()} == {
+        name: True for name in LIBRARY_CRITERIA}
+    assert checks["delete"]["evidence"] == (
+        "4 cells: 8 pass, 0 fail, 0 unscored, 0 failed trials; 0 trials "
+        "with revoked_value_rows; 0 of 8 revokes not through the forget")
+    assert checks["scoped"]["evidence"] == (
+        "1 of 1 echo-user deletion probes fail")
+    assert checks["retired"]["evidence"] == (
+        "h0: 0 of 48 probes hold one (0 unrecorded); no_supersession: 1 "
+        "probes hold one")
+    assert checks["guard"]["evidence"] == (
+        "72 probes: 0 without the guard's stage, 0 unarmed after a "
+        "forget, 0 with a dropped row")
+    assert checks["scrub"]["evidence"] == "4 of 4 forgets (8 messages)"
+
+
+def fail_a_deletion_probe(cells):
+    probe_of(h0(cells)[0], "deletion")["passed"] = False
+
+
+def leave_a_deletion_probe_unscored(cells):
+    probe_of(h0(cells, "replicated")[1], "deletion")["passed"] = None
+
+
+def fail_a_trial(cells):
+    h0(cells, "replicated", "mem0")[0]["failed"] = True
+
+
+def leave_a_carrier(cells):
+    h0(cells, backend="mem0")[1]["revoked_value_rows"] = [CARRIER]
+
+
+def revoke_by_the_owner(cells):
+    revoke_of(h0(cells, "replicated")[0])["revoke_path"] = "owner"
+
+
+@pytest.mark.parametrize("change", [
+    fail_a_deletion_probe, leave_a_deletion_probe_unscored, fail_a_trial,
+    leave_a_carrier, revoke_by_the_owner])
+def test_complete_deletion_fails_on_one_wrong_item(tmp_path, change):
+    """Every deletion probe at H = 0 must pass, and an unscored probe or
+    a failed trial counts against it, never for it; no trial may leave a
+    carrier (``revoked_value_rows``); every revoke must have gone
+    through the forget. One wrong item breaks this criterion alone."""
+    cells = library_cells(tmp_path)
+    change(cells)
+    checks = library_checks(cells)
+    assert checks["delete"]["holds"] is False
+    assert all(c["holds"] for name, c in checks.items() if name != "delete")
+
+
+def test_writer_scoped_must_fail_an_echo_user(tmp_path):
+    """writer_scoped shows the forget is what deletes the echo: the
+    criterion fails when every writer_scoped echo user passes deletion,
+    when only a user without an echo fails, or without the cell."""
+    cells = library_cells(tmp_path)
+    key = ("qwen", "kernel", "inhouse", "writer_scoped")
+    passing, failing = cells[key]["trials"]
+    probe_of(failing, "deletion")["passed"] = True
+    assert library_checks(cells)["scoped"]["holds"] is False
+    probe_of(passing, "deletion")["passed"] = False  # no echo
+    assert library_checks(cells)["scoped"]["holds"] is False
+    del cells[key]
+    checks = library_checks(cells)
+    assert checks["scoped"]["holds"] is False
+    assert checks["scoped"]["evidence"] == (
+        "0 of 0 echo-user deletion probes fail")
+
+
+def hold_a_retired_row(cells):
+    probe_of(h0(cells, "replicated", "mem0")[1],
+             "contradiction")["retired_in_block"] = ["m6"]
+
+
+def lose_the_field(cells):
+    del probe_of(h0(cells)[0], "integration")["retired_in_block"]
+
+
+def supersede_under_no_supersession(cells):
+    for trial in cells[("qwen", "kernel", "inhouse",
+                        "no_supersession")]["trials"]:
+        for p in trial["probe_results"]:
+            p["retired_in_block"] = []
+
+
+@pytest.mark.parametrize("change", [
+    hold_a_retired_row, lose_the_field, supersede_under_no_supersession])
+def test_no_retired_row_reaches_a_block(tmp_path, change):
+    """At H = 0 no kernel or replicated block may hold a retired row,
+    and every probe must record whether one did (a probe without the
+    field counts against it); no_supersession must put one in some
+    block, or the stage is not what kept them out."""
+    cells = library_cells(tmp_path)
+    change(cells)
+    checks = library_checks(cells)
+    assert checks["retired"]["holds"] is False
+    assert all(c["holds"] for name, c in checks.items()
+               if name != "retired")
+
+
+def drop_the_stage(cells):
+    del probe_of(h0(cells, "replicated")[0],
+                 "privacy")["diagnostics"]["after_tombstone"]
+
+
+def drop_a_row(cells):
+    probe_of(h0(cells, backend="mem0")[0],
+             "recall")["diagnostics"]["tombstoned_rows"] = ["m2"]
+
+
+def disarm_after_a_forget(cells):
+    probe_of(h0(cells)[1], "recency")["diagnostics"]["tombstoned_forms"] = 0
+
+
+def drop_a_row_under_a_control(cells):
+    trial = cells[("qwen", "kernel", "inhouse", "writer_scoped")][
+        "trials"][0]
+    probe_of(trial, "recall")["diagnostics"]["tombstoned_rows"] = ["m2"]
+
+
+@pytest.mark.parametrize("change", [
+    drop_the_stage, drop_a_row, disarm_after_a_forget,
+    drop_a_row_under_a_control])
+def test_the_guard_must_be_armed_and_drop_nothing(tmp_path, change):
+    """Every kernel and replicated probe outside H = 2 must report the
+    guard's stage (``after_tombstone``) and drop no row
+    (``tombstoned_rows``), and after a forget the guard must hold the
+    forgotten forms (``tombstoned_forms`` positive). Under a control
+    with no forget (writer_scoped, no_delete) no forms are needed."""
+    cells = library_cells(tmp_path)
+    change(cells)
+    checks = library_checks(cells)
+    assert checks["guard"]["holds"] is False
+    assert all(c["holds"] for name, c in checks.items() if name != "guard")
+
+
+def test_every_mem0_forget_must_scrub_a_message(tmp_path):
+    """Each revoked value was stated in an utterance Mem0 stored as a
+    message, so every Mem0 forget at H = 0 must scrub one; an in-house
+    forget scrubs none, and no Mem0 forget at all fails the
+    criterion."""
+    cells = library_cells(tmp_path)
+    revoke_of(h0(cells, "replicated", "mem0")[1])["forget"]["scrubbed"][
+        "messages"] = 0
+    checks = library_checks(cells)
+    assert checks["scrub"]["holds"] is False
+    assert checks["scrub"]["evidence"] == "3 of 4 forgets (6 messages)"
+    assert all(c["holds"] for name, c in checks.items() if name != "scrub")
+    cells = ba.load(tmp_path)
+    for locus in ("kernel", "replicated"):
+        del cells[("qwen", locus, "mem0", "h0")]
+    assert library_checks(cells)["scrub"]["holds"] is False
+
+
+def test_load_reads_the_no_supersession_phases(tmp_path):
+    """The driver runs no_supersession in kernels of their own (the
+    ``_ns`` phases): a kernel cell there takes its backend from the
+    phase, a replicated one from its method."""
+    write(tmp_path, "qwen", "kmem0_ns", "no_supersession_kernel_shared",
+          [trial(0, ALL_PASS)])
+    write(tmp_path, "qwen", "kinh_ns", "no_supersession_kernel_shared",
+          [trial(0, ALL_PASS)])
+    write(tmp_path, "qwen", "agent_ns", "no_supersession_replicated_mem0",
+          [trial(0, ALL_PASS)])
+    assert set(ba.load(tmp_path)) == {
+        ("qwen", "kernel", "mem0", "no_supersession"),
+        ("qwen", "kernel", "inhouse", "no_supersession"),
+        ("qwen", "replicated", "mem0", "no_supersession")}
+
+
+def test_the_library_criteria_join_the_check_only_with_its_loci(tmp_path):
+    """``criteria`` adds the library's criteria when a kernel or
+    replicated cell is in the run, and none for native alone. None
+    starts with a probe type's word: the criteria are also keyed by
+    their first word (test_the_criteria_hold_only_with_the_evidence),
+    where one would hide that probe type's own criterion."""
+    build(tmp_path)
+    build_library(tmp_path)
+    cells = ba.load(tmp_path)
+    found = ba.criteria(cells)
+    library = ba.library_criteria(cells)
+    assert found[-len(library):] == library
+    assert not {c["criterion"].split(" ")[0] for c in library} & set(
+        ba.JUDGE_FREE)
+    native = tmp_path / "native"
+    write(native, "qwen", "agent", "h0_native_inhouse", [trial(0, ALL_PASS)])
+    texts = [c["criterion"] for c in ba.criteria(ba.load(native))]
+    assert not [t for t in texts
+                if t.startswith(tuple(LIBRARY_CRITERIA.values()))]
+
+
+def test_the_forget_and_supersession_readings(tmp_path):
+    """The two Amendment 4 readings, per cell: the revokes, those
+    through the forget, what the forgets deleted by reason and of other
+    agents (not the revoking writer), forgets that found no value, the
+    Mem0 scrub, and what later writes swept or had suppressed (kernel
+    and replicated cells only); the rows writes retired, the earlier
+    statements' rows and how many are marked, the probes whose block
+    held a retired row, and the rows selection excluded as retired.
+    Failed trials are left out."""
+    cells = library_cells(tmp_path)
+    h0(cells)[1]["failed"] = True
+    forgets = {(r["locus"], r["backend"], r["condition"]): r
+               for r in ba.forget_rows(cells)}
+    assert {key[0] for key in forgets} == {"kernel", "replicated"}
+    columns = ("revokes", "forget", "deleted", "fact_key", "value", "alias",
+               "other_agents", "no_values", "messages", "history", "swept",
+               "suppressed")
+    assert [forgets[("kernel", "mem0", "h0")][c] for c in columns] == [
+        2, 2, 6, 2, 2, 2, 4, 0, 4, 2, 2, 2]
+    assert [forgets[("kernel", "inhouse", "h0")][c] for c in columns] == [
+        1, 1, 3, 1, 1, 1, 2, 0, 0, 0, 1, 1]
+    assert [forgets[("kernel", "inhouse", "writer_scoped")][c]
+            for c in columns] == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
+    no_value = cells[("qwen", "kernel", "inhouse", "no_supersession")]
+    revoke_of(no_value["trials"][0])["forget"]["values_count"] = 0
+    assert next(r for r in ba.forget_rows(cells)
+                if r["condition"] == "no_supersession")["no_values"] == 1
+    retired = {(r["locus"], r["backend"], r["condition"]): r
+               for r in ba.supersession_rows(cells)}
+    columns = ("retired", "earlier_rows", "marked", "probes",
+               "retired_in_block", "excluded")
+    assert [retired[("replicated", "mem0", "h0")][c] for c in columns] == [
+        2, 4, 4, 12, 0, 12]
+    assert [retired[("kernel", "inhouse", "no_supersession")][c]
+            for c in columns] == [1, 2, 2, 6, 1, 6]
+    assert [retired[("native", "mem0", "h0")][c] for c in columns] == [
+        0, 2, 0, 6, 1, 0]

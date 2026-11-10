@@ -49,13 +49,32 @@ CONSUMER = "assistant_agent"
 AGENTS = WRITERS + (CONSUMER,)
 PROBE_SESSION = 7
 LIST_LIMIT = 10_000
-CONTROLS = ("no_memory", "no_delete", "no_visibility")
+CONTROLS = ("no_memory", "no_delete", "no_visibility", "writer_scoped",
+            "no_supersession")
+# Controls of the library's deletion and supersession (Amendment 4):
+# kernel and replicated only. writer_scoped makes the writers revoke by
+# their own list and delete; no_supersession needs the kernel's
+# memory.supersession off, which the replicated agents copy.
+LIBRARY_CONTROLS = ("writer_scoped", "no_supersession")
 WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
+# The events that state a fact's value (a base event states none).
+STATEMENT_EVENTS = ("add", "update", "contradict", "private")
+# The loci whose listings are the raw store (Amendment 4, "The audit
+# reads the store"): their owner-only listings leave out a row that
+# carries a forgotten value. Native's own listings have no guard.
+STORE_AUDIT_LOCI = ("kernel", "replicated")
 # Diagnostics keys that say a block cannot be trusted: the library's
 # fetch failed, or the kernel's injector raised. Either looks like an
 # empty store, which would pass deletion and privacy (Amendment 2).
 BLOCK_ERRORS = (("retrieval_error", "retrieval failed"),
                 ("injection_error", "injection failed"))
+
+
+def forget_scope(control: Optional[str]) -> str:
+    """A writer's ``forget_scope`` under ``control``: ``"writer"`` (its
+    own list and delete) under ``writer_scoped``, else ``"user"`` (the
+    user's forget, where the locus has one; Amendment 4)."""
+    return "writer" if control == "writer_scoped" else "user"
 
 
 def provenance(agent_name: str, user_id: str) -> Dict[str, str]:
@@ -116,10 +135,29 @@ class KernelLocus:
     writes_from_results = False
 
     def __init__(self, assistant_llms: Optional[list] = None,
-                 kernel_config: Optional[dict] = None):
+                 kernel_config: Optional[dict] = None,
+                 kernel_url: Optional[str] = None):
         self.assistant_llms = assistant_llms
         self.kernel_config = kernel_config or {}
+        self.kernel_url = kernel_url
         self._writers: Dict[str, Any] = {}
+
+    def audit_rows(self, user_id: str) -> List[dict]:
+        """Every row the kernel's store holds for ``user_id``, of every
+        agent, unfiltered (``GET /memory/audit``: no visibility rule, no
+        tombstone guard; Amendment 4). A listing at its limit fails the
+        user (it may be cut)."""
+        import requests
+        from cerebrum.config.config_manager import config
+
+        url = (self.kernel_url or config.get_kernel_url()).rstrip("/")
+        response = requests.get(f"{url}/memory/audit",
+                                params={"user_id": user_id}, timeout=120)
+        response.raise_for_status()
+        body = response.json()
+        if body.get("at_limit"):
+            raise LocusFailure(f"listing_at_limit: audit of {user_id}")
+        return _audit_rows(body.get("rows") or [])
 
     def start_user(self, user_id: str, control: Optional[str]) -> None:
         if control == "no_visibility":
@@ -140,6 +178,7 @@ class KernelLocus:
             agent.llms = self.assistant_llms
             agent.extra_metadata = provenance(name, user_id)
             agent.delete_on_revoke = control != "no_delete"
+            agent.forget_scope = forget_scope(control)
             self._writers[name] = agent
 
     def writer(self, name: str) -> Any:
@@ -226,6 +265,10 @@ class AgentManagedLocus:
         self._saved_visibility = None
 
     def start_user(self, user_id: str, control: Optional[str]) -> None:
+        if control in LIBRARY_CONTROLS and self.locus == "native":
+            raise ValueError(
+                f"{control} applies to the kernel and replicated loci "
+                "only: native revokes by its owner and retires nothing")
         for name, agent in self.agents.items():
             agent.user_id = user_id
             agent.llms = self.assistant_llms
@@ -233,6 +276,7 @@ class AgentManagedLocus:
             if name in WRITERS:
                 agent.share_memory = True
                 agent.delete_on_revoke = control != "no_delete"
+                agent.forget_scope = forget_scope(control)
         consumer = self.agents[CONSUMER]
         consumer.session, consumer.probe_id = None, None
         consumer.store_conversation = True
@@ -257,6 +301,21 @@ class AgentManagedLocus:
 
     def lister(self, name: str) -> Any:
         return self.agents[name]
+
+    def audit_rows(self, user_id: str) -> Optional[List[dict]]:
+        """Replicated: every row the store holds for ``user_id``, of
+        every agent, through the provider's own ``list`` (no visibility
+        rule, no tombstone guard; Amendment 4). The agents share one
+        store, so any agent's provider lists it. Native: None (its
+        listings stay its own agents' backend calls, which have no
+        guard)."""
+        if self.locus != "replicated":
+            return None
+        provider = self.agents[CONSUMER].memory.provider
+        found = provider.list(user_id, LIST_LIMIT)
+        if len(found) >= LIST_LIMIT:
+            raise LocusFailure(f"listing_at_limit: audit of {user_id}")
+        return _audit_rows([candidate.to_row() for candidate in found])
 
     def capture(self, written: List[WrittenMemoryRecord]):
         return ExitStack()  # writes are recorded from the writers' results
@@ -308,21 +367,50 @@ class AgentManagedLocus:
 
 # -- the history -------------------------------------------------------------
 
+def _audit_rows(rows: List[dict]) -> List[dict]:
+    """Listing rows as ``{memory_id, content, metadata}``."""
+    return [{"memory_id": row.get("memory_id"),
+             "content": row.get("content", ""),
+             "metadata": dict(row.get("metadata") or {})}
+            for row in rows]
+
+
 def _listing(locus, after: str, ids: Dict[str, set]) -> Dict[str, Any]:
-    """Every agent's own rows, under each user id it used; a listing
-    that reaches the limit fails the user (it may be cut)."""
-    rows: Dict[str, List[dict]] = {}
+    """The rows each agent owns, under every user id the agents used. A
+    listing that reaches the limit fails the user (it may be cut).
+
+    Since Amendment 4 the kernel and replicated loci list the raw store
+    (``audit_rows``): every row of each partition, of every agent, with
+    no visibility rule and no tombstone guard, grouped by
+    ``owner_agent``. The audits that read the listings
+    (``revoked_value_rows``, ``reappeared_ids``, ``_probe_writes``,
+    ``extraction_failure``, ``retired_rows``) therefore see a row the
+    guard hides from the agents, text included. Native lists each
+    agent's own rows through its backend, which has no guard
+    (``source``: ``"store"`` or ``"owner"``)."""
+    rows: Dict[str, List[dict]] = {name: [] for name in AGENTS}
+    if getattr(locus, "locus", None) in STORE_AUDIT_LOCI:
+        seen: set = set()
+        for uid in sorted(set().union(*ids.values())):
+            for row in locus.audit_rows(uid):
+                memory_id = str(row.get("memory_id"))
+                if memory_id in seen:
+                    continue
+                seen.add(memory_id)
+                owner = (row.get("metadata") or {}).get("owner_agent", "")
+                rows.setdefault(owner, []).append(row)
+        return {"after": after, "rows": rows, "source": "store"}
     for name in AGENTS:
-        seen: Dict[str, dict] = {}
+        seen_rows: Dict[str, dict] = {}
         for uid in sorted(ids[name]):
             listed = locus.lister(name).list_own_rows(uid)
             if len(listed) >= LIST_LIMIT:
                 raise LocusFailure(
                     f"listing_at_limit: {name} after {after}")
             for row in listed:
-                seen.setdefault(str(row.get("memory_id")), row)
-        rows[name] = list(seen.values())
-    return {"after": after, "rows": rows}
+                seen_rows.setdefault(str(row.get("memory_id")), row)
+        rows[name] = list(seen_rows.values())
+    return {"after": after, "rows": rows, "source": "owner"}
 
 
 def _consumer_rows(locus, ids: Dict[str, set]) -> List[dict]:
@@ -613,12 +701,18 @@ def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
                        backend_extraction: Optional[bool]) -> Optional[str]:
     """With backend extraction, every write event must have left a row
     (counted in the listing after its session, by ``provenance_event``);
-    a write that stored nothing is a backend that failed silently."""
+    a write that stored nothing is a backend that failed silently. A
+    write the library suppressed (its rows carried a forgotten value
+    and were swept, Amendment 4) stored nothing on purpose."""
     if backend_extraction is not True:
         return None
     after = {listing["after"]: listing for listing in outcome.listings}
+    suppressed = {str(e.get("event_id")) for s in outcome.sessions
+                  for e in s.events if e.get("suppressed")}
     empty = []
     for event in write_events(user):
+        if event["event_id"] in suppressed:
+            continue
         listing = after.get(f"session {event['session']}")
         if listing is None:
             continue
@@ -660,42 +754,95 @@ def reappeared_ids(outcome: HistoryOutcome) -> List[str]:
 def revoked_value_rows(user: V2UserData,
                        outcome: HistoryOutcome) -> List[Dict[str, Any]]:
     """Every row, of any agent, that still carries a revoked value in
-    the listings after the history and after the probes."""
+    the listings after the history and after the probes: a value of any
+    statement of the revoked slot (its add, updates, contradictions or
+    private statement), or an alias, under the scorer's matcher. Since
+    Amendment 4 the kernel and replicated listings are the raw store
+    (``_listing``), so a carrier the tombstone guard hides from the
+    agents still shows here, with its text."""
     revoked = [e for s in user.sessions for e in s["events"]
                if e["type"] == "revoke"]
     if not revoked:
         return []
-    targets = {}
+    targets: Dict[str, List[dict]] = {}
     for s in user.sessions:
         for event in s["events"]:
             for r in revoked:
-                if (event["type"] in ("add", "private")
+                if (event["type"] in STATEMENT_EVENTS
                         and event["fact_key"] == r["fact_key"]
                         and event.get("value")):
-                    targets[r["event_id"]] = event
+                    targets.setdefault(r["event_id"], []).append(event)
     out, seen = [], set()
     for listing in outcome.listings:
         if listing["after"] not in ("history", "probes"):
             continue
         for owner, rows in listing["rows"].items():
             for row in rows:
-                for revoke_id, target in targets.items():
-                    if match_entry(row.get("content"), target):
-                        key = (listing["after"], str(row.get("memory_id")))
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        metadata = row.get("metadata") or {}
-                        out.append({
-                            "listing": listing["after"],
-                            "memory_id": str(row.get("memory_id")),
-                            "owner_agent": owner,
-                            "provenance_event":
-                                metadata.get("provenance_event"),
-                            "fact_key": metadata.get("fact_key"),
-                            "revoke_event": revoke_id,
-                            "value": target["value"],
-                        })
+                for revoke_id, events in targets.items():
+                    target = next((event for event in events
+                                   if match_entry(row.get("content"),
+                                                  event)), None)
+                    if target is None:
+                        continue
+                    key = (listing["after"], str(row.get("memory_id")))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    metadata = row.get("metadata") or {}
+                    out.append({
+                        "listing": listing["after"],
+                        "memory_id": str(row.get("memory_id")),
+                        "owner_agent": owner,
+                        "provenance_event":
+                            metadata.get("provenance_event"),
+                        "fact_key": metadata.get("fact_key"),
+                        "revoke_event": revoke_id,
+                        "value": target["value"],
+                        # The carrier's text, as the store holds it.
+                        "content": row.get("content"),
+                    })
+    return out
+
+
+def retired_events(user: V2UserData) -> List[str]:
+    """The user's statements that a later statement of the same fact
+    retires (Amendment 4), from the dataset's order: per ``fact_key``,
+    every statement (add, update, contradict, private) but the last.
+    The probes come after every session, so this holds for all of
+    them."""
+    by_fact: Dict[str, List[str]] = {}
+    for s in sorted(user.sessions, key=lambda s: s["session"]):
+        for event in s["events"]:
+            if event["type"] in STATEMENT_EVENTS:
+                by_fact.setdefault(event["fact_key"], []).append(
+                    event["event_id"])
+    return [event_id for events in by_fact.values()
+            for event_id in events[:-1]]
+
+
+def retired_rows(user: V2UserData,
+                 outcome: HistoryOutcome) -> List[Dict[str, Any]]:
+    """The rows of earlier statements (``retired_events``) in the
+    listing after the history, of every agent, with the mark each
+    carries (``superseded_by``, None when unmarked): with supersession
+    on, every one should be marked (Amendment 4)."""
+    retired = set(retired_events(user))
+    history = next((listing for listing in outcome.listings
+                    if listing["after"] == "history"), None)
+    if not retired or history is None:
+        return []
+    out = []
+    for owner, rows in history["rows"].items():
+        for row in rows:
+            metadata = row.get("metadata") or {}
+            if str(metadata.get("provenance_event")) in retired:
+                out.append({
+                    "memory_id": str(row.get("memory_id")),
+                    "owner_agent": owner,
+                    "provenance_event": metadata.get("provenance_event"),
+                    "fact_key": metadata.get("fact_key"),
+                    "superseded_by": metadata.get("superseded_by"),
+                })
     return out
 
 
@@ -763,6 +910,7 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
     reader = AgentPipeline(share_memory=True)
     values = user_values(user)
     deleted = deleted_ids(outcome)
+    retired = retired_events(user)
     out = []
     for turn in outcome.turns:
         probe = turn.probe
@@ -792,7 +940,7 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
         score = score_probe(
             probe, turn.answer, turn.diagnostics, user_values=values,
             deleted_ids=deleted, embed=embed, locus=locus,
-            visible_stored_rows=visible, k=k,
+            visible_stored_rows=visible, k=k, retired_events=retired,
         )
         fields = {key: value for key, value in score.items()
                   if key in ProbeResult.model_fields}
