@@ -1174,3 +1174,38 @@ def test_the_committed_users_v2_is_revision_3_with_balanced_leans():
         assert p["question"] == slot.lean_questions[
             synth_v2.LEANS.index(p["lean"])]
     assert synth_v2.check("users_v2")["problems"] == []
+
+
+@pytest.mark.parametrize("slot, side, text, rejected", [
+    # The paraphrases of revision 3's first build that kept their words
+    # and lost what they said, and forms that keep it.
+    ("home_city", "later", "My work is based in Bologna.", True),
+    ("home_city", "later", "My location is based in Bologna.", False),
+    ("client", "earlier",
+     "We're creating this building project for Lumenvale.", True),
+    ("client", "earlier", "We are building a project for Westmere Foods.",
+     True),
+    ("client", "earlier",
+     "This project we're building is for Westmere Foods.", False),
+    ("client", "later",
+     "Fenwick Freight is the client for the project I'm working on.",
+     False),
+    ("manager", "earlier", "I am under Elif Kaya's report.", True),
+    ("manager", "earlier", "Elif Kaya is the person I report to.", False),
+    ("manager", "later", "Elif Kaya is the name of my manager.", False),
+])
+def test_a_contradiction_statement_keeps_its_slots_meaning(slot, side, text,
+                                                           rejected):
+    problems = synth_v2.lean_meaning_problems(text, synth_v2.SLOTS[slot],
+                                              side)
+    assert bool(problems) is rejected, problems
+    template = (synth_v2.original_template(synth_v2.SLOTS[slot])
+                if side == "earlier" else synth_v2.SLOTS[slot].contradict)
+    event = {"type": "add" if side == "earlier" else "contradict",
+             "slot": slot, "template": template.format(value="Elif Kaya")}
+    # Through the paraphrase check, for a contradiction statement only.
+    if rejected:
+        assert set(problems) <= set(synth_v2.meaning_problems(
+            text, event, "contradiction"))
+        assert not set(problems) & set(synth_v2.meaning_problems(text,
+                                                                 event))

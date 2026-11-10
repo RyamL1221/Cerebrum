@@ -786,6 +786,48 @@ def lean_problems(text: Optional[str], template: str,
     return problems
 
 
+# Meaning rules for a contradiction's two statements, each from a
+# paraphrase of revision 3's first build that kept its words and lost
+# what it said: "My work is based in X" (a workplace is not a home),
+# "We're creating this building project for X" and "We are building a
+# project for X" (not the current project), "I am under X's report". A
+# statement must match every ``need`` pattern of its side and no
+# ``never`` pattern (regular expressions over ``normalize(text)``).
+LEAN_MEANING: Dict[str, Dict[str, Tuple[Tuple[str, str], ...]]] = {
+    "home_city": {"never": (
+        (r"\b(work\w*|office\w*|jobs?|commut\w*)\b",
+         "it must say where the user lives, not where they work"),
+    )},
+    "client": {
+        "need": ((r"\b(this|the|my|our) project\b|\bproject we\b",
+                  "it must be about the current project ('this "
+                  "project')"),),
+        "never": ((r"\bbuilding project\b",
+                   "'building' must say what we do, not the kind of "
+                   "project"),),
+    },
+    "manager": {"need_earlier": (
+        (r"\breport(s|ed|ing)? to\b",
+         "it must keep 'report to'"),
+    )},
+}
+
+
+def lean_meaning_problems(text: Optional[str], slot: Slot,
+                          side: str) -> List[str]:
+    """Why ``text``, the ``side`` (``LEANS``) statement of a
+    contradiction of ``slot``, no longer says its fact (empty if it
+    still does; ``LEAN_MEANING``)."""
+    rules = LEAN_MEANING.get(slot.name, {})
+    norm = normalize(text)
+    problems = [why for pattern, why in rules.get("need", ())
+                + rules.get(f"need_{side}", ())
+                if not re.search(pattern, norm)]
+    problems += [why for pattern, why in rules.get("never", ())
+                 if re.search(pattern, norm)]
+    return problems
+
+
 def lean_start(slot_name: str) -> str:
     """The lean of the first contradiction question of a slot. The
     contradiction slots, in catalog order, alternate between the two,
@@ -1451,7 +1493,8 @@ def meaning_problems(text: Optional[str], event: dict,
     - No false privacy: a role slot's add, update, contradict or
       revoke, and an echo, contain no private marker.
     - Lean (Amendment 3): a contradiction statement has exactly the
-      lean words its template has (``lean_problems``).
+      lean words its template has (``lean_problems``) and keeps the
+      meaning rules of its slot (``lean_meaning_problems``).
 
     Fillers and base rows are exempt."""
     slot = SLOTS.get(event.get("slot") or "")
@@ -1481,6 +1524,8 @@ def meaning_problems(text: Optional[str], event: dict,
                             f"({_quoted(marked)}); drop that")
     if role == "contradiction" and slot.lean_questions and template:
         problems.extend(lean_problems(text, template, slot))
+        problems.extend(lean_meaning_problems(
+            text, slot, LEANS[0] if etype == "add" else LEANS[1]))
     return problems
 
 
@@ -1593,6 +1638,10 @@ def _lean_catalog_problems(slot: Slot) -> List[str]:
         earlier = original_template(slot).format(value=entry[0],
                                                  species="pet")
         later = slot.contradict.format(value=entry[0], species="pet")
+        for side, text in zip(LEANS, (earlier, later)):
+            problems += [f"{slot.name} {side} template {text!r}: {why}"
+                         for why in lean_meaning_problems(text, slot,
+                                                          side)]
         for lean, question in zip(LEANS, slot.lean_questions):
             got = lean_of(question, earlier, later)
             if got != lean:
