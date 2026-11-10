@@ -22,6 +22,13 @@ and the value pools below are part of the generator: the header's
 Revision 2 (the spec's Amendment 2) is built with ``--reuse`` on a copy
 of revision 1: each revision-1 utterance that passes every check is
 kept byte for byte, and only the others are paraphrased again.
+Revision 3 (Amendment 3) is built the same way on revision 2. It
+balances the contradiction questions' wording: each contradiction slot
+has two questions, one whose words lean to the earlier statement and
+one to the later, and a slot's users alternate between them
+(``assign_leans``). A contradiction statement keeps exactly the
+question words its template has (``lean_problems``), so each question
+leans as its template pair does.
 
 Rules this module fixes where the spec leaves a choice:
 - A session's drawn size (2 to 4) is a minimum: fillers fill a session
@@ -81,9 +88,10 @@ logger = logging.getLogger(__name__)
 SEED = 20261108
 BASE_DATASET = "users_v1"
 FORMAT_VERSION = 2
-# Revision 2 (Amendment 2) adds the meaning checks; a header without a
-# revision field is revision 1.
-REVISION = 2
+# Revision 2 (Amendment 2) adds the meaning checks, revision 3
+# (Amendment 3) the contradiction questions' balanced lean; a header
+# without a revision field is revision 1.
+REVISION = 3
 SESSIONS = 6
 PROBE_SESSION = SESSIONS + 1
 WRITERS = ("profile_agent", "task_agent", "calendar_agent")
@@ -348,6 +356,12 @@ class Slot:
     have none). ``conflict`` lists the cues a contradict utterance must
     contain one of, so that it still conflicts with the original; a
     slot that holds one value by nature (a home city) has none.
+
+    A contradiction slot (Amendment 3) also has ``lean_questions``: the
+    question that leans to the earlier statement and the one that
+    leans to the later (``LEANS`` order), and, when the earlier
+    statement needs other words than the slot's add,
+    ``contradiction_add``, its template.
     """
 
     name: str
@@ -364,6 +378,8 @@ class Slot:
     echo_of: Optional[str] = None
     cues: Tuple[str, ...] = ()
     conflict: Tuple[str, ...] = ()
+    lean_questions: Tuple[str, ...] = ()
+    contradiction_add: Optional[str] = None
 
 
 _P, _T, _C = WRITERS
@@ -388,7 +404,9 @@ CATALOG: Tuple[Slot, ...] = (
          revoke="Please forget which city I live in.",
          question="Which city do I live in?",
          cues=("live", "lives", "living", "home", "reside*", "based",
-               "move*", "relocat*")),
+               "move*", "relocat*"),
+         lean_questions=("Which city do I live in?",
+                         "Which city am I based in?")),
     Slot("chat_app", _P, "role", "chat_apps", "team chat",
          "My team chats on {value}.",
          roles=("recall", "recency", "deletion"),
@@ -408,7 +426,8 @@ CATALOG: Tuple[Slot, ...] = (
          contradict="My manager is {value}.",
          revoke="Please forget who my manager is.",
          question="Who do I report to?",
-         cues=("manager", "report*", "boss", "supervisor", "manag*")),
+         cues=("manager", "report*", "boss", "supervisor", "manag*"),
+         lean_questions=("Who do I report to?", "Who is my manager?")),
     Slot("interview", _P, "private", "companies", "job search",
          "Just between us: I'm interviewing with {value}.",
          roles=("private",),
@@ -446,7 +465,9 @@ CATALOG: Tuple[Slot, ...] = (
          contradict="The client for my project is {value}.",
          question="Who is the client for my current project?",
          cues=("client*", "customer*", "for"),
-         conflict=("client*", "customer*")),
+         conflict=("client*", "customer*"),
+         lean_questions=("Who am I building this project for?",
+                         "Who is the client for my current project?")),
     Slot("codename", _T, "role", "codenames", "codename",
          "Internally we call the project {value}.",
          roles=("recall", "deletion"),
@@ -460,7 +481,11 @@ CATALOG: Tuple[Slot, ...] = (
          contradict="My only pairing partner on this project is {value}.",
          revoke="Please forget who I'm pairing with.",
          question="Who am I pairing with on my project?",
-         cues=("pair*",), conflict=ONLY_WORDS),
+         cues=("pair*",), conflict=ONLY_WORDS,
+         lean_questions=("Who do I pair with every day?",
+                         "Who is my pairing partner on this project?"),
+         contradiction_add="I pair with {value} on this project every "
+                           "day."),
     Slot("staging_host", _T, "role", "hosts", "staging",
          "We deploy to the {value} staging server.",
          roles=("recall", "recency"),
@@ -515,21 +540,28 @@ CATALOG: Tuple[Slot, ...] = (
          revoke="Please forget which conference I'm presenting at.",
          question="Which conference am I presenting at?",
          cues=("conference*", "present*", "talk*", "speak*", "keynote"),
-         conflict=ONLY_WORDS),
+         conflict=ONLY_WORDS,
+         lean_questions=("Where am I presenting next month?",
+                         "Which conference am I presenting at?")),
     Slot("one_on_one", _C, "role", "people", "one-on-one",
          "I have a weekly one-on-one with {value}.",
          roles=("recall", "contradiction"),
-         contradict="My only weekly one-on-one is with {value}.",
+         contradict="My only standing one-on-one is with {value}.",
          question="Who do I have a weekly one-on-one with?",
          cues=("one on one", "1 on 1", "1:1", "one to one"),
-         conflict=ONLY_WORDS),
+         conflict=ONLY_WORDS,
+         lean_questions=("Who do I meet with every week?",
+                         "Who is my standing one-on-one with?"),
+         contradiction_add="I meet with {value} one-on-one every week."),
     Slot("offsite_city", _C, "role", "cities", "offsite",
          "The team offsite is in {value}.",
          roles=("recall", "recency", "contradiction"),
          update="The team offsite moved to {value}.",
-         contradict="The team offsite will be in {value}.",
+         contradict="This year's offsite will be held in {value}.",
          question="Where is the team offsite?",
-         cues=("offsite*", "off site", "retreat*")),
+         cues=("offsite*", "off site", "retreat*"),
+         lean_questions=("Where is the team offsite?",
+                         "Where will the offsite be held?")),
     Slot("doctor", _C, "private", "doctors", "health",
          "Keep this private: I have a follow-up appointment with "
          "Dr. {value}.",
@@ -601,8 +633,12 @@ def role_owner(index: int, role: str) -> str:
 
 @lru_cache(maxsize=None)
 def questions() -> Tuple[str, ...]:
-    """Every probe question of the catalog."""
-    return tuple(s.question for s in CATALOG if s.question)
+    """Every probe question of the catalog: the slots' questions, then
+    the contradiction slots' lean questions that are not among them."""
+    found = [s.question for s in CATALOG if s.question]
+    for slot in CATALOG:
+        found += [q for q in slot.lean_questions if q not in found]
+    return tuple(found)
 
 
 @lru_cache(maxsize=None)
@@ -615,6 +651,171 @@ def consumer_prompt() -> str:
 def generator_sha256() -> str:
     """The sha256 of this file (the generator, catalog and pools)."""
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Contradiction wording (docs/BENCHMARK_V2.md, Amendment 3)
+# ---------------------------------------------------------------------------
+
+# A contradiction question leans to the statement whose words it
+# shares: the earlier one (the original add) or the later one (the
+# contradiction).
+LEANS = ("earlier", "later")
+# The words a lean does not count: articles, pronouns, auxiliaries,
+# prepositions, conjunctions, wh-words and a few particles, plus the
+# letters a contraction leaves ("I'm" gives "i" and "m"). The lean
+# counts every other word ("content words").
+FUNCTION_WORDS = frozenset("""
+    a an the this that these those i me my mine myself we us our ours
+    you your yours he him his she her it its they them their theirs
+    who whom whose which what where when why how am is are was were be
+    been being do does did have has had will would shall should can
+    could may might must at in on of for to from with by about as into
+    onto over under up down out off than and or but nor so if then
+    there here not no only just every each all any some very too also
+    again s t m ll re ve d
+""".split())
+# The word families of the lean questions' content words: a question
+# word matches a statement word of its family. Fixed here, not left to
+# a stemmer, so the rule is the same wherever the check runs.
+WORD_FAMILIES: Tuple[Tuple[str, ...], ...] = (
+    ("city", "cities"), ("live", "lives", "lived", "living"),
+    ("base", "based", "bases", "basing"),
+    ("report", "reports", "reported", "reporting"),
+    ("manager", "managers", "manage", "manages", "managed", "managing",
+     "management"),
+    ("build", "builds", "building", "built"), ("project", "projects"),
+    ("client", "clients"), ("current", "currently"),
+    ("pair", "pairs", "paired", "pairing"), ("day", "days", "daily"),
+    ("partner", "partners"),
+    ("present", "presents", "presented", "presenting", "presentation",
+     "presentations", "presenter", "presenters"),
+    ("next",), ("month", "months", "monthly"),
+    ("conference", "conferences"),
+    ("meet", "meets", "meeting", "meetings", "met"),
+    ("week", "weeks", "weekly"), ("stand", "stands", "standing"),
+    ("one", "ones"), ("team", "teams"), ("offsite", "offsites"),
+    ("hold", "holds", "held", "holding"),
+)
+_FAMILY = {word: frozenset(words) for words in WORD_FAMILIES
+           for word in words}
+# The two rules a lean must hold under: content words as written, and
+# by word family.
+LEAN_RULES = ("exact", "family")
+
+
+def content_words(text: Optional[str]) -> List[str]:
+    """The words of ``normalize(text)`` that are not function words,
+    in text order (a run of letters is a word)."""
+    return [w for w in re.findall(r"[a-z]+", normalize(text))
+            if w not in FUNCTION_WORDS]
+
+
+def family(word: str) -> frozenset:
+    """``word``'s family (``WORD_FAMILIES``); itself when it has none."""
+    return _FAMILY.get(word, frozenset((word,)))
+
+
+def _has(words: set, word: str, rule: str) -> bool:
+    return word in words if rule == "exact" else bool(family(word) & words)
+
+
+def lean_score(question: str, earlier: str, later: str,
+               rule: str = "family") -> int:
+    """How many of ``question``'s content words ``earlier`` has, minus
+    how many ``later`` has, under ``rule`` (``LEAN_RULES``): above 0
+    the question leans to the earlier statement, below 0 to the later
+    one, 0 is a tie."""
+    e, l = set(content_words(earlier)), set(content_words(later))
+    return sum(_has(e, w, rule) - _has(l, w, rule)
+               for w in set(content_words(question)))
+
+
+def lean_of(question: str, earlier: str, later: str) -> Optional[str]:
+    """``"earlier"`` or ``"later"`` when every rule of ``LEAN_RULES``
+    gives that lean, else None (a tie, or rules that disagree)."""
+    scores = [lean_score(question, earlier, later, rule)
+              for rule in LEAN_RULES]
+    if all(score > 0 for score in scores):
+        return "earlier"
+    if all(score < 0 for score in scores):
+        return "later"
+    return None
+
+
+def lean_words(slot: Slot) -> Tuple[str, ...]:
+    """The content words of the slot's lean questions, sorted."""
+    return tuple(sorted({w for q in slot.lean_questions
+                         for w in content_words(q)}))
+
+
+def lean_targets(template: str, slot: Slot) -> Tuple[tuple, tuple]:
+    """The words a contradiction statement of ``template`` keeps (the
+    lean words it has, as written) and those it avoids (the lean words
+    it lacks as written, and the families of those it lacks by family),
+    each sorted: what ``lean_problems`` accepts."""
+    have = set(content_words(template))
+    keep = tuple(w for w in lean_words(slot) if w in have)
+    avoid = {w for w in lean_words(slot) if w not in have}
+    avoid |= {form for w in lean_words(slot)
+              if not _has(have, w, "family") for form in family(w)}
+    return keep, tuple(sorted(avoid))
+
+
+def lean_problems(text: Optional[str], template: str,
+                  slot: Slot) -> List[str]:
+    """Why ``text``, a contradiction statement, would change how the
+    slot's questions lean (empty if it would not): it must have each
+    lean word that its ``template`` has, as written and by family, and
+    no other. Each question then leans as on the template pair."""
+    have, got = set(content_words(template)), set(content_words(text))
+    missing, extra = [], []
+    for word in lean_words(slot):
+        for rule in LEAN_RULES:
+            if _has(have, word, rule) and not _has(got, word, rule):
+                missing.append(word)
+            if _has(got, word, rule) and not _has(have, word, rule):
+                extra += sorted(family(word) & got) or [word]
+    problems = []
+    if missing:
+        problems.append("it must keep the words "
+                        + _quoted(sorted(set(missing))))
+    if extra:
+        problems.append("it must not use the words "
+                        + _quoted(sorted(set(extra))))
+    return problems
+
+
+def lean_start(slot_name: str) -> str:
+    """The lean of the first contradiction question of a slot. The
+    contradiction slots, in catalog order, alternate between the two,
+    so that every slot and the whole file hold as many of each as
+    their counts allow."""
+    names = [s.name for s in CATALOG if s.lean_questions]
+    return LEANS[names.index(slot_name) % len(LEANS)]
+
+
+def assign_leans(slot_names: Sequence[str]) -> List[str]:
+    """The lean of each user's contradiction question, for the users'
+    contradiction slots in index order: a slot's users alternate,
+    starting at ``lean_start``. A prefix of the users (``pilot_v2``)
+    gets the leans it would get alone."""
+    seen: Counter = Counter()
+    leans = []
+    for name in slot_names:
+        start = LEANS.index(lean_start(name))
+        leans.append(LEANS[(start + seen[name]) % len(LEANS)])
+        seen[name] += 1
+    return leans
+
+
+def contradiction_events(probes: Sequence[dict]) -> Tuple[str, ...]:
+    """The two statements of a user's contradiction (the probe's
+    source events), or none."""
+    for probe in probes:
+        if probe.get("type") == "contradiction":
+            return tuple(probe.get("source_events") or ())
+    return ()
 
 
 # ---------------------------------------------------------------------------
@@ -791,8 +992,9 @@ def _fill(template: str, entry: Entry, species: str) -> str:
 
 
 def _draw(index: int, ctx: UserContext, pools: Dict[str, List[Entry]],
-          rng: random.Random) -> dict:
-    """One attempt at user ``index``'s script; raises ``Redraw``."""
+          rng: random.Random, lean: str = LEANS[0]) -> dict:
+    """One attempt at user ``index``'s script; raises ``Redraw``.
+    ``lean`` picks the contradiction question (``assign_leans``)."""
     owner = {role: role_owner(index, role) for role in ROLES}
     # Roles, the most constrained first: the recall slot must not take
     # the only deletion slot of its writer.
@@ -863,7 +1065,7 @@ def _draw(index: int, ctx: UserContext, pools: Dict[str, List[Entry]],
     first_c = sessions_of[contradiction.writer][0]
     put(first_c, "original", _event(
         "add", contradiction, first_value,
-        _fill(contradiction.add, first_value, species)))
+        _fill(original_template(contradiction), first_value, species)))
     put(rng.choice([s for s in sessions_of[contradictor] if s > first_c]),
         "contradict", _event(
             "contradict", contradiction, later_value,
@@ -922,7 +1124,7 @@ def _draw(index: int, ctx: UserContext, pools: Dict[str, List[Entry]],
         "contradiction": (contradiction, first_value, later_value),
         "deletion": (deletion, deleted_value),
         "private": (private, private_value),
-    }, species)
+    }, species, lean)
     problems = distinctness_problems(script_values(events), ctx)
     if problems:
         raise Redraw("distinctness: " + problems[0])
@@ -952,17 +1154,33 @@ def _value(entry: Entry) -> dict:
     return {"value": entry[0], "aliases": list(entry[1])}
 
 
+def original_template(slot: Slot) -> str:
+    """The template of a contradiction's earlier statement: the slot's
+    ``contradiction_add``, else its add."""
+    return slot.contradiction_add or slot.add
+
+
+def contradiction_question(slot: Slot, lean: str) -> str:
+    """The contradiction question of ``lean``; the slot's question for
+    a slot without lean questions."""
+    if not slot.lean_questions:
+        return slot.question
+    return slot.lean_questions[LEANS.index(lean)]
+
+
 def _probes(index: int, ctx: UserContext, refs: Dict[str, dict],
             where: Dict[str, Tuple[int, str]], roles: dict,
-            species: str) -> List[dict]:
-    """The six probes, in ``PROBES`` order."""
+            species: str, lean: str = LEANS[0]) -> List[dict]:
+    """The six probes, in ``PROBES`` order. Each records its ``lean``:
+    the contradiction probe the lean of its question, the others None."""
     def eid(ref: str) -> Optional[str]:
         return refs[ref]["event_id"] if ref in refs else None
 
     def probe(n: int, ptype: str, slot: Optional[Slot], question: str,
               sentence: Optional[str], expected: List[Entry],
               forbidden: List[Entry], target: Optional[str],
-              sources: List[str], echo: Optional[str] = None) -> dict:
+              sources: List[str], echo: Optional[str] = None,
+              lean: Optional[str] = None) -> dict:
         target_id = eid(target) if target else None
         session, writer = where[target_id] if target_id else (None, None)
         return {
@@ -978,6 +1196,7 @@ def _probes(index: int, ctx: UserContext, refs: Dict[str, dict],
             "target_session": session,
             "source_events": [eid(r) for r in sources],
             "echo_event": eid(echo) if echo else None,
+            "lean": lean,
         }
 
     deletion, deleted = roles["deletion"]
@@ -998,28 +1217,33 @@ def _probes(index: int, ctx: UserContext, refs: Dict[str, dict],
         probe(4, "recency", recency, recency.question,
               _fill(recency.add, new_value, species), [new_value],
               [old_value], "update", ["recency", "update"]),
-        probe(5, "contradiction", contradiction, contradiction.question,
-              _fill(contradiction.add, later_value, species),
+        probe(5, "contradiction", contradiction,
+              contradiction_question(contradiction, lean),
+              _fill(original_template(contradiction), later_value,
+                    species),
               [later_value], [first_value], "contradict",
-              ["original", "contradict"]),
+              ["original", "contradict"], lean=lean),
         probe(6, "integration", None, ctx.query, None, [], [], None,
               ["base_profile", "base_task"]),
     ]
 
 
-def draw_script(index: int, base_user: dict,
-                seed: int = SEED) -> Tuple[dict, int, List[str]]:
+def draw_script(index: int, base_user: dict, seed: int = SEED,
+                lean: str = LEANS[0]) -> Tuple[dict, int, List[str]]:
     """User ``index``'s script (``sessions`` and ``probes``), the
     number of attempts it took and why each earlier attempt was drawn
     again. Attempt ``a`` draws from ``random.Random(f"{seed}:{i}:{a}")``,
-    so the same seed always gives the same script."""
+    so the same seed always gives the same script. ``lean`` picks the
+    contradiction question and draws nothing (``assign_leans`` gives
+    it)."""
     ctx = UserContext(base_user)
     pools = user_pools(ctx)
     reasons = []
     for attempt in range(MAX_SCRIPT_ATTEMPTS):
         rng = random.Random(f"{seed}:{index}:{attempt}")
         try:
-            return _draw(index, ctx, pools, rng), attempt + 1, reasons
+            return (_draw(index, ctx, pools, rng, lean), attempt + 1,
+                    reasons)
         except Redraw as redraw:
             reasons.append(str(redraw))
     raise RuntimeError(f"user {index}: no valid script in "
@@ -1034,7 +1258,9 @@ def draw_script(index: int, base_user: dict,
 class ParaphraseRequest:
     """One paraphrase call: the template sentence, the values it must
     keep (none for a revoke), the call's seed and attempt, and, on a
-    retry, the rejected answer and why it was rejected."""
+    retry, the rejected answer and why it was rejected. A contradiction
+    statement (Amendment 3) also names the words it must keep as
+    written and those it must not use (``lean_targets``)."""
 
     text: str
     event_type: str
@@ -1043,6 +1269,8 @@ class ParaphraseRequest:
     attempt: int
     previous: Optional[str] = None
     feedback: Optional[str] = None
+    keep_words: Tuple[str, ...] = ()
+    avoid_words: Tuple[str, ...] = ()
 
 
 # A paraphraser returns the paraphrase text for a request.
@@ -1076,10 +1304,16 @@ def paraphrase_messages(request: ParaphraseRequest) -> List[dict]:
     """The chat messages of a paraphrase call."""
     keep = (", ".join(request.keep) if request.keep
             else "(nothing; name no specific value)")
+    content = f"Sentence: {request.text}\nKEEP: {keep}"
+    if request.keep_words:
+        content += ("\nKEEP THESE WORDS AS WRITTEN: "
+                    + ", ".join(request.keep_words))
+    if request.avoid_words:
+        content += ("\nDO NOT USE THESE WORDS: "
+                    + ", ".join(request.avoid_words))
     messages = [
         {"role": "system", "content": PARAPHRASE_SYSTEM},
-        {"role": "user",
-         "content": f"Sentence: {request.text}\nKEEP: {keep}"},
+        {"role": "user", "content": content},
     ]
     if request.previous is not None:
         messages += [
@@ -1200,11 +1434,13 @@ EVENT_CUES = {
 SHARED_TYPES = ("add", "update", "contradict", "revoke")
 
 
-def meaning_problems(text: Optional[str], event: dict) -> List[str]:
+def meaning_problems(text: Optional[str], event: dict,
+                     role: Optional[str] = None) -> List[str]:
     """Why ``text`` no longer says what ``event`` says (empty if it
     still does), each a sentence the paraphraser can act on
     (docs/BENCHMARK_V2.md, Amendment 2, "Generation"). ``event`` needs
-    ``type``, ``slot`` and ``template``.
+    ``type``, ``slot`` and ``template``; ``role`` is ``"contradiction"``
+    for the two statements of a user's contradiction.
 
     - Topic: an utterance of a role or private slot contains one of
       the slot's ``cues``.
@@ -1214,6 +1450,8 @@ def meaning_problems(text: Optional[str], event: dict) -> List[str]:
       word, a private fact a private marker.
     - No false privacy: a role slot's add, update, contradict or
       revoke, and an echo, contain no private marker.
+    - Lean (Amendment 3): a contradiction statement has exactly the
+      lean words its template has (``lean_problems``).
 
     Fillers and base rows are exempt."""
     slot = SLOTS.get(event.get("slot") or "")
@@ -1241,18 +1479,21 @@ def meaning_problems(text: Optional[str], event: dict) -> List[str]:
         if marked:
             problems.append(f"it marks a shared fact as private "
                             f"({_quoted(marked)}); drop that")
+    if role == "contradiction" and slot.lean_questions and template:
+        problems.extend(lean_problems(text, template, slot))
     return problems
 
 
 def paraphrase_problems(text: Optional[str], own: Optional[Entry],
                         others: Sequence[Entry],
-                        event: Optional[dict] = None) -> List[str]:
+                        event: Optional[dict] = None,
+                        role: Optional[str] = None) -> List[str]:
     """Why ``text`` cannot be an event's utterance (empty if it can):
     more than 40 words, without its own value (``own``; None for a
     revoke, which must name no value at all), or naming a value or
     alias of another fact (``others``). With ``event``, the event
     ``text`` is an utterance of, also why it no longer says what the
-    event says (``meaning_problems``)."""
+    event says (``meaning_problems``, with ``role``)."""
     if not text or not text.strip():
         return ["empty"]
     problems = []
@@ -1268,17 +1509,20 @@ def paraphrase_problems(text: Optional[str], own: Optional[Entry],
                             if own is not None
                             else f"names the value {form!r}")
     if event is not None:
-        problems.extend(meaning_problems(text, event))
+        problems.extend(meaning_problems(text, event, role))
     return problems
 
 
 def catalog_templates() -> List[Tuple[Slot, str, str]]:
     """Every template of the catalog as ``(slot, event type,
-    template)``; a private slot's add template is its private one."""
+    template)``; a private slot's add template is its private one, and
+    a contradiction slot's ``contradiction_add`` is an add template."""
     found = []
     for slot in CATALOG:
         found.append((slot, "private" if slot.kind == "private" else "add",
                       slot.add))
+        if slot.contradiction_add:
+            found.append((slot, "add", slot.contradiction_add))
         for etype in ("update", "contradict", "revoke"):
             template = getattr(slot, etype)
             if template:
@@ -1292,7 +1536,10 @@ def catalog_problems() -> List[str]:
     echo slot has any; a cue is normalized text with ``*`` only at its
     end; only a slot with a contradict template has a conflict; and
     every template, filled with each value of its pool (each species
-    for the pet), passes every check of its event type."""
+    for the pet), passes every check of its event type. A contradiction
+    slot has two lean questions, one of each lean on its two templates
+    filled with each value of its pool (Amendment 3), and only a
+    contradiction slot has them."""
     problems = []
     lists = {"only words": ONLY_WORDS, "change words": CHANGE_WORDS,
              "forget words": FORGET_WORDS,
@@ -1307,6 +1554,7 @@ def catalog_problems() -> List[str]:
         if slot.conflict and not slot.contradict:
             problems.append(f"{slot.name}: a conflict without a "
                             "contradict template")
+        problems.extend(_lean_catalog_problems(slot))
     for name, cues in lists.items():
         for cue in cues:
             words = cue[:-1] if cue.endswith("*") else cue
@@ -1326,6 +1574,30 @@ def catalog_problems() -> List[str]:
                 for problem in paraphrase_problems(text, entry, [], event):
                     problems.append(f"{slot.name} {etype} template "
                                     f"{text!r}: {problem}")
+    return problems
+
+
+def _lean_catalog_problems(slot: Slot) -> List[str]:
+    """Why a slot's lean questions break Amendment 3's rule (empty if
+    they keep it)."""
+    if ("contradiction" in slot.roles) != bool(slot.lean_questions):
+        return [f"{slot.name}: a contradiction slot needs lean questions "
+                "and no other slot has them"]
+    if not slot.lean_questions:
+        return []
+    if len(slot.lean_questions) != len(LEANS):
+        return [f"{slot.name}: {len(slot.lean_questions)} lean questions, "
+                f"not {len(LEANS)}"]
+    problems = []
+    for entry in POOLS[slot.pool]:
+        earlier = original_template(slot).format(value=entry[0],
+                                                 species="pet")
+        later = slot.contradict.format(value=entry[0], species="pet")
+        for lean, question in zip(LEANS, slot.lean_questions):
+            got = lean_of(question, earlier, later)
+            if got != lean:
+                problems.append(f"{slot.name}: {question!r} leans {got} on "
+                                f"{earlier!r} and {later!r}, not {lean}")
     return problems
 
 
@@ -1390,9 +1662,17 @@ def paraphrase_script(script: dict, index: int, seed: int,
         record.update(reused=0, reparaphrased=0, unmatched=0)
     events = [e for s in script["sessions"] for e in s["events"]]
     values = script_values(events)
+    statements = contradiction_events(script.get("probes") or [])
     for position, event in enumerate(events):
         if event["type"] not in PARAPHRASED:
             continue
+        role = ("contradiction" if event["event_id"] in statements
+                else None)
+        slot = SLOTS.get(event.get("slot") or "")
+        keep_words, avoid_words = (
+            lean_targets(event["template"], slot)
+            if role and slot is not None and slot.lean_questions
+            else ((), ()))
         own, others = _own_and_others(event, values)
         start, previous, feedback = 0, None, None
         rejected = []
@@ -1401,7 +1681,8 @@ def paraphrase_script(script: dict, index: int, seed: int,
             if old is None:
                 record["unmatched"] += 1
             else:
-                problems = paraphrase_problems(old, own, others, event)
+                problems = paraphrase_problems(old, own, others, event,
+                                               role)
                 if not problems:
                     event["utterance"] = old
                     event["paraphrased"] = True
@@ -1419,9 +1700,10 @@ def paraphrase_script(script: dict, index: int, seed: int,
                 text=event["template"], event_type=event["type"],
                 keep=(own[0],) if own else (),
                 seed=paraphrase_seed(seed, attempt, index, position),
-                attempt=attempt, previous=previous, feedback=feedback))
+                attempt=attempt, previous=previous, feedback=feedback,
+                keep_words=keep_words, avoid_words=avoid_words))
             record["paraphrase_calls"] += 1
-            problems = paraphrase_problems(text, own, others, event)
+            problems = paraphrase_problems(text, own, others, event, role)
             if not problems:
                 event["utterance"] = text.strip()
                 event["paraphrased"] = True
@@ -1443,19 +1725,21 @@ def paraphrase_script(script: dict, index: int, seed: int,
 
 def build_user(index: int, base_user: dict, seed: int = SEED,
                paraphraser: Optional[Paraphraser] = None,
-               reuse: Optional[dict] = None) -> dict:
+               reuse: Optional[dict] = None,
+               lean: str = LEANS[0]) -> dict:
     """User ``index``'s record, built on ``base_user`` (users_v1 user
     ``index``). ``reuse`` is the same user's record in an earlier
     revision, whose passing utterances are kept (``paraphrase_script``;
     ``{}`` when that revision does not hold the user); None paraphrases
-    every event afresh."""
+    every event afresh. ``lean`` is the lean of its contradiction
+    question (``assign_leans``; ``generate`` gives each user its own)."""
     if base_user.get("index") != index:
         raise ValueError(f"base user {base_user.get('index')} is not "
                          f"user {index}")
     if reuse and reuse.get("index") != index:
         raise ValueError(f"reused user {reuse.get('index')} is not "
                          f"user {index}")
-    script, attempts, reasons = draw_script(index, base_user, seed)
+    script, attempts, reasons = draw_script(index, base_user, seed, lean)
     generation = {"script_attempts": attempts, "redraws": reasons}
     generation.update(paraphrase_script(
         script, index, seed, paraphraser,
@@ -1627,11 +1911,14 @@ def generate(out: Path, n: int = 150, seed: int = SEED,
              "reuse_sha256": source.sha256 if source else None}
     earlier = (None if source is None
                else {u["index"]: u for u in source.users})
+    # Each user's contradiction question lean, from every script.
+    leans = assign_leans([contradiction_slot(i, base.users[i], seed)
+                          for i in range(n)])
 
     def build(i: int) -> dict:
         return build_user(i, base.users[i], seed, paraphraser,
                           reuse=None if earlier is None
-                          else earlier.get(i, {}))
+                          else earlier.get(i, {}), lean=leans[i])
 
     partial = out.with_name(out.name + ".partial.jsonl")
     done = _resume(partial, stamp)
@@ -1670,6 +1957,14 @@ def generate(out: Path, n: int = 150, seed: int = SEED,
     return header
 
 
+def contradiction_slot(index: int, base_user: dict,
+                       seed: int = SEED) -> str:
+    """The slot of user ``index``'s contradiction (its script's; the
+    lean does not change it)."""
+    script, _, _ = draw_script(index, base_user, seed)
+    return script["probes"][PROBES.index("contradiction")]["slot"]
+
+
 def _build_parallel(todo, build, workers, keep) -> None:
     """Build users (``build(i)``) on a thread pool; on the first error,
     cancel the users not started, keep the ones that finish, then
@@ -1705,13 +2000,14 @@ def _templates(event: dict) -> List[str]:
     etype = event["type"]
     if etype == "revoke":
         return [slot.revoke] if slot.revoke else []
-    template = {"add": slot.add, "private": slot.add,
-                "update": slot.update,
-                "contradict": slot.contradict}.get(etype)
-    if template is None or event.get("value") is None:
+    templates = {"add": [slot.add, slot.contradiction_add],
+                 "private": [slot.add], "update": [slot.update],
+                 "contradict": [slot.contradict]}.get(etype, [])
+    templates = [t for t in templates if t]
+    if not templates or event.get("value") is None:
         return []
     return [template.format(value=event["value"], species=species)
-            for species in SPECIES]
+            for template in templates for species in SPECIES]
 
 
 def _structure(script_or_record: dict) -> dict:
@@ -1791,7 +2087,8 @@ def validate_user(record: dict, base_user: dict, seed: int = SEED,
                         events)
     _check_probes(check, i, probes, ctx, values)
     _check_others(check, events, where, used)
-    _check_utterances(check, events, values)
+    _check_utterances(check, events, values,
+                      contradiction_events(probes))
     for problem in distinctness_problems(values, ctx):
         check(False, problem)
     generation = record.get("generation") or {}
@@ -1805,7 +2102,8 @@ def validate_user(record: dict, base_user: dict, seed: int = SEED,
         check(not event.get("paraphrased"),
               f"{event_id} is a fallback but marked paraphrased")
     if reproduce and not check.problems:
-        script, again, _ = draw_script(i, base_user, seed)
+        script, again, _ = draw_script(
+            i, base_user, seed, probe["contradiction"].get("lean"))
         check(_structure(script) == _structure(record),
               "the seed does not reproduce the script")
         check(again == attempts,
@@ -1851,8 +2149,18 @@ def _check_roles(check, i, probe, by_id, where, first, second,
             check(slot.writer == role_owner(i, role),
                   f"{role} belongs to {slot.writer}, not "
                   f"{role_owner(i, role)}")
-            check(p.get("question") == slot.question,
-                  f"{role} question is not the slot's")
+            if role == "contradiction":
+                lean = p.get("lean")
+                if check(lean in LEANS,
+                         f"contradiction lean is {lean!r}"):
+                    check(p.get("question")
+                          == contradiction_question(slot, lean),
+                          f"contradiction question is not the slot's "
+                          f"{lean} question")
+            else:
+                check(p.get("question") == slot.question,
+                      f"{role} question is not the slot's")
+                check(p.get("lean") is None, f"{role} probe has a lean")
         return p, slot
 
     def single(entries):
@@ -1926,9 +2234,20 @@ def _check_roles(check, i, probe, by_id, where, first, second,
             check(s_orig == first[slot.writer] and w_orig == slot.writer,
                   "original statement is not in its owner's first "
                   "session")
-            check(p["fact_sentence"] == slot.add.format(
+            check(p["fact_sentence"] == original_template(slot).format(
                 value=later.get("value"), species="pet"),
-                "contradiction fact sentence is not the add template")
+                "contradiction fact sentence is not the original "
+                "statement's template")
+            check(original.get("template") == original_template(
+                slot).format(value=original.get("value"), species="pet"),
+                "original statement is not the contradiction's add "
+                "template")
+            for lean, question in zip(LEANS, slot.lean_questions):
+                got = lean_of(question, original.get("utterance", ""),
+                              later.get("utterance", ""))
+                check(got == lean,
+                      f"{question!r} leans {got} on the statements, not "
+                      f"{lean}")
         check(w_later != w_orig and s_later > s_orig,
               "contradiction is not by another writer in a later session")
         check(later.get("target_event") == original.get("event_id")
@@ -2085,10 +2404,11 @@ def _check_others(check, events, where, used) -> None:
               f"{e['event_id']} fact_key is not its slot")
 
 
-def _check_utterances(check, events, values) -> None:
+def _check_utterances(check, events, values, statements=()) -> None:
     """Template texts come from the catalog; every utterance keeps its
     own value and names no other (a revoke and a base row name none),
-    and still says what its event says (``meaning_problems``)."""
+    and still says what its event says (``meaning_problems``; the
+    contradiction's ``statements`` with their lean words)."""
     for e in events:
         if e["type"] == "base":
             for value in values:
@@ -2102,8 +2422,9 @@ def _check_utterances(check, events, values) -> None:
                   f"{e['event_id']} utterance is neither its template nor "
                   "a paraphrase")
         own, others = _own_and_others(e, values)
+        role = "contradiction" if e["event_id"] in statements else None
         for problem in paraphrase_problems(e["utterance"], own, others,
-                                           e):
+                                           e, role):
             check(False, f"{e['event_id']} utterance: {problem}")
 
 
@@ -2206,7 +2527,42 @@ def summarize(users: List[dict]) -> dict:
         "pilot_user_4_private_writer": SLOTS[
             pilot_user_4["probes"][1]["slot"]].writer
         if pilot_user_4 else None,
+        # Amendment 3: the contradiction questions by lean.
+        "contradiction_leans": lean_counts(users),
     }
+
+
+def _contradiction_probe(record: dict) -> dict:
+    found = [p for p in record.get("probes") or []
+             if p.get("type") == "contradiction"]
+    return found[0] if len(found) == 1 else {}
+
+
+def lean_assignment_problems(users: Sequence[dict]) -> List[str]:
+    """Why the users' contradiction leans are not ``assign_leans`` of
+    their slots, in index order (empty when they are)."""
+    probes = [_contradiction_probe(u) for u in users]
+    expected = assign_leans([p.get("slot") or "" for p in probes
+                             if p.get("slot") in SLOTS])
+    got = [p.get("lean") for p in probes if p.get("slot") in SLOTS]
+    return [f"user {u['index']}: contradiction lean is {g!r}, the "
+            f"assignment gives {e!r}"
+            for u, g, e in zip([u for u, p in zip(users, probes)
+                                if p.get("slot") in SLOTS], got, expected)
+            if g != e]
+
+
+def lean_counts(users: Sequence[dict]) -> dict:
+    """The contradiction questions by lean, in all and per slot."""
+    probes = [_contradiction_probe(u) for u in users]
+    by_slot: Dict[str, Counter] = {}
+    for p in probes:
+        by_slot.setdefault(p.get("slot"), Counter())[p.get("lean")] += 1
+    total = Counter(p.get("lean") for p in probes)
+    return {"all": {lean: total[lean] for lean in LEANS},
+            "by_slot": {slot: {lean: c[lean] for lean in LEANS}
+                        for slot, c in sorted(by_slot.items(),
+                                              key=lambda kv: str(kv[0]))}}
 
 
 def check(spec: str, reproduce: bool = True) -> dict:
@@ -2222,6 +2578,7 @@ def check(spec: str, reproduce: bool = True) -> dict:
     for record in ds.users:
         problems.extend(validate_user(record, base.users[record["index"]],
                                       seed, reproduce=reproduce))
+    problems.extend(lean_assignment_problems(ds.users))
     summary = {**ds.describe(), "format_version": ds.version,
                "revision": revision_of(ds.header),
                "reuse": ds.header.get("reuse"),

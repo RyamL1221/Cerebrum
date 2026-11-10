@@ -235,6 +235,7 @@ class AgentManagedLocus:
                 agent.delete_on_revoke = control != "no_delete"
         consumer = self.agents[CONSUMER]
         consumer.session, consumer.probe_id = None, None
+        consumer.store_conversation = True
         if control == "no_visibility":
             if self.locus != "native":
                 raise ValueError("no_visibility applies to the native locus"
@@ -246,9 +247,12 @@ class AgentManagedLocus:
         return self.agents[name]
 
     def consumer(self, user_id: str, probe_id: str) -> Any:
+        """The consumer for one probe turn, which writes nothing
+        (Amendment 3: ``store_conversation`` False)."""
         agent = self.agents[CONSUMER]
         agent.session = PROBE_SESSION
         agent.probe_id = probe_id
+        agent.store_conversation = False
         return agent
 
     def lister(self, name: str) -> Any:
@@ -296,6 +300,7 @@ class AgentManagedLocus:
     def finish_user(self) -> None:
         consumer = self.agents[CONSUMER]
         consumer.session, consumer.probe_id = None, None
+        consumer.store_conversation = True
         if self._saved_visibility is not None:
             consumer.check_visibility = self._saved_visibility
             self._saved_visibility = None
@@ -327,6 +332,21 @@ def _consumer_rows(locus, ids: Dict[str, set]) -> List[dict]:
         for row in locus.lister(CONSUMER).list_own_rows(uid):
             seen.setdefault(str(row.get("memory_id")), row)
     return list(seen.values())
+
+
+def _probe_writes(history: Dict[str, Any],
+                  probes: Dict[str, Any]) -> Dict[str, int]:
+    """The rows each agent holds after the probes and did not before
+    them, by agent (none when the probes stored nothing, as Amendment 3
+    requires)."""
+    stored = {}
+    for name, rows in probes["rows"].items():
+        before = {str(r.get("memory_id"))
+                  for r in history["rows"].get(name, [])}
+        new = [r for r in rows if str(r.get("memory_id")) not in before]
+        if new:
+            stored[name] = len(new)
+    return stored
 
 
 def _counts(listing: Dict[str, Any]) -> Dict[str, int]:
@@ -406,6 +426,13 @@ def run_history(user: V2UserData, locus, runner, *,
             outcome.listings.append(_listing(locus, "history", ids))
             _probes(user, locus, runner, outcome, ids, recency_session)
             outcome.listings.append(_listing(locus, "probes", ids))
+            stored = _probe_writes(*outcome.listings[-2:])
+            if stored:
+                agents = ", ".join(f"{n} {name}"
+                                   for name, n in stored.items())
+                raise LocusFailure(
+                    f"probe_writes: probe turns stored "
+                    f"{sum(stored.values())} rows ({agents})")
     except LocusFailure as failure:
         outcome.failure = str(failure)
     except Exception as error:  # every failure fails the user, not the run

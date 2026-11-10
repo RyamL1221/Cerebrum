@@ -1,18 +1,21 @@
 """Benchmark v2's generator (NeurIPS Subtask 14, AIOS
 docs/BENCHMARK_V2.md, "Generation"): determinism, ground truth that
 agrees with the script, and the paraphrase rules, including Amendment
-2's meaning checks and the revision-2 build that reuses revision 1.
+2's meaning checks and the revision-2 build that reuses revision 1, and
+Amendment 3's contradiction questions of balanced lean (revision 3).
 
 The ground-truth checks re-derive each rule from the script itself
 rather than calling the generator's own validator, then also run that
 validator on every user. Every paraphraser here is a fake: nothing
 calls a network.
 """
+import copy
 import hashlib
 import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -572,9 +575,10 @@ def test_the_catalog_carries_the_amendment_2_cues_and_templates():
         "to yourself, secret*, discreet*")
     contradict = {s.name: s.contradict for s in synth_v2.CATALOG
                   if s.name in OLD_CONTRADICT}
+    # Amendment 3 changed the one-on-one template again (its lean).
     assert contradict == {
         "conference": "The only conference I'm presenting at is {value}.",
-        "one_on_one": "My only weekly one-on-one is with {value}.",
+        "one_on_one": "My only standing one-on-one is with {value}.",
         "teammate": "My only pairing partner on this project is {value}.",
     }
 
@@ -678,9 +682,9 @@ def test_the_paraphrase_prompt_asks_to_keep_what_the_fact_says():
 
 
 def test_the_scripts_of_users_0_to_4_match_the_committed_users_v2():
-    # Read only: revision 2 keeps every script of revision 1 (Amendment
-    # 2, "How revision 2 is built"); only three contradict templates
-    # change.
+    # Read only: every revision keeps revision 1's scripts (Amendments 2
+    # and 3); the committed file is built by this generator, its
+    # contradiction questions by their recorded lean.
     committed = dataset.load("users_v2")
     keys = ("event_id", "type", "slot", "fact_key", "value", "aliases",
             "old_value", "target_event", "echo_of", "sharing")
@@ -690,14 +694,13 @@ def test_the_scripts_of_users_0_to_4_match_the_committed_users_v2():
                  [[e[k] for k in keys] for e in s["events"]])
                 for s in user["sessions"]]
     for i in range(5):
-        drawn, stored = synth_v2.build_user(i, BASE.users[i]), \
-            committed.users[i]
+        stored = committed.users[i]
+        drawn = synth_v2.build_user(
+            i, BASE.users[i], lean=probe(stored, "contradiction")["lean"])
         assert script(drawn) == script(stored), i
         assert drawn["probes"] == stored["probes"], i
         for new, old in zip(events_of(drawn), events_of(stored)):
-            assert new["template"] == old["template"] or (
-                new["type"] == "contradict"
-                and new["slot"] in OLD_CONTRADICT), new["event_id"]
+            assert new["template"] == old["template"], new["event_id"]
 
 
 # -- revision 2: reuse of an earlier revision -----------------------------
@@ -836,7 +839,8 @@ def test_reuse_paraphrases_a_changed_template_from_attempt_0(earlier,
     para = scripted(frankly)
     again = rebuild(earlier, tmp_path, para)
     (call,) = para.calls
-    assert call.text == f"My only weekly one-on-one is with {event['value']}."
+    assert call.text == synth_v2.SLOTS["one_on_one"].contradict.format(
+        value=event["value"])
     assert (call.attempt, call.previous, call.feedback) == (0, None, None)
     assert call.seed == synth_v2.paraphrase_seed(synth_v2.SEED, 0, 0,
                                                  position)
@@ -978,37 +982,37 @@ def test_the_cli_passes_reuse_to_generate(earlier, tmp_path, monkeypatch):
     assert para.calls == []
 
 
-def test_the_header_records_revision_2_and_the_file_it_reused(earlier,
+def test_the_header_records_revision_3_and_the_file_it_reused(earlier,
                                                               tmp_path):
     fresh = synth_v2.generate(tmp_path / "fresh.jsonl", n=1)
-    assert fresh["revision"] == synth_v2.REVISION == 2
+    assert fresh["revision"] == synth_v2.REVISION == 3
     assert "reuse" not in fresh
-    out = tmp_path / "revision2.jsonl"
+    out = tmp_path / "revision3.jsonl"
     header = synth_v2.generate(out, n=2, model="fake/model",
                                paraphraser=scripted(frankly), reuse=earlier)
-    assert header["revision"] == 2
+    assert header["revision"] == 3
     assert header["reuse"] == {"sha256": sha256_of(earlier), "revision": 1}
     assert synth_v2.validate_header(fresh, 1, limited=False) == []
     assert synth_v2.validate_header(header, 2, limited=False) == []
     # check reads both revisions; a rebuild from revision 2 is allowed.
     old, new = synth_v2.check(str(earlier)), synth_v2.check(str(out))
     assert old["problems"] == new["problems"] == []
-    assert (old["summary"]["revision"], new["summary"]["revision"]) == (1, 2)
+    assert (old["summary"]["revision"], new["summary"]["revision"]) == (1, 3)
     assert new["summary"]["reuse"] == header["reuse"]
     assert new["summary"]["reused_events"] == sum(
         len(paraphrasable(u)) for u in read_jsonl(earlier)[1])
     again = synth_v2.generate(tmp_path / "again.jsonl", n=2,
                               model="fake/model",
                               paraphraser=scripted(frankly), reuse=out)
-    assert again["reuse"] == {"sha256": sha256_of(out), "revision": 2}
+    assert again["reuse"] == {"sha256": sha256_of(out), "revision": 3}
     assert synth_v2.validate_header(again, 2, limited=False) == []
 
 
 @pytest.mark.parametrize("change", [
-    {"revision": 3}, {"revision": "2"}, {"revision": True},
+    {"revision": 4}, {"revision": "2"}, {"revision": True},
     {"reuse": {"sha256": "abc", "revision": 1}},
     {"reuse": {"sha256": "0" * 64}},
-    {"reuse": {"sha256": "0" * 64, "revision": 3}},
+    {"reuse": {"sha256": "0" * 64, "revision": 4}},
     {"revision": 1, "reuse": {"sha256": "0" * 64, "revision": 2}},
 ], ids=["future", "text", "bool", "short sha", "no revision", "newer",
         "newer than the file"])
@@ -1020,3 +1024,153 @@ def test_validate_header_rejects_a_malformed_revision_or_reuse(change,
         limited=False) == []
     assert synth_v2.validate_header(dict(header, **change), 1,
                                     limited=False)
+
+
+# -- revision 3: the contradiction questions' lean (Amendment 3) ----------
+
+CONTRADICTION_SLOTS = [s for s in synth_v2.CATALOG if s.lean_questions]
+REVISION_2_SHA256 = ("35f68c78a8373a0354c549f4e4755266b889042b76d3735963"
+                     "eaefbc922426de")
+
+
+def test_the_lean_counts_content_words_as_written_and_by_family():
+    assert synth_v2.content_words("I'm presenting at Kernelcon.") == [
+        "presenting", "kernelcon"]
+    question = "Which conference am I presenting at?"
+    earlier = "Next month, I'll be giving a presentation at Kernelcon."
+    later = "Fjordstack is the only conference where I'm presenting."
+    # "presenting" is in the later statement only, as written; by
+    # family ("presentation") it is in both.
+    assert synth_v2.lean_score(question, earlier, later, "exact") == -2
+    assert synth_v2.lean_score(question, earlier, later, "family") == -1
+    assert synth_v2.lean_of(question, earlier, later) == "later"
+    # A tie, and rules that disagree, give no lean.
+    assert synth_v2.lean_of("Who do I report to?", "I report to Ana.",
+                            "Bo is who I report to.") is None
+    assert synth_v2.lean_of("Who do I meet every week?",
+                            "I meet Ana weekly.", "Bo is who I meet.") is None
+
+
+def test_each_contradiction_slot_has_a_question_of_each_lean():
+    assert {s.name for s in CONTRADICTION_SLOTS} == {
+        s.name for s in synth_v2.CATALOG if "contradiction" in s.roles}
+    for slot in CONTRADICTION_SLOTS:
+        earlier = synth_v2.original_template(slot).format(
+            value="Ana Lind", species="pet")
+        later = slot.contradict.format(value="Bo Vale", species="pet")
+        assert [synth_v2.lean_of(q, earlier, later)
+                for q in slot.lean_questions] == list(synth_v2.LEANS), \
+            slot.name
+
+
+def test_leans_alternate_within_each_slot_and_balance_both_files(users):
+    slots = [probe(u, "contradiction")["slot"] for u in users]
+    leans = synth_v2.assign_leans(slots)
+    # pilot_v2 gets the leans it would get alone.
+    assert synth_v2.assign_leans(slots[:30]) == leans[:30]
+    for n in (150, 30):
+        assert Counter(leans[:n]) == {"earlier": n // 2, "later": n // 2}
+        for name in set(slots[:n]):
+            mine = [lean for slot, lean in zip(slots[:n], leans[:n])
+                    if slot == name]
+            assert all(a != b for a, b in zip(mine, mine[1:])), name
+
+
+@pytest.mark.parametrize("text, problems", [
+    ("Leuven is where I live.", []),
+    ("My home is in Leuven.", ["it must keep the words 'live'"]),
+    ("I live in Leuven, the city I'm based in.",
+     ["it must not use the words 'based', 'city'"]),
+])
+def test_a_contradiction_statement_keeps_exactly_its_templates_lean_words(
+        text, problems):
+    slot = synth_v2.SLOTS["home_city"]
+    assert synth_v2.lean_problems(text, "I live in Leuven.", slot) == \
+        problems
+    event = {"type": "add", "slot": "home_city",
+             "template": "I live in Leuven."}
+    assert synth_v2.meaning_problems(text, event, "contradiction") == \
+        problems
+    # Other adds of the slot (recall, deletion) are not held to it.
+    assert synth_v2.meaning_problems(text, event) == []
+
+
+def test_the_paraphraser_hears_which_words_to_keep_and_avoid():
+    user = synth_v2.build_user(0, BASE.users[0])
+    para = scripted(lambda r: r.text)
+    synth_v2.paraphrase_script(user, 0, synth_v2.SEED, para)
+    statements = set(synth_v2.contradiction_events(user["probes"]))
+    events = [e for e in events_of(user)
+              if e["type"] in synth_v2.PARAPHRASED]
+    assert len(para.calls) == len(events) and len(statements) == 2
+    for event, call in zip(events, para.calls):
+        if event["event_id"] in statements:
+            slot = synth_v2.SLOTS[event["slot"]]
+            assert (call.keep_words, call.avoid_words) == \
+                synth_v2.lean_targets(event["template"], slot)
+            assert call.keep_words and call.avoid_words
+            content = synth_v2.paraphrase_messages(call)[1]["content"]
+            assert ("KEEP THESE WORDS AS WRITTEN: "
+                    + ", ".join(call.keep_words)) in content
+            assert ("DO NOT USE THESE WORDS: "
+                    + ", ".join(call.avoid_words)) in content
+        else:
+            assert (call.keep_words, call.avoid_words) == ((), ())
+            assert synth_v2.paraphrase_messages(call)[1]["content"] == (
+                f"Sentence: {call.text}\nKEEP: "
+                + (", ".join(call.keep) if call.keep
+                   else "(nothing; name no specific value)"))
+
+
+def test_check_reports_a_statement_that_changes_a_questions_lean():
+    user = synth_v2.build_user(0, BASE.users[0])
+    assert synth_v2.validate_user(user, BASE.users[0]) == []
+    broken = copy.deepcopy(user)
+    original = next(e for e in events_of(broken) if e["event_id"]
+                    == synth_v2.contradiction_events(broken["probes"])[0])
+    assert original["slot"] == "one_on_one"
+    original["utterance"] = (f"I meet {original['value']} for our standing "
+                             "one-on-one every week.")
+    original["paraphrased"] = True
+    problems = synth_v2.validate_user(broken, BASE.users[0])
+    assert any("must not use the words 'standing'" in p for p in problems)
+    assert any("leans None on the statements, not later" in p
+               for p in problems)
+
+
+def test_check_reports_a_lean_off_the_assignment():
+    slots = [synth_v2.contradiction_slot(i, BASE.users[i]) for i in range(6)]
+    leans = synth_v2.assign_leans(slots)
+    users = [synth_v2.build_user(i, BASE.users[i], lean=lean)
+             for i, lean in enumerate(leans)]
+    assert synth_v2.lean_assignment_problems(users) == []
+    flipped = synth_v2.LEANS[1 - synth_v2.LEANS.index(leans[3])]
+    users[3] = synth_v2.build_user(3, BASE.users[3], lean=flipped)
+    # The user alone is valid: its question is its lean's.
+    assert synth_v2.validate_user(users[3], BASE.users[3]) == []
+    assert synth_v2.lean_assignment_problems(users) == [
+        f"user 3: contradiction lean is {flipped!r}, the assignment gives "
+        f"{leans[3]!r}"]
+
+
+def test_the_committed_users_v2_is_revision_3_with_balanced_leans():
+    committed = dataset.load("users_v2")
+    assert committed.header["revision"] == 3
+    assert committed.header["reuse"] == {"sha256": REVISION_2_SHA256,
+                                         "revision": 2}
+    counts = synth_v2.lean_counts(committed.users)
+    assert counts["all"] == {"earlier": 75, "later": 75}
+    assert synth_v2.lean_counts(committed.users[:30])["all"] == {
+        "earlier": 15, "later": 15}
+    for name, by_lean in counts["by_slot"].items():
+        assert abs(by_lean["earlier"] - by_lean["later"]) <= 1, name
+    for user in committed.users:
+        p = probe(user, "contradiction")
+        by_id = {e["event_id"]: e for e in events_of(user)}
+        earlier, later = (by_id[x]["utterance"] for x in p["source_events"])
+        slot = synth_v2.SLOTS[p["slot"]]
+        assert [synth_v2.lean_of(q, earlier, later)
+                for q in slot.lean_questions] == list(synth_v2.LEANS)
+        assert p["question"] == slot.lean_questions[
+            synth_v2.LEANS.index(p["lean"])]
+    assert synth_v2.check("users_v2")["problems"] == []

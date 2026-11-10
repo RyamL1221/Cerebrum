@@ -371,7 +371,9 @@ class NativeAssistantAgent:
     (``NativeSettings``), each bullet ends with its row's age in
     sessions, worded as the kernel's (``session_age``); wall-clock ages
     are not printed, as before. The conversation row gets ``session``
-    and ``provenance_event`` (the probe id).
+    and ``provenance_event`` (the probe id). Since Amendment 3 a probe
+    writes nothing: the harness sets ``store_conversation`` to False
+    for its probe turns, and the turn is not written to the backend.
     """
 
     BLOCK_HEADER = "Relevant memories about this user:"
@@ -399,6 +401,8 @@ class NativeAssistantAgent:
         # Benchmark v2: the current session, and the probe being run.
         self.session: Optional[int] = None
         self.probe_id: Optional[str] = None
+        # False: the turn is not stored (a benchmark v2 probe).
+        self.store_conversation = True
 
     def _recency(self) -> tuple:
         """``(on, unit)``: the kernel's block recency settings, from the
@@ -532,16 +536,17 @@ class NativeAssistantAgent:
         answer = response["response"]["response_message"] if response else ""
         answered = time.perf_counter()
 
-        conversation = self._conversation_metadata(user_id)
-        self.memory.write(
-            [
-                {"role": "user", "content": task_input},
-                {"role": "assistant", "content": answer},
-            ],
-            f"User: {task_input}\nAssistant: {answer}",
-            self.agent_name,
-            conversation,
-        )
+        if self.store_conversation:
+            conversation = self._conversation_metadata(user_id)
+            self.memory.write(
+                [
+                    {"role": "user", "content": task_input},
+                    {"role": "assistant", "content": answer},
+                ],
+                f"User: {task_input}\nAssistant: {answer}",
+                self.agent_name,
+                conversation,
+            )
         written = time.perf_counter()
         records = usage.ACCUMULATOR.take(user_id)
 

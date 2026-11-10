@@ -322,6 +322,27 @@ def test_a_write_the_store_refuses_is_not_recorded(store):
     assert rows_of(backend) == []
 
 
+def test_a_replicated_probe_turn_writes_nothing(store):
+    """Amendment 3: on a probe turn (``store_conversation`` False) the
+    replicated assistant writes no note; a stored turn writes one."""
+    backend, chat = store
+    profile = writer(replicated.ReplicatedProfileAgent, "profile_agent")
+    profile.run(payload(1, [event("e1", "add", "city", "Tallinn")]))
+    assistant = replicated.ReplicatedAssistantAgent(
+        "assistant_agent",
+        replicated.ReplicatedMemory("inhouse", config("session")))
+    assistant.user_id = USER
+    assistant.session, assistant.probe_id = 7, "p_recall"
+    assistant.store_conversation = False
+    result = assistant.run("Which city do I live in?")
+    assert result["result"] == "You live in Tallinn."
+    assert rows_of(backend, "assistant_agent") == []
+    assert len(rows_of(backend)) == 1  # the writer's row only
+    assistant.store_conversation = True
+    assistant.run("Which city do I live in?")
+    assert len(rows_of(backend, "assistant_agent")) == 1
+
+
 def test_the_assistant_stamps_its_probe_on_its_turn_as_before(store):
     """The replicated assistant writes its turn itself, stamped with
     the probe id; its kernel request carries no session and no

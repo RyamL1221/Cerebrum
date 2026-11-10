@@ -327,7 +327,8 @@ class ReplicatedAssistantAgent:
     Benchmark v2 sets ``session`` (the current session, which the
     block's session ages count from) and ``probe_id`` per probe; the
     conversation note then carries ``session`` and ``provenance_event``
-    (the probe id)."""
+    (the probe id). Since Amendment 3 a probe writes nothing: the
+    harness sets ``store_conversation`` to False for its probe turns."""
 
     def __init__(self, agent_name: str, memory: ReplicatedMemory):
         self.agent_name = agent_name
@@ -338,6 +339,8 @@ class ReplicatedAssistantAgent:
         self.extra_metadata: Dict[str, Any] = {}
         self.session: Optional[int] = None
         self.probe_id: Optional[str] = None
+        # False: the turn is not stored (a benchmark v2 probe).
+        self.store_conversation = True
 
     def list_own_rows(self, user_id: Optional[str] = None) -> List[dict]:
         """The conversation rows this agent owns for ``user_id``
@@ -378,8 +381,8 @@ class ReplicatedAssistantAgent:
         answered = time.perf_counter()
 
         # As the kernel's extractor does: the pair, private, in the
-        # resolved user's scope.
-        if task_input and answer:
+        # resolved user's scope; nothing when the turn is not stored.
+        if self.store_conversation and task_input and answer:
             note = self.memory.library.conversation_note(
                 self.agent_name, task_input, str(answer),
                 diagnostics.get("resolved_user_id"),

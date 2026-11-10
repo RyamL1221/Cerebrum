@@ -1060,6 +1060,35 @@ def test_native_assistant_lists_its_conversation_rows(inhouse):
     assert rows[0]["metadata"]["session"] == 7
 
 
+def test_a_native_in_house_probe_turn_writes_nothing(inhouse):
+    """Amendment 3: on a probe turn (``store_conversation`` False) the
+    native assistant stores nothing; a stored turn writes its row."""
+    agent = native_assistant(inhouse())
+    agent.store_conversation = False
+    with patch.object(native, "llm_chat", chat()):
+        result = agent.run("Where do I live?")
+    assert result["result"] == "ok"
+    assert agent.list_own_rows() == []
+    agent.store_conversation = True
+    with patch.object(native, "llm_chat", chat()):
+        agent.run("Where do I live?")
+    assert len(agent.list_own_rows()) == 1
+
+
+def test_a_native_mem0_probe_turn_makes_no_mem0_add(mem0):
+    """No ``add`` reaches Mem0 on a probe turn, so neither a fact nor
+    the turn's messages (Mem0 saves those inside ``add``) are stored."""
+    agent = native_assistant(native.NativeMemory("mem0", settings()))
+    agent.store_conversation = False
+    with patch.object(native, "llm_chat", chat()):
+        agent.run("Where do I live?")
+    assert mem0.rows == {}
+    agent.store_conversation = True
+    with patch.object(native, "llm_chat", chat()):
+        agent.run("Where do I live?")
+    assert len(mem0.rows) == mem0.facts
+
+
 @pytest.mark.parametrize("code", ["V1", "V3", "V5"])
 def test_native_variants_change_a_v2_write(inhouse, code):
     agent = native_writer(native.NativeProfileAgent, "profile_agent",

@@ -210,7 +210,8 @@ def check_kernel_mode(kernel_url: str, method: str) -> None:
         )
 
 
-V2_SETTINGS = {"max_injected_memories": 10, "max_memory_tokens": 500,
+# Amendment 3: a 300-token budget (Amendment 1's was 500).
+V2_SETTINGS = {"max_injected_memories": 10, "max_memory_tokens": 300,
                "relevance_threshold": 0.0, "block_format": "compact"}
 V2_BARRIER_TIMEOUT_MS = 60_000
 
@@ -219,7 +220,9 @@ def check_v2_settings(kernel_url: str, method: str,
                       recency: bool = True) -> dict:
     """Fail unless the kernel's memory settings are benchmark v2's
     (AIOS docs/BENCHMARK_V2.md, "Pre-flight"); return what was checked,
-    for the results file."""
+    for the results file. A kernel method needs injection on and, since
+    Amendment 3, the kernel's conversation extraction off: a probe
+    writes nothing."""
     response = requests.get(f"{kernel_url}/memory/config", timeout=10)
     response.raise_for_status()
     body = response.json()
@@ -241,9 +244,10 @@ def check_v2_settings(kernel_url: str, method: str,
                 timeout < V2_BARRIER_TIMEOUT_MS:
             problems.append(f"write_barrier.timeout_ms is {timeout!r}, not "
                             f">= {V2_BARRIER_TIMEOUT_MS}")
-        if not (body.get("auto_inject") and body.get("auto_extract")):
-            problems.append("a kernel method needs auto_inject and "
-                            "auto_extract on")
+        if not body.get("auto_inject") or body.get("auto_extract"):
+            problems.append("a kernel method needs auto_inject on and "
+                            "auto_extract off (Amendment 3: probes write "
+                            "nothing)")
     if problems:
         raise SystemExit("benchmark v2 pre-flight: " + "; ".join(problems))
     return {"pipeline": pipeline, "auto_inject": body.get("auto_inject"),

@@ -151,12 +151,14 @@ class FakeWriter:
 
 class FakeConsumer:
     """The assistant: every row of its user in the block, ``extra``
-    added to its diagnostics, its conversation stored."""
+    added to its diagnostics, its conversation stored unless
+    ``store_conversation`` is False (a v2 probe turn, Amendment 3)."""
 
     def __init__(self, store, log, answer=None, diagnostics=None,
                  extra=None):
         self.store, self.log = store, log
         self.user_id, self.session, self.probe_id = None, None, None
+        self.store_conversation = True
         self.answer = answer or (lambda q: f"An answer to: {q}")
         self.diagnostics = diagnostics
         self.extra = extra or {}
@@ -168,10 +170,12 @@ class FakeConsumer:
         diagnostics = dict(self.diagnostics or block_diagnostics(
             rows, self.session, self.user_id), **self.extra)
         answer = self.answer(question)
-        self.store.add("assistant_agent", f"User: {question}\nAssistant: "
-                       f"{answer}", {"user_id": self.user_id,
-                                     "session": self.session,
-                                     "provenance_event": self.probe_id})
+        if self.store_conversation:
+            self.store.add("assistant_agent", f"User: {question}\n"
+                           f"Assistant: {answer}",
+                           {"user_id": self.user_id,
+                            "session": self.session,
+                            "provenance_event": self.probe_id})
         return {"result": answer, "injection_diagnostics": diagnostics,
                 "token_usage": {"prompt_tokens": 10, "completion_tokens": 5,
                                 "total_tokens": 15}}
@@ -201,6 +205,7 @@ class FakeLocus:
 
     def consumer(self, user_id, probe_id):
         self.assistant.session, self.assistant.probe_id = 7, probe_id
+        self.assistant.store_conversation = False  # as the loci do
         return self.assistant
 
     def lister(self, name):
@@ -243,10 +248,12 @@ class FakeKernel:
     ``KernelLocus``. A create stores ``facts`` rows with its metadata
     and names the first, as the kernel's Mem0 add does; a chat reply's
     diagnostics hold every row of the user plus ``extra``, and the
-    kernel stores the turn, as auto_extract does."""
+    kernel stores the turn only with ``auto_extract`` (off in v2 since
+    Amendment 3)."""
 
-    def __init__(self, facts=1, extra=None):
+    def __init__(self, facts=1, extra=None, auto_extract=False):
         self.store, self.facts, self.extra = Store(), facts, extra or {}
+        self.auto_extract = auto_extract
 
     def create_memory(self, agent_name, content=None, metadata=None,
                       base_url=None, **kwargs):
@@ -278,10 +285,13 @@ class FakeKernel:
         diagnostics = dict(block_diagnostics(rows, session, user_id),
                            **self.extra)
         answer = f"An answer to: {question}"
-        self.store.add(agent_name, f"User: {question}\nAssistant: {answer}",
-                       {"user_id": user_id, "session": session,
-                        "memory_type": "conversation",
-                        "provenance_event": kwargs.get("provenance_event")})
+        if self.auto_extract:
+            self.store.add(agent_name,
+                           f"User: {question}\nAssistant: {answer}",
+                           {"user_id": user_id, "session": session,
+                            "memory_type": "conversation",
+                            "provenance_event": kwargs.get(
+                                "provenance_event")})
         return {"response": {"response_message": answer},
                 "injection_diagnostics": diagnostics,
                 "token_usage": {"prompt_tokens": 10, "completion_tokens": 5,
@@ -1041,12 +1051,14 @@ class NativeRulesConsumer(FakeConsumer):
                                              self.user_id),
                            visibility_checked=self.check_visibility)
         answer = self.answer(question)
-        self.memory.write(
-            [{"role": "user", "content": question}],
-            f"User: {question}\nAssistant: {answer}", history.CONSUMER,
-            {"user_id": self.user_id, "session": self.session,
-             "provenance_event": self.probe_id,
-             "owner_agent": history.CONSUMER, "sharing_policy": "private"})
+        if self.store_conversation:
+            self.memory.write(
+                [{"role": "user", "content": question}],
+                f"User: {question}\nAssistant: {answer}", history.CONSUMER,
+                {"user_id": self.user_id, "session": self.session,
+                 "provenance_event": self.probe_id,
+                 "owner_agent": history.CONSUMER,
+                 "sharing_policy": "private"})
         return {"result": answer, "injection_diagnostics": diagnostics,
                 "token_usage": {"prompt_tokens": 10, "completion_tokens": 5,
                                 "total_tokens": 15}}
@@ -1064,8 +1076,9 @@ def test_native_visible_rows_follow_the_consumers_partition_and_visibility(
     the writers' rows in the partition it searched (a V2 consumer's is
     its rewritten id, which holds none of them) and, when it does not
     check visibility (V3, no_visibility), the private ones too; plus
-    its own rows when the probe began. It used to count the writers'
-    shared rows under the base id for every consumer."""
+    its own rows when the probe began (none since Amendment 3: a probe
+    writes nothing). It used to count the writers' shared rows under
+    the base id for every consumer."""
     locus = managed("native", consumer=NativeRulesConsumer)
     user = v2_user()
     _, outcome = run(locus, user, control=control, variants=variants)
@@ -1096,3 +1109,72 @@ def test_native_visible_rows_follow_the_consumers_partition_and_visibility(
         # included.
         assert result.visible_stored_rows == (
             result.diagnostics.injected_count)
+
+
+# -- Amendment 3: a probe writes nothing ------------------------------------
+
+def rows_by_agent(listing):
+    return {name: sorted(str(r["memory_id"]) for r in rows)
+            for name, rows in listing["rows"].items()}
+
+
+@pytest.mark.parametrize("kind", ["kernel", "native", "replicated"])
+def test_a_probe_turn_writes_nothing_in_every_locus(kind):
+    """After the probes every agent holds the rows it held after the
+    last session, and the consumer none (the kernel with
+    ``auto_extract`` off, as v2 runs it)."""
+    if kind == "kernel":
+        kernel = FakeKernel()
+        with kernel.patched():
+            _, outcome = run(history.KernelLocus())
+    else:
+        _, outcome = run(managed(kind))
+    assert outcome.failure is None
+    assert len(outcome.turns) == 6
+    before, after = outcome.listings[-2:]
+    assert (before["after"], after["after"]) == ("history", "probes")
+    assert rows_by_agent(after) == rows_by_agent(before)
+    assert after["rows"][history.CONSUMER] == []
+
+
+class StoringConsumer(FakeConsumer):
+    """A consumer that stores its turn whatever the locus tells it."""
+
+    @property
+    def store_conversation(self):
+        return True
+
+    @store_conversation.setter
+    def store_conversation(self, value):
+        pass
+
+
+@pytest.mark.parametrize("kind", ["kernel", "native", "replicated"])
+def test_a_probe_turn_that_stores_a_row_fails_the_user(kind):
+    """A kernel run with extraction on, or a consumer that writes
+    anyway: the listing after the probes holds rows the history's did
+    not, and the user fails; the probe turns stay recorded."""
+    if kind == "kernel":
+        kernel = FakeKernel(auto_extract=True)
+        with kernel.patched():
+            _, outcome = run(history.KernelLocus())
+    else:
+        _, outcome = run(managed(kind, consumer=StoringConsumer))
+    assert outcome.failure == ("probe_writes: probe turns stored 6 rows "
+                               "(6 assistant_agent)")
+    assert len(outcome.turns) == 6
+
+
+def test_the_agent_managed_locus_turns_the_write_off_for_probe_turns():
+    seen = []
+
+    class Recording(FakeConsumer):
+        def run(self, question):
+            seen.append(self.store_conversation)
+            return super().run(question)
+    locus = managed("native", consumer=Recording)
+    _, outcome = run(locus)
+    assert outcome.failure is None
+    assert seen == [False] * 6
+    # Restored for the consumer's next use outside the probes.
+    assert locus.agents[history.CONSUMER].store_conversation is True
