@@ -209,6 +209,61 @@ def test_filter_never_shows_another_agents_private_memory(metadata):
                 or metadata.get("sharing_policy") == "shared")
 
 
+ROW_SCORES = st.one_of(st.none(), st.floats(min_value=0.0, max_value=1.0))
+
+
+@given(st.lists(st.tuples(ROW_SCORES, st.booleans(), st.booleans()),
+                max_size=15),
+       st.integers(min_value=1, max_value=12))
+def test_the_reference_consumer_keeps_the_backends_order(rows, k):
+    """Mem0's documented use is its results in the order returned, cut
+    at the limit, with no score threshold. The reference native
+    consumer keeps the rows the sharing rule lets it see, in the
+    backend's order, cut at k by position: none is dropped or moved for
+    its score (Mem0's scores are distances; NATIVE_USAGE.md,
+    "Evidence")."""
+    assistant = native_agents.NativeAssistantAgent(
+        "assistant_agent", MagicMock())
+    given_rows = [
+        {"memory_id": str(i), "content": f"row {i}", "score": score,
+         "metadata": {"user_id": "u" if mine else "v",
+                      "owner_agent": "task_agent",
+                      "sharing_policy": "shared" if shared else "private"}}
+        for i, (score, mine, shared) in enumerate(rows)
+    ]
+    kept, _ = assistant._select(given_rows, "u", k)
+    assert kept == [
+        r for r in given_rows
+        if r["metadata"]["user_id"] == "u"
+        and r["metadata"]["sharing_policy"] == "shared"
+    ][:k]
+
+
+def test_the_native_mem0_block_follows_mem0s_order(harness):
+    """The block lists Mem0's results as Mem0 ordered them, and the
+    diagnostics record each row's score as Mem0 returned it: recorded,
+    never acted on."""
+    _, chat = harness
+    memory = native_agents.NativeMemory(
+        "mem0", backends.NativeSettings.from_kernel_config(KERNEL_CONFIG))
+    assistant = native_agents.NativeAssistantAgent("assistant_agent", memory)
+    assistant.user_id = "u"
+    scores = [1.0, 0.05, 0.6, 1.0, 0.3]
+    FakeMem0.store = [
+        {"id": str(i), "memory": f"fact {i}", "user_id": "u",
+         "agent_id": "task_agent", "score": score,
+         "metadata": {"owner_agent": "task_agent",
+                      "sharing_policy": "shared",
+                      "memory_type": "task_context"}}
+        for i, score in enumerate(scores)
+    ]
+    result = assistant.run("question")
+    block = chat.call_args.kwargs["messages"][0]["content"]
+    assert block.splitlines()[1:] == [f"- fact {i}" for i in range(5)]
+    injected = result["injection_diagnostics"]["injected_memories"]
+    assert [m["match_score"] for m in injected] == scores
+
+
 def test_shared_renderer_handles_real_writer_variants():
     """Since Subtask 9 the native writers use the shared validator and
     renderer: aliases and one nested object are accepted, a partial
