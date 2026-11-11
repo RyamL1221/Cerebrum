@@ -704,6 +704,57 @@ def test_a_v2_trial_mirrors_the_integration_probe_and_judges_it(tmp_path):
     assert trial.token_usage.total_tokens == 6 * 15
 
 
+def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
+    """A v2 trial records ``retired_rows`` (Amendment 4), marks
+    included, and its results file keeps them: the analysis reads its
+    supersession columns ``earlier_rows`` and ``marked`` from them."""
+    path = tmp_path / "v2.jsonl"
+    synth_v2.generate(path, n=1)
+    o = orchestrator(dataset=str(path))
+    o.generator.run_id = "r1"
+    o._embed = False
+    o.judge = MagicMock()
+    o.judge.evaluate.return_value = SimpleNamespace(
+        profile_usage_score=4, task_usage_score=3, integration_score=5,
+        judge_attempts=1)
+    seen = {}
+
+    def run_history_trial(user, variants=None, *, control=None,
+                          recency_session=True):
+        user = user.model_copy(update={"user_id": USER_ID})
+        outcome = history.run_history(
+            user, FakeLocus(), VariantRunner(None, "kernel"),
+            control=control)
+        outcome.backend_extraction = False
+        # Mark the recency add's row, as supersession would.
+        recency = next(p for p in user.probes if p["type"] == "recency")
+        listing = next(l for l in outcome.listings
+                       if l["after"] == "history")
+        for owner, rows in listing["rows"].items():
+            listing["rows"][owner] = [
+                dict(r, metadata=dict(r["metadata"],
+                                      superseded_by=recency["target_event"]))
+                if r["metadata"].get("provenance_event")
+                == recency["source_events"][0] else r
+                for r in rows]
+        seen.update(user=user, outcome=outcome, mark=recency["target_event"])
+        return user, outcome, "kernel"
+
+    pipeline = SimpleNamespace(run_history_trial=run_history_trial)
+    with patch.object(run_evaluation, "read_backend_usage",
+                      return_value={"backend_llm_tokens": None,
+                                    "embedding_tokens": None}):
+        trial = o.run_single_trial(0, "kernel_shared", pipeline,
+                                   method="kernel_shared")
+    assert trial.failed is False, trial.error_message
+    expected = history.retired_rows(seen["user"], seen["outcome"])
+    assert len(expected) == 2
+    assert [r["superseded_by"] for r in expected].count(seen["mark"]) == 1
+    assert trial.retired_rows == expected
+    again = TrialResult.model_validate_json(trial.model_dump_json())
+    assert again.retired_rows == expected
+
+
 def test_base_events_reach_the_writers_with_their_fields():
     """The harness hands a base event the fields it states (as a v1
     writer got them), so V5's raw payload has facts in it."""

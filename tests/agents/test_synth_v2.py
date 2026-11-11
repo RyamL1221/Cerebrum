@@ -1176,6 +1176,17 @@ def test_the_committed_users_v2_is_revision_3_with_balanced_leans():
     assert synth_v2.check("users_v2")["problems"] == []
 
 
+def test_the_committed_users_v2_was_built_by_this_generator():
+    """The header names the generator that built the file by its
+    SHA-256 (``generator_sha256``: ``synth_v2.py``, catalog and pools
+    included), so the rules revision 3 was built under, and the counts
+    its build reports (calls, fallbacks, reused statements), are this
+    file's. An edit to ``synth_v2.py`` needs a new revision."""
+    committed = dataset.load("users_v2")
+    assert committed.header["generator_sha256"] == (
+        synth_v2.generator_sha256())
+
+
 @pytest.mark.parametrize("slot, side, text, rejected", [
     # The paraphrases of revision 3's first build that kept their words
     # and lost what they said, and forms that keep it.

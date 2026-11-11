@@ -276,13 +276,14 @@ def _events(trial: dict, kind: Optional[str] = None) -> List[dict]:
 
 
 def library_criteria(cells: Dict[tuple, dict]) -> List[dict]:
-    """Amendment 4's criteria, at H = 0 in the kernel and replicated
-    cells on both backends: deletion is complete and goes through the
-    forget, and writer_scoped fails some echo user; no block holds a
-    retired row, and no_supersession puts one in some block; the guard
-    was armed and dropped nothing; every Mem0 forget scrubbed a
-    message. A failed trial or an unscored probe counts against a
-    criterion, never for it."""
+    """Amendment 4's criteria, in the kernel and replicated cells on
+    both backends: at H = 0, deletion is complete and goes through the
+    forget, no block holds a retired row, and every Mem0 forget
+    scrubbed a message; writer_scoped fails some echo user, and
+    no_supersession puts a retired row in some block; outside H = 2,
+    the guard was armed and dropped nothing. A failed trial or an
+    unscored probe counts against the deletion criterion; the others
+    leave a failed trial out, and writer_scoped an unscored probe."""
     out = []
     ref = lambda m, l, b, c: l in LIBRARY_LOCI and c == "h0"  # noqa: E731
     h0_like = lambda m, l, b, c: (  # noqa: E731

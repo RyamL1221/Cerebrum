@@ -1053,25 +1053,28 @@ def test_match_forms_returns_the_first_form_found():
     assert pr.match_forms("we deploy to tern 02", ["tern-02"]) == "tern-02"
 
 
+@pytest.mark.parametrize("locus", pr.LOCI)
 @pytest.mark.parametrize("kind", pr.PROBE_TYPES)
 def test_retired_in_block_lists_the_injected_rows_of_retired_statements(
-        kind):
+        kind, locus):
     """``retired_in_block`` (Amendment 4) lists, in block order, exactly
     the injected rows whose ``provenance_event`` is one of the
     ``retired_events`` (earlier statements of a fact with a later one,
-    from the dataset, not the store's marks), whatever the probe; it is
-    empty without them, and decides no pass."""
+    from the dataset, not the store's marks), whatever the probe and in
+    every locus, native included; it is empty without them, and decides
+    no pass."""
     rows = (SYNC_ADD, PET_ADD, SYNC_UPDATE,
             row("We moved the sync to Juniper again.", "a3",
                 event="u0_e05", fact_key="sync_room", session=4))
     answer = "It is in the Birch room."
-    retired = score(kind, answer, *rows,
+    retired = score(kind, answer, *rows, locus=locus,
                     retired_events=iter(["u0_e05", "u0_e99"]))
     assert retired["retired_in_block"] == ["a1", "a3"]
-    plain = score(kind, answer, *rows)
+    plain = score(kind, answer, *rows, locus=locus)
     assert plain["retired_in_block"] == []
     assert {k: v for k, v in retired.items() if k != "retired_in_block"} \
         == {k: v for k, v in plain.items() if k != "retired_in_block"}
     # A row without provenance is never a retired statement's.
     assert score(kind, answer, conversation_row("x", "c1"), SYNC_ADD,
-                 retired_events=["u0_e05"])["retired_in_block"] == ["a1"]
+                 locus=locus, retired_events=["u0_e05"])[
+        "retired_in_block"] == ["a1"]

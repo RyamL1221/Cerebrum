@@ -127,6 +127,20 @@ def test_the_budget_is_reported_even_when_it_never_binds(tmp_path):
             in text)
 
 
+def test_the_budget_counts_the_in_house_cells_only(tmp_path):
+    """The budget's binding is read in the kernel and replicated
+    in-house cells (Amendment 4): a Mem0 cell's binding budget, kernel
+    or replicated, is not counted."""
+    build(tmp_path)
+    write(tmp_path, "qwen", "kmem0", "h0_kernel_shared",
+          [trial(0, ALL_PASS, budget=True)])
+    write(tmp_path, "qwen", "agent", "h0_replicated_mem0",
+          [trial(0, ALL_PASS, budget=True)])
+    [budget] = [c for c in ba.criteria(ba.load(tmp_path))
+                if "budget" in c["criterion"]]
+    assert budget["evidence"] == "6 probes with a binding budget"
+
+
 def test_a_kernel_privacy_leak_breaks_its_criterion(tmp_path):
     build(tmp_path)
     write(tmp_path, "qwen", "kmem0", "h0_kernel_shared",
@@ -1138,6 +1152,19 @@ def test_the_guard_must_be_armed_and_drop_nothing(tmp_path, change):
     assert all(c["holds"] for name, c in checks.items() if name != "guard")
 
 
+def test_a_guard_stage_that_kept_no_row_reported_it(tmp_path):
+    """A probe whose guard stage kept no row (``after_tombstone`` 0, as
+    over an empty store) reported the stage: only a missing count fails
+    the guard criterion."""
+    cells = library_cells(tmp_path)
+    for p in h0(cells)[0]["probe_results"]:
+        p["diagnostics"]["after_tombstone"] = 0
+    guard = library_checks(cells)["guard"]
+    assert guard["holds"] is True
+    assert guard["evidence"].startswith(
+        "72 probes: 0 without the guard's stage")
+
+
 def test_every_mem0_forget_must_scrub_a_message(tmp_path):
     """Each revoked value was stated in an utterance Mem0 stored as a
     message, so every Mem0 forget at H = 0 must scrub one; an in-house
@@ -1154,6 +1181,18 @@ def test_every_mem0_forget_must_scrub_a_message(tmp_path):
     for locus in ("kernel", "replicated"):
         del cells[("qwen", locus, "mem0", "h0")]
     assert library_checks(cells)["scrub"]["holds"] is False
+
+
+def test_the_scrub_criterion_reads_h0_only(tmp_path):
+    """The scrub criterion reads the H = 0 cells (Amendment 4): a Mem0
+    forget under a control is not counted, whatever it scrubbed."""
+    control = lib_trial(0, "mem0")
+    revoke_of(control)["forget"]["scrubbed"]["messages"] = 0
+    write(tmp_path, "qwen", "kmem0_ns", "no_supersession_kernel_shared",
+          [control])
+    checks = library_checks(library_cells(tmp_path))
+    assert checks["scrub"]["holds"] is True
+    assert checks["scrub"]["evidence"] == "4 of 4 forgets (8 messages)"
 
 
 def test_load_reads_the_no_supersession_phases(tmp_path):
@@ -1202,7 +1241,8 @@ def test_the_forget_and_supersession_readings(tmp_path):
     suppressed (kernel and replicated cells only); the rows writes
     retired, the earlier statements' rows and how many are marked, the
     probes whose block held a retired row, and the rows selection
-    excluded as retired. Failed trials are left out."""
+    excluded as retired. A failed trial is left out of the forget
+    reading (no supersession row checked here holds one)."""
     cells = library_cells(tmp_path)
     h0(cells)[1]["failed"] = True
     # Two folds: the forget deleted two of the revoking writer's rows of
@@ -1238,3 +1278,19 @@ def test_the_forget_and_supersession_readings(tmp_path):
             for c in columns] == [1, 2, 2, 6, 1, 6]
     assert [retired[("native", "mem0", "h0")][c] for c in columns] == [
         0, 2, 0, 6, 1, 0]
+
+
+def test_the_supersession_reading_counts_probes_and_rows(tmp_path):
+    """``retired_in_block`` counts the probes whose block held a retired
+    row, so a block holding two counts once; ``excluded`` counts the
+    rows the selection excluded as retired, so a probe that excluded two
+    counts two."""
+    cells = library_cells(tmp_path)
+    p = probe_of(h0(cells)[0], "recency")
+    p["retired_in_block"] = ["m5", "m6"]
+    p["diagnostics"]["superseded_rows"] = ["m5", "m6"]
+    row = next(r for r in ba.supersession_rows(cells)
+               if (r["locus"], r["backend"], r["condition"])
+               == ("kernel", "inhouse", "h0"))
+    assert (row["probes"], row["retired_in_block"], row["excluded"]) == (
+        12, 1, 13)
