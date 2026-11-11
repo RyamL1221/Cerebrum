@@ -613,22 +613,30 @@ def test_the_extraction_guard_counts_rows_by_event():
         user, outcome, True)
 
 
-def drop_rows_of(user, outcome, session_index):
+def drop_rows_of(user, outcome, session_index, named=False):
     """Remove one write's rows from its listing, as a backend that
-    stored nothing for it would leave them; returns the write."""
+    stored nothing for it would leave them; returns the write. Its reply
+    then named no row (Graphiti's no-fact write), unless ``named``: the
+    reply named rows that the writer's listing does not show."""
     event = user.sessions[session_index]["events"][0]
     listing = outcome.listings[session_index]["rows"][
         user.sessions[session_index]["writer"]]
     listing[:] = [r for r in listing if r["metadata"]["provenance_event"]
                   != event["event_id"]]
+    for session in outcome.sessions:
+        for record in session.events:
+            if record.get("event_id") == event["event_id"]:
+                assert record["reported_ids"]
+                if not named:
+                    record["reported_ids"] = []
     return event
 
 
 def test_a_graphiti_write_with_no_fact_is_a_loss_not_a_failure():
     """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
-    so a Graphiti write that returned and stored no row found no fact.
-    It is recorded and the trial is scored; Mem0 swallows its errors, so
-    the same write still fails a Mem0 trial."""
+    so a Graphiti write whose reply named no fact and that left no row
+    found no fact. It is recorded and the trial is scored; Mem0 swallows
+    its errors, so the same write still fails a Mem0 trial."""
     user, outcome = run(FakeLocus())
     event = drop_rows_of(user, outcome, 2)
     outcome.memory_backend = "graphiti"
@@ -640,6 +648,21 @@ def test_a_graphiti_write_with_no_fact_is_a_loss_not_a_failure():
     assert event["event_id"] in history.extraction_failure(
         user, outcome, True)
     assert history.writes_without_fact(user, outcome, True) == []
+
+
+def test_a_graphiti_write_its_writer_does_not_list_fails():
+    """Amendment 5 covers only a reply that named no fact: a Graphiti
+    write whose reply named rows that its writer's listing does not show
+    is a listing that failed (a V3 writer listed by ``owner_agent``,
+    Subtask 16), not a lost memory, so the trial fails."""
+    user, outcome = run(FakeLocus())
+    event = drop_rows_of(user, outcome, 2, named=True)
+    outcome.memory_backend = "graphiti"
+    failure = history.extraction_failure(user, outcome, True)
+    assert failure == ("backend_rows_unlisted: its writer does not list "
+                       "the rows its reply named: " + event["event_id"])
+    assert history.writes_without_fact(user, outcome, True) == []
+    assert history.extraction_failure(user, outcome, False) is None
 
 
 def test_run_history_trial_records_each_locus_memory_backend():
@@ -827,11 +850,15 @@ def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
         assert set(probe.backend_invalidated_in_block) == injected & ids
 
 
-@pytest.mark.parametrize("backend,failed", [("graphiti", False),
-                                            ("mem0", True)])
-def test_a_v2_trial_with_a_write_without_a_fact(tmp_path, backend, failed):
+@pytest.mark.parametrize("backend,named,failed", [
+    ("graphiti", False, False), ("graphiti", True, True),
+    ("mem0", False, True)])
+def test_a_v2_trial_with_a_write_without_a_fact(tmp_path, backend, named,
+                                                failed):
     """Amendment 5: on Graphiti the trial is scored and records the
-    write in ``writes_without_fact``; on Mem0 it fails as before."""
+    write in ``writes_without_fact``; on Mem0 it fails as before, and on
+    Graphiti too when the write's reply named rows its writer does not
+    list."""
     path = tmp_path / "v2.jsonl"
     synth_v2.generate(path, n=1)
     o = orchestrator(dataset=str(path), judge=False)
@@ -847,7 +874,8 @@ def test_a_v2_trial_with_a_write_without_a_fact(tmp_path, backend, failed):
             control=control)
         outcome.backend_extraction = True
         outcome.memory_backend = backend
-        seen["event"] = drop_rows_of(user, outcome, 2)["event_id"]
+        seen["event"] = drop_rows_of(user, outcome, 2,
+                                     named=named)["event_id"]
         return user, outcome, "kernel"
 
     pipeline = SimpleNamespace(run_history_trial=run_history_trial)

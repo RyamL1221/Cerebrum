@@ -33,7 +33,7 @@ import logging
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from unittest.mock import patch
 
 from benchmarks.shared_memory.models import (
@@ -724,9 +724,10 @@ def write_events(user: V2UserData) -> List[dict]:
             if event["type"] in WRITE_EVENTS]
 
 
-def _empty_writes(user: V2UserData, outcome: HistoryOutcome) -> List[str]:
+def _empty_writes(user: V2UserData,
+                  outcome: HistoryOutcome) -> List[Tuple[str, bool]]:
     """The write events that left no listed row and are not excused
-    (``extraction_failure``)."""
+    (``extraction_failure``), each with whether its reply named a row."""
     after = {listing["after"]: listing for listing in outcome.listings}
     records: Dict[str, tuple] = {}
     for session in outcome.sessions:
@@ -748,7 +749,7 @@ def _empty_writes(user: V2UserData, outcome: HistoryOutcome) -> List[str]:
         named = {str(i) for i in record.get("reported_ids") or []}
         if named and named <= removed:
             continue  # stored; its own session removed every row
-        empty.append(event["event_id"])
+        empty.append((event["event_id"], bool(named)))
     return empty
 
 
@@ -765,28 +766,37 @@ def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
     suppressed write's names none) is never excused; neither is one
     whose named rows a later session removed, or one with a named row
     that nothing removed. On a backend in ``EMPTY_WRITE_IS_LOSS``
-    (Graphiti, Amendment 5) such a write is a lost memory, recorded by
-    ``writes_without_fact``, not a failure."""
+    (Graphiti, Amendment 5) such a write whose reply named no row is a
+    lost memory, recorded by ``writes_without_fact``, not a failure; one
+    whose reply named rows that its writer's listing does not show still
+    fails: the rows were stored, so the listing failed (a V3 writer once
+    listed by the ``owner_agent`` it omits, Subtask 16)."""
     if backend_extraction is not True:
         return None
-    if outcome.memory_backend in EMPTY_WRITE_IS_LOSS:
-        return None
     empty = _empty_writes(user, outcome)
+    if outcome.memory_backend in EMPTY_WRITE_IS_LOSS:
+        unlisted = [event for event, named in empty if named]
+        if unlisted:
+            return ("backend_rows_unlisted: its writer does not list the "
+                    "rows its reply named: " + ", ".join(unlisted))
+        return None
     if empty:
         return ("backend_extraction_failed: stored no rows: "
-                + ", ".join(empty))
+                + ", ".join(event for event, _ in empty))
     return None
 
 
 def writes_without_fact(user: V2UserData, outcome: HistoryOutcome,
                         backend_extraction: Optional[bool]) -> List[str]:
     """Amendment 5: on a backend in ``EMPTY_WRITE_IS_LOSS``, the write
-    events that stored no row (as ``extraction_failure`` counts them):
-    Graphiti found entities but no fact. [] on any other backend."""
+    events whose reply named no row and that left none (as
+    ``extraction_failure`` counts them): Graphiti found entities but no
+    fact. [] on any other backend."""
     if (backend_extraction is not True
             or outcome.memory_backend not in EMPTY_WRITE_IS_LOSS):
         return []
-    return _empty_writes(user, outcome)
+    return [event for event, named in _empty_writes(user, outcome)
+            if not named]
 
 
 def deleted_ids(outcome: HistoryOutcome) -> List[str]:

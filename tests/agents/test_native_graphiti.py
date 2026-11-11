@@ -124,6 +124,26 @@ def test_an_agent_lists_only_its_own_rows(memory):
     assert rows[0]["metadata"]["graphiti_invalid_at"] is None
 
 
+def test_a_writer_without_sharing_fields_lists_its_own_rows(memory):
+    """A V3 writer (Subtask 10) omits ``owner_agent`` and
+    ``sharing_policy``; its rows still carry ``agent_id``, the writer, as
+    a native Mem0 or in-house row does, and it lists them by that, so its
+    stored rows are counted and its revokes find them. Another agent's
+    row is not listed."""
+    user = new_user(memory)
+    bare = {k: v for k, v in meta(user, "task_agent").items()
+            if k not in ("owner_agent", "sharing_policy")}
+    text = "Our tracker is Linear."
+    mine = memory.write([{"role": "user", "content": text}], text,
+                        "task_agent", bare)
+    write(memory, user, "I live in Utrecht.")
+    rows = memory.list_own(user, "task_agent")
+    assert mine and [r["memory_id"] for r in rows] == mine
+    assert "owner_agent" not in rows[0]["metadata"]
+    assert [r["memory_id"] for r in memory.list_own(user, "calendar_agent")
+            ] == []
+
+
 def test_search_gives_each_fact_an_episode_the_agent_may_see(memory):
     """A fact merged from another agent's private write and a shared one
     is visible through the shared one; a fact only another agent's

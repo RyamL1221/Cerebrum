@@ -165,7 +165,10 @@ class NativeMemory:
                              owner: Optional[str] = None) -> List[dict]:
         """Every row of the user's group, one per fact and episode, with
         the episode's metadata, by Graphiti's documented getters, in
-        write order; ``owner`` keeps only that agent's episodes."""
+        write order; ``owner`` keeps only that agent's episodes, by the
+        ``agent_id`` every native v2 row carries (``_v2_create``), as
+        Mem0's and the in-house store's listings do: a V3 writer omits
+        ``owner_agent``."""
         group = backends.graphiti_group(user_id)
         episodes = await self.graphiti.nodes.episode.get_by_group_ids(
             [group], limit=V2_LIST_LIMIT)
@@ -178,7 +181,7 @@ class NativeMemory:
                 if episode_uuid not in meta:
                     continue
                 episode, metadata = meta[episode_uuid]
-                if owner is not None and metadata.get("owner_agent") != owner:
+                if owner is not None and metadata.get("agent_id") != owner:
                     continue
                 rows.append((episode.created_at, edge.created_at,
                              _graphiti_row(edge, episode_uuid, metadata)))
