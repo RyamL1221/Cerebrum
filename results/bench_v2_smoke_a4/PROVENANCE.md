@@ -66,10 +66,10 @@ smoke, not a verdict: no rule was pre-registered. Results: AIOS
   November 11, 2026", for "this week": native Mem0's user 4 echo; the
   kernel and replicated rows of that input were forgotten and their
   history scrubbed). Mem0 also wrote that month ("as of November
-  2026"), the year for "this year" in 3 of its 4 inputs, and, in every
-  Mem0 store, "December 2026" for "next month" (once "the coming
-  month"); of the December rows, only native Mem0's for users 3, 9 and
-  18 reached a block. In-house rows hold no calendar date. Every calendar date an answer takes from its block
+  2026"), the year for "this year" in 3 of its 4 inputs, and, among
+  the rows that remain, in every Mem0 store, "December 2026" for "next
+  month" (once "the coming month"); of the December rows, only native
+  Mem0's for users 3, 9 and 18 reached a block. In-house rows hold no calendar date. Every calendar date an answer takes from its block
   is one of these. Four privacy answers give made-up events dates that
   are in no block: replicated Mem0 user 15 (January to April 2027),
   native Mem0 user 15 (November 15, 18 and 22, 2026), and native
