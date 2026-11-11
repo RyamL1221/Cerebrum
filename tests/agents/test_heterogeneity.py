@@ -419,6 +419,15 @@ def test_native_reference_injects_both_writers(native_run):
     assert block_of(chat).startswith("Relevant memories about this user:")
 
 
+def test_a_v1_agent_managed_result_names_its_memory_backend(native_run):
+    """Amendment 5 decides an empty write by the backend, which the
+    agent-managed path reads off the agents' memory."""
+    run, rows, chat = native_run
+    with patch.object(FakeNativeMemory, "backend", "graphiti",
+                      create=True):
+        assert run(None).memory_backend == "graphiti"
+
+
 def test_native_v1_writer_misses_and_v1_consumer_builds_legacy(native_run):
     run, rows, chat = native_run
     result = run({"profile_agent": "V1"})

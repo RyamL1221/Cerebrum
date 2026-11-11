@@ -746,7 +746,8 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
     cells = ba.load(tmp_path)
     extra = ba.readings(cells)
     assert set(extra) == {"forgets", "supersession",
-                          "backend_invalidations", "exposure",
+                          "backend_invalidations", "writes_without_fact",
+                          "exposure",
                           "carriers", "stored_carriers", "misses", "slots",
                           "earlier_answers", "integration_blocks",
                           "integration_base_rows"}
@@ -798,6 +799,10 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
           "excluded"]),
         ("backend_invalidations", "Graphiti's own invalidations (Subtask 16)",
          ["invalidated_rows", "probes", "invalidated_in_block"]),
+        ("writes_without_fact",
+         "Graphiti writes that stored no fact (Amendment 5)",
+         ["trials", "with_one", "writes_without_fact", "probes_on_them",
+          "passed_on_them"]),
         ("exposure", "Trial-level exposure (deletion, privacy)",
          ["probe", "n", "passed", "exposed", "passed_exposed"]),
         ("carriers", "Deletion failures by carrier",
@@ -843,6 +848,11 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             "its own supersession, kept apart from the kernel's above and "
             "credited to no locus", "`invalidated_rows`: rows after the "
             "history it marked invalid", "probes whose block held one"],
+        "writes_without_fact": [
+            "a write Graphiti stored no fact from is a lost memory, not a "
+            "failed trial", "`with_one`: scored trials with such a write",
+            "`probes_on_them`: probes whose target was one, and "
+            "`passed_on_them`"],
         "exposure": [
             "A probe checks only its own block and answer.",
             "`exposed`: trials whose forbidden value appears in any "
@@ -1339,6 +1349,33 @@ def test_graphitis_invalidations_are_read_apart(tmp_path):
     other = tmp_path / "other"
     build(other)
     assert ba.backend_invalidation_rows(ba.load(other)) == []
+
+
+def test_graphiti_writes_without_a_fact_are_read_apart(tmp_path):
+    """Amendment 5: per Graphiti cell, the scored trials, those with a
+    write Graphiti stored no fact from, those writes, and the probes
+    whose target was one (with their passes). Failed trials are left
+    out; the other backends' cells have no row."""
+    build(tmp_path)
+    lost = graphiti_trial(1)
+    lost["writes_without_fact"] = ["e5", "e7"]
+    for p in lost["probe_results"]:
+        p["target_event"] = {"recall": "e5", "recency": "e7"}.get(
+            p["type"], "e1")
+        p["passed"] = p["type"] != "recall"
+    failed = dict(graphiti_trial(2), failed=True,
+                  writes_without_fact=["e9"])
+    write(tmp_path, "qwen", "kgra", "h2_kernel_shared",
+          [graphiti_trial(0), lost, failed])
+    rows = {(r["locus"], r["condition"]): r
+            for r in ba.writes_without_fact_rows(ba.load(tmp_path))}
+    assert set(rows) == {("kernel", "h2")}
+    assert [rows[("kernel", "h2")][k] for k in (
+        "trials", "with_one", "writes_without_fact", "probes_on_them",
+        "passed_on_them")] == [2, 1, 2, 2, 1]
+    other = tmp_path / "other"
+    build(other)
+    assert ba.writes_without_fact_rows(ba.load(other)) == []
 
 
 def test_the_graphiti_scrub_criterion_joins_only_with_graphiti(tmp_path):

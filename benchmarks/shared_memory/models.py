@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from benchmarks.shared_memory.conditions import locus_of
 from cerebrum.config.config_manager import config
 
+# Amendment 5 (Subtask 16; AIOS docs/BENCHMARK_V2.md): the memory
+# backends whose empty write is a lost memory, not a failed trial.
+# Graphiti raises on an extraction LLM error (graphiti_core re-raises
+# after its retries), so a write that returned and stored no row found
+# no fact: it is recorded (``writes_without_fact``) and the trial is
+# scored. Mem0 logs and swallows its extraction errors, so its empty
+# write still fails the trial (Subtask 10).
+EMPTY_WRITE_IS_LOSS = frozenset({"graphiti"})
+
 
 def _error_text(value: Any) -> Optional[str]:
     """An error field's value as text: None (or any falsy value) for no
@@ -465,6 +474,10 @@ class TrialResult(BaseModel):
     # recorded no backend LLM call, is failed: the backend failed
     # silently (``backend_extraction_failed``).
     writer_stored_rows: Dict[str, int] = {}
+    # Amendment 5: on a backend in EMPTY_WRITE_IS_LOSS, the writes that
+    # stored no row (v2: event ids; v1: writers). The trial is scored;
+    # [] elsewhere and in older files.
+    writes_without_fact: List[str] = []
     # The temperature and seed the kernel applied to the assistant's
     # call (Subtask 9d); None in older files or without a kernel reply.
     decoding: Optional[Dict[str, Any]] = None

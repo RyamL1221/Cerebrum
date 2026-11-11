@@ -79,6 +79,7 @@ from benchmarks.shared_memory.pipeline import (
     MethodPipeline,
     extraction_failure,
     model_name,
+    writes_without_fact,
 )
 from cerebrum.example.agents.variants import (
     CATALOG_VERSION as VARIANT_CATALOG_VERSION,
@@ -799,6 +800,10 @@ class EvaluationOrchestrator:
             "backend_extraction": pipeline_result.backend_extraction,
             "writer_stored_rows": dict(getattr(
                 pipeline_result, "writer_stored_rows", {}) or {}),
+            "writes_without_fact": writes_without_fact(
+                pipeline_result.backend_extraction,
+                getattr(pipeline_result, "writer_stored_rows", {}) or {},
+                getattr(pipeline_result, "memory_backend", None)),
             "decoding": pipeline_result.decoding,
             "dataset": self.dataset_name,
             "input_sha256": trial_input_sha256(trial_data),
@@ -918,6 +923,7 @@ class EvaluationOrchestrator:
             pipeline_result.backend_extraction,
             common["writer_stored_rows"],
             backend_usage["backend_llm_tokens"],
+            getattr(pipeline_result, "memory_backend", None),
         )
         if silent:
             logger.error("Trial %d: %s", trial_index, silent)
@@ -1040,6 +1046,8 @@ class EvaluationOrchestrator:
             "variants_not_applied": outcome.variants_not_applied,
             "backend_extraction": outcome.backend_extraction,
             "pipeline_version": outcome.pipeline_version,
+            "writes_without_fact": history.writes_without_fact(
+                user, outcome, outcome.backend_extraction),
             "written_memories": outcome.written,
             "memory_counts": MemoryCounts.of(outcome.written),
             "deleted_memory_ids": history.deleted_ids(outcome),

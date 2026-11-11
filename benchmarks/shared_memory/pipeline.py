@@ -40,6 +40,7 @@ from cerebrum.example.agents import variants as variant_catalog
 from cerebrum.example.agents.variants import apply_variant
 from benchmarks.shared_memory import judge_free
 from benchmarks.shared_memory.models import (
+    EMPTY_WRITE_IS_LOSS,
     InjectedMemoryEntry,
     InjectionDiagnostics,
     JudgeFreeMeasures,
@@ -97,6 +98,10 @@ class PipelineResult:
     # when the backend's extraction kept nothing. Writers that do not
     # report it are absent.
     writer_stored_rows: Dict[str, int] = field(default_factory=dict)
+    # The memory backend the writes went to (the kernel's
+    # /memory/config ``provider``, or the agents' ``memory.backend``);
+    # it decides whether an empty write is a failure (Amendment 5).
+    memory_backend: Optional[str] = None
     # The temperature and seed the kernel applied to the assistant's
     # model call (its /query reply's ``decoding``; Subtask 9d).
     decoding: Optional[Dict[str, Any]] = None
@@ -170,10 +175,31 @@ def writer_stored(*writer_results: dict) -> Dict[str, int]:
     }
 
 
+def _empty_writers(backend_extraction: Optional[bool],
+                   writer_stored_rows: Dict[str, int]) -> List[str]:
+    if backend_extraction is not True:
+        return []
+    return sorted(a for a, n in writer_stored_rows.items() if n == 0)
+
+
+def writes_without_fact(
+    backend_extraction: Optional[bool],
+    writer_stored_rows: Dict[str, int],
+    memory_backend: Optional[str],
+) -> List[str]:
+    """The writers whose write stored no row on a backend whose empty
+    write is a lost memory (``EMPTY_WRITE_IS_LOSS``, Amendment 5), else
+    []."""
+    if memory_backend not in EMPTY_WRITE_IS_LOSS:
+        return []
+    return _empty_writers(backend_extraction, writer_stored_rows)
+
+
 def extraction_failure(
     backend_extraction: Optional[bool],
     writer_stored_rows: Dict[str, int],
     backend_llm_tokens: Optional[TokenUsage],
+    memory_backend: Optional[str] = None,
 ) -> Optional[str]:
     """Why a trial whose backend extracts facts (Mem0, infer=True) is a
     failure although every writer succeeded, or None.
@@ -182,12 +208,15 @@ def extraction_failure(
     firewall refusal, Subtask 10) and stores nothing, so the trial runs
     on with an empty store. Two signs give it away: a writer whose write
     stored no row, and a trial with no backend LLM call at all. Each
-    trial's user is new, so every writer creates and Mem0 extracts.
+    trial's user is new, so every writer creates and Mem0 extracts. On a
+    backend in ``EMPTY_WRITE_IS_LOSS`` (Graphiti, Amendment 5) an empty
+    write is a lost memory (``writes_without_fact``), not a failure; no
+    backend LLM call still is.
     """
     if backend_extraction is not True:
         return None
-    empty = sorted(a for a, n in writer_stored_rows.items() if n == 0)
-    if empty:
+    empty = _empty_writers(backend_extraction, writer_stored_rows)
+    if empty and memory_backend not in EMPTY_WRITE_IS_LOSS:
         return ("backend_extraction_failed: stored no rows: "
                 + ", ".join(empty))
     if backend_llm_tokens is not None and backend_llm_tokens.calls == 0:
@@ -418,6 +447,7 @@ class AgentPipeline:
             writer_attempt_settings=attempts,
             backend_extraction=self._kernel_backend_extraction(),
             writer_stored_rows=writer_stored(profile_result, task_result),
+            memory_backend=self._kernel_memory_backend(),
             variants_applied=runner.codes,
             variants_not_applied=runner.not_applied,
             judge_free=measures(
@@ -461,6 +491,16 @@ class AgentPipeline:
         """Whether the kernel's memory backend extracts facts itself
         (``/memory/config`` ``backend_extraction``)."""
         return cls._kernel_memory_config().get("backend_extraction")
+
+    @classmethod
+    def _kernel_memory_backend(cls) -> Optional[str]:
+        """The kernel's memory provider (``/memory/config``
+        ``provider``), or None when it cannot be read."""
+        try:
+            return cls._kernel_memory_config().get("provider")
+        except (requests.RequestException, OSError, ValueError) as e:
+            logger.warning("Kernel memory provider unavailable: %s", e)
+            return None
 
     def _extract_injection_diagnostics(
         self, assistant_result: dict
@@ -853,6 +893,7 @@ class MethodPipeline:
             locus = history.KernelLocus(self.assistant_llms)
             extraction = AgentPipeline._kernel_backend_extraction()
             version = AgentPipeline._kernel_pipeline_version()
+            memory_backend = AgentPipeline._kernel_memory_backend()
         else:
             kind, backend = self.method.split("_", 1)
             if kind not in ("native", "replicated") or backend not in (
@@ -864,11 +905,13 @@ class MethodPipeline:
             memory = agents[history.CONSUMER].memory
             extraction = memory.backend_extraction
             version = getattr(memory, "version", None)
+            memory_backend = backend
         runner = VariantRunner(variants, locus.locus)
         outcome = history.run_history(user, locus, runner, control=control,
                                       recency_session=recency_session)
         outcome.backend_extraction = extraction
         outcome.pipeline_version = version
+        outcome.memory_backend = memory_backend
         return user, outcome, locus.locus
 
     def _v2_agents(self, kind: str, backend: str) -> Dict[str, Any]:
@@ -1260,6 +1303,7 @@ class MethodPipeline:
             profile_result, task_result
         )
         backend_extraction = assistant_agent.memory.backend_extraction
+        memory_backend = getattr(assistant_agent.memory, "backend", None)
         if failed:
             return PipelineResult(
                 profile_result=profile_result,
@@ -1273,6 +1317,7 @@ class MethodPipeline:
                 writer_retries=retries,
                 writer_attempt_settings=attempts,
                 backend_extraction=backend_extraction,
+                memory_backend=memory_backend,
                 backend_llm_tokens=TokenUsage(),
                 embedding_tokens=TokenUsage(),
                 variants_applied=runner.codes,
@@ -1305,6 +1350,7 @@ class MethodPipeline:
             writer_attempt_settings=attempts,
             backend_extraction=backend_extraction,
             writer_stored_rows=writer_stored(profile_result, task_result),
+            memory_backend=memory_backend,
             backend_llm_tokens=TokenUsage(
                 **backend["backend_llm_tokens"]
             ),

@@ -29,6 +29,7 @@ from benchmarks.shared_memory import dataset, history, run_evaluation, synth_v2
 from benchmarks.shared_memory.models import (
     InjectionDiagnostics,
     ProbeResult,
+    TokenUsage,
     TrialResult,
     V2UserData,
 )
@@ -612,6 +613,61 @@ def test_the_extraction_guard_counts_rows_by_event():
         user, outcome, True)
 
 
+def drop_rows_of(user, outcome, session_index):
+    """Remove one write's rows from its listing, as a backend that
+    stored nothing for it would leave them; returns the write."""
+    event = user.sessions[session_index]["events"][0]
+    listing = outcome.listings[session_index]["rows"][
+        user.sessions[session_index]["writer"]]
+    listing[:] = [r for r in listing if r["metadata"]["provenance_event"]
+                  != event["event_id"]]
+    return event
+
+
+def test_a_graphiti_write_with_no_fact_is_a_loss_not_a_failure():
+    """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
+    so a Graphiti write that returned and stored no row found no fact.
+    It is recorded and the trial is scored; Mem0 swallows its errors, so
+    the same write still fails a Mem0 trial."""
+    user, outcome = run(FakeLocus())
+    event = drop_rows_of(user, outcome, 2)
+    outcome.memory_backend = "graphiti"
+    assert history.extraction_failure(user, outcome, True) is None
+    assert history.writes_without_fact(user, outcome, True) == [
+        event["event_id"]]
+    assert history.writes_without_fact(user, outcome, False) == []
+    outcome.memory_backend = "mem0"
+    assert event["event_id"] in history.extraction_failure(
+        user, outcome, True)
+    assert history.writes_without_fact(user, outcome, True) == []
+
+
+def test_run_history_trial_records_each_locus_memory_backend():
+    from benchmarks.shared_memory import pipeline as pl
+
+    user = v2_user()
+    memory = SimpleNamespace(backend="graphiti", backend_extraction=True,
+                             version="v")
+    with patch.object(history, "run_history",
+                      side_effect=lambda *a, **k: history.HistoryOutcome()), \
+            patch.object(history, "AgentManagedLocus",
+                         side_effect=lambda kind, *a: SimpleNamespace(
+                             locus=kind)), \
+            patch.object(history, "KernelLocus",
+                         side_effect=lambda *a: SimpleNamespace(
+                             locus="kernel")), \
+            patch.object(pl.AgentPipeline, "_kernel_memory_config",
+                         return_value={"provider": "graphiti",
+                                       "backend_extraction": True}), \
+            patch.object(pl.MethodPipeline, "_v2_agents",
+                         return_value={history.CONSUMER: SimpleNamespace(
+                             memory=memory)}):
+        for method in ("replicated_graphiti", "native_graphiti",
+                       "kernel_shared"):
+            _, outcome, _ = pl.MethodPipeline(method).run_history_trial(user)
+            assert outcome.memory_backend == "graphiti", method
+
+
 # -- probe_results schema ----------------------------------------------------
 
 def test_probe_results_have_the_spec_fields():
@@ -769,6 +825,46 @@ def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
         injected = {str(r.memory_id) for r in
                     probe.diagnostics.injected_memories or []}
         assert set(probe.backend_invalidated_in_block) == injected & ids
+
+
+@pytest.mark.parametrize("backend,failed", [("graphiti", False),
+                                            ("mem0", True)])
+def test_a_v2_trial_with_a_write_without_a_fact(tmp_path, backend, failed):
+    """Amendment 5: on Graphiti the trial is scored and records the
+    write in ``writes_without_fact``; on Mem0 it fails as before."""
+    path = tmp_path / "v2.jsonl"
+    synth_v2.generate(path, n=1)
+    o = orchestrator(dataset=str(path), judge=False)
+    o.generator.run_id = "r1"
+    o._embed = False
+    seen = {}
+
+    def run_history_trial(user, variants=None, *, control=None,
+                          recency_session=True):
+        user = user.model_copy(update={"user_id": USER_ID})
+        outcome = history.run_history(
+            user, FakeLocus(), VariantRunner(None, "kernel"),
+            control=control)
+        outcome.backend_extraction = True
+        outcome.memory_backend = backend
+        seen["event"] = drop_rows_of(user, outcome, 2)["event_id"]
+        return user, outcome, "kernel"
+
+    pipeline = SimpleNamespace(run_history_trial=run_history_trial)
+    called = TokenUsage(calls=3, prompt_tokens=10, total_tokens=10)
+    with patch.object(run_evaluation, "read_backend_usage",
+                      return_value={"backend_llm_tokens": called,
+                                    "embedding_tokens": None}):
+        trial = o.run_single_trial(0, "kernel_shared", pipeline,
+                                   method="kernel_shared")
+    assert trial.failed is failed
+    if failed:
+        assert seen["event"] in trial.error_message
+        assert trial.writes_without_fact == []
+    else:
+        assert trial.writes_without_fact == [seen["event"]]
+        again = TrialResult.model_validate_json(trial.model_dump_json())
+        assert again.writes_without_fact == [seen["event"]]
 
 
 def test_base_events_reach_the_writers_with_their_fields():

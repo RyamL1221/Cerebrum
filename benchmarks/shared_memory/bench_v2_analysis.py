@@ -916,11 +916,40 @@ def backend_invalidation_rows(cells: Dict[tuple, dict]) -> List[dict]:
     return rows
 
 
+def writes_without_fact_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per Graphiti cell (Amendment 5): the scored trials, those with a
+    write Graphiti stored no fact from (``writes_without_fact``: a lost
+    memory, not a failed trial), those writes, and the probes whose
+    target was one, with their passes. No rows for the other
+    backends."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        if backend != "graphiti":
+            continue
+        row = {**_key(model, locus, backend, condition), "trials": 0,
+               "with_one": 0, "writes_without_fact": 0,
+               "probes_on_them": 0, "passed_on_them": 0}
+        for trial in cell["trials"]:
+            if trial.get("failed"):
+                continue
+            lost = set(trial.get("writes_without_fact") or [])
+            row["trials"] += 1
+            row["with_one"] += bool(lost)
+            row["writes_without_fact"] += len(lost)
+            for probe in trial.get("probe_results") or []:
+                if probe.get("target_event") in lost:
+                    row["probes_on_them"] += 1
+                    row["passed_on_them"] += bool(probe.get("passed"))
+        rows.append(row)
+    return rows
+
+
 def readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
     """Every reading above, by name."""
     return {"forgets": forget_rows(cells),
             "supersession": supersession_rows(cells),
             "backend_invalidations": backend_invalidation_rows(cells),
+            "writes_without_fact": writes_without_fact_rows(cells),
             "exposure": exposure_rows(cells),
             "carriers": carrier_rows(cells),
             "stored_carriers": stored_carrier_rows(cells),
@@ -958,6 +987,16 @@ READING_SECTIONS = [
      "kernel's above and credited to no locus. `invalidated_rows`: rows "
      "after the history it marked invalid; probes whose block held one.",
      ["invalidated_rows", "probes", "invalidated_in_block"]),
+    ("writes_without_fact",
+     "Graphiti writes that stored no fact (Amendment 5)",
+     "Graphiti sometimes extracts a write's entities but no fact, and "
+     "its search returns facts only: a write Graphiti stored no fact "
+     "from is a lost memory, not a failed trial. `trials`: scored "
+     "trials; `with_one`: scored trials with such a write; "
+     "`writes_without_fact`: those writes; `probes_on_them`: probes "
+     "whose target was one, and `passed_on_them`.",
+     ["trials", "with_one", "writes_without_fact", "probes_on_them",
+      "passed_on_them"]),
     ("exposure", "Trial-level exposure (deletion, privacy)",
      "A probe checks only its own block and answer. `exposed`: trials "
      "whose forbidden value appears in any probe's block or answer; "

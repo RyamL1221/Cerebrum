@@ -37,6 +37,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from unittest.mock import patch
 
 from benchmarks.shared_memory.models import (
+    EMPTY_WRITE_IS_LOSS,
     SessionRecord,
     TokenUsage,
     V2UserData,
@@ -116,6 +117,10 @@ class HistoryOutcome:
     variants_not_applied: Dict[str, str] = field(default_factory=dict)
     backend_extraction: Optional[bool] = None
     pipeline_version: Optional[str] = None
+    # The backend the writes went to (the kernel's provider or the
+    # agents' backend); it decides whether an empty write is a failure
+    # (Amendment 5, ``EMPTY_WRITE_IS_LOSS``).
+    memory_backend: Optional[str] = None
     # Agent-managed loci report their backend usage; the kernel's is
     # read from /memory/cost afterwards (None here).
     backend_llm_tokens: Optional[TokenUsage] = None
@@ -719,21 +724,9 @@ def write_events(user: V2UserData) -> List[dict]:
             if event["type"] in WRITE_EVENTS]
 
 
-def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
-                       backend_extraction: Optional[bool]) -> Optional[str]:
-    """With backend extraction, every write event must have left a row
-    (counted in the listing after its session, by ``provenance_event``);
-    a write that stored nothing is a backend that failed silently. Two
-    writes left no listed row and are no failure (Amendment 4): one the
-    library suppressed (its rows carried a forgotten value and were
-    swept), and one whose reply named rows that its own session then
-    removed, every one (a forget took a Mem0 fold of the value it
-    forgot, or a sweep). Any other write whose reply named no row (a
-    suppressed write's names none) is never excused; neither is one
-    whose named rows a later session removed, or one with a named row
-    that nothing removed."""
-    if backend_extraction is not True:
-        return None
+def _empty_writes(user: V2UserData, outcome: HistoryOutcome) -> List[str]:
+    """The write events that left no listed row and are not excused
+    (``extraction_failure``)."""
     after = {listing["after"]: listing for listing in outcome.listings}
     records: Dict[str, tuple] = {}
     for session in outcome.sessions:
@@ -756,10 +749,44 @@ def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
         if named and named <= removed:
             continue  # stored; its own session removed every row
         empty.append(event["event_id"])
+    return empty
+
+
+def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
+                       backend_extraction: Optional[bool]) -> Optional[str]:
+    """With backend extraction, every write event must have left a row
+    (counted in the listing after its session, by ``provenance_event``);
+    a write that stored nothing is a backend that failed silently. Two
+    writes left no listed row and are no failure (Amendment 4): one the
+    library suppressed (its rows carried a forgotten value and were
+    swept), and one whose reply named rows that its own session then
+    removed, every one (a forget took a Mem0 fold of the value it
+    forgot, or a sweep). Any other write whose reply named no row (a
+    suppressed write's names none) is never excused; neither is one
+    whose named rows a later session removed, or one with a named row
+    that nothing removed. On a backend in ``EMPTY_WRITE_IS_LOSS``
+    (Graphiti, Amendment 5) such a write is a lost memory, recorded by
+    ``writes_without_fact``, not a failure."""
+    if backend_extraction is not True:
+        return None
+    if outcome.memory_backend in EMPTY_WRITE_IS_LOSS:
+        return None
+    empty = _empty_writes(user, outcome)
     if empty:
         return ("backend_extraction_failed: stored no rows: "
                 + ", ".join(empty))
     return None
+
+
+def writes_without_fact(user: V2UserData, outcome: HistoryOutcome,
+                        backend_extraction: Optional[bool]) -> List[str]:
+    """Amendment 5: on a backend in ``EMPTY_WRITE_IS_LOSS``, the write
+    events that stored no row (as ``extraction_failure`` counts them):
+    Graphiti found entities but no fact. [] on any other backend."""
+    if (backend_extraction is not True
+            or outcome.memory_backend not in EMPTY_WRITE_IS_LOSS):
+        return []
+    return _empty_writes(user, outcome)
 
 
 def deleted_ids(outcome: HistoryOutcome) -> List[str]:

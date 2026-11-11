@@ -12,13 +12,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from benchmarks.shared_memory import models
 from benchmarks.shared_memory.models import SyntheticTrialData, TokenUsage
 from benchmarks.shared_memory.pipeline import (
+    AgentPipeline,
     PipelineResult,
     extraction_failure,
     writer_stored,
+    writes_without_fact,
 )
 from cerebrum.example.agents.native.agents import (
     NativeMemory,
@@ -64,6 +67,26 @@ def test_stored_rows_and_calls_pass():
     assert extraction_failure(
         True, {"profile_agent": 3, "task_agent": 1}, CALLED,
     ) is None
+
+
+def test_a_graphiti_writer_that_stored_no_row_is_a_loss():
+    """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
+    so its empty write found no fact; it is recorded, not a failure.
+    Mem0 swallows its errors: the same write still fails."""
+    stored = {"profile_agent": 0, "task_agent": 1}
+    assert extraction_failure(True, stored, CALLED, "graphiti") is None
+    assert writes_without_fact(True, stored, "graphiti") == [
+        "profile_agent"]
+    assert writes_without_fact(False, stored, "graphiti") == []
+    assert extraction_failure(True, stored, CALLED, "mem0") == (
+        "backend_extraction_failed: stored no rows: profile_agent")
+    assert writes_without_fact(True, stored, "mem0") == []
+
+
+def test_a_graphiti_trial_with_no_backend_call_still_fails():
+    assert extraction_failure(
+        True, {"profile_agent": 0}, TokenUsage(), "graphiti",
+    ) == "backend_extraction_failed: no backend LLM calls recorded"
 
 
 def test_writer_stored_skips_writers_that_do_not_report():
@@ -189,6 +212,30 @@ def test_kernel_trial_with_an_empty_write_is_failed(tmp_path):
     assert trial.failed
     assert trial.error_message == (
         "backend_extraction_failed: stored no rows: profile_agent")
+
+
+def test_kernel_graphiti_trial_with_an_empty_write_is_scored(tmp_path):
+    with patch("benchmarks.shared_memory.run_evaluation."
+               "read_backend_usage", return_value={
+                   "backend_llm_tokens": CALLED,
+                   "embedding_tokens": TokenUsage()}):
+        trial = orchestrate(
+            tmp_path, "kernel_shared", backend_extraction=True,
+            memory_backend="graphiti",
+            writer_stored_rows={"profile_agent": 0, "task_agent": 1},
+            backend_usage_user_id="u",
+        )
+    assert not trial.failed, trial.error_message
+    assert trial.writes_without_fact == ["profile_agent"]
+
+
+def test_the_kernel_memory_backend_is_its_provider():
+    with patch.object(AgentPipeline, "_kernel_memory_config",
+                      return_value={"provider": "graphiti"}):
+        assert AgentPipeline._kernel_memory_backend() == "graphiti"
+    with patch.object(AgentPipeline, "_kernel_memory_config",
+                      side_effect=requests.ConnectionError("down")):
+        assert AgentPipeline._kernel_memory_backend() is None
 
 
 def test_healthy_and_non_extracting_trials_complete(tmp_path):
