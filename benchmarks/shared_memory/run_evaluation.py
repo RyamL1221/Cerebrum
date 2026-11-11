@@ -364,9 +364,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "AIOS kernel base URL (e.g. http://localhost:8001) for the "
-            "pre-flight checks and the backend usage reads. The agents "
-            "use the configured kernel (CEREBRUM_KERNEL_URL or the "
-            "config), so a v2 run refuses any other URL."
+            "pre-flight checks only. The agents, the judge and the "
+            "backend usage reads use the configured kernel "
+            "(CEREBRUM_KERNEL_URL or the config), so a v2 run refuses "
+            "any other URL."
         ),
     )
     parser.add_argument(

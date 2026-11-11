@@ -303,10 +303,11 @@ def forget_memories(agent_name: str,
 
     The fact's values are the ``structured`` ``value`` and the
     ``value_aliases`` in the metadata of the slot's rows (and of an
-    earlier tombstone of the slot). A restatement is a later write of
-    the slot whose ``structured`` value is one of them and whose
-    ``provenance_event`` is not a forgotten statement's; a statement in
-    the content alone does not count. A forget that finds no value
+    earlier tombstone of the slot). A restatement is a later write or
+    update of the slot whose ``structured`` value is one of them and
+    that carries a ``provenance_event`` other than the forgotten
+    statements'; a write without one, or a statement in the content
+    alone, does not count. A forget that finds no value
     (``values_count`` 0) deletes by ``fact_key`` only: it then deletes
     no other carrier, scrubs no message and keeps no tombstone, so a
     later write of the value is kept.

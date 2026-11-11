@@ -652,9 +652,11 @@ def miss_rows(cells: Dict[tuple, dict]) -> List[dict]:
 
 
 def slot_rows(cells: Dict[tuple, dict]) -> List[dict]:
-    """Contradiction per slot (known issue 44): in some slots the
-    question repeats the earlier statement's words. ``lenient``: the
-    answers that name the later value."""
+    """Contradiction per slot (known issue 44). Under revision 3 each
+    slot asks a question that leans to each statement, alternated
+    between its users; the results do not record the lean (join
+    ``users_v2`` by ``probe_id``). ``lenient``: the answers that name
+    the later value."""
     rows = []
     for (model, locus, backend, condition), cell in sorted(cells.items()):
         by_slot = defaultdict(list)
