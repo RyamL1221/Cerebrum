@@ -325,11 +325,14 @@ class SessionRecord(BaseModel):
     # One record per event the writer ran. Since Amendment 2 a write
     # event's ``memory_ids`` and ``stored_rows`` are the writer's rows
     # in the listing after the session whose ``provenance_event`` is
-    # the event (every fact Mem0 extracted from it), and
+    # the event (every fact Mem0 extracted from it, less any that a
+    # forget or a sweep deleted later in the session), and
     # ``reported_ids`` the ids the writer's reply named (the kernel's
-    # Mem0 add names only the first). Both are None when no listing
-    # followed (the session or its listing failed). A revoke keeps its
-    # ``found_ids`` and ``deleted_ids``.
+    # Mem0 add names only the first). Since Amendment 4 a write event's
+    # ``forgotten_ids`` are its reported ids that its own session
+    # removed (a forget or a sweep). All but ``reported_ids`` are None
+    # when no listing followed (the session or its listing failed). A
+    # revoke keeps its ``found_ids`` and ``deleted_ids``.
     events: List[Dict[str, Any]] = []
     # The write events' ``stored_rows`` summed; None as above. Older
     # files hold the replies' count.

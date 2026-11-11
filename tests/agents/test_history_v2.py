@@ -1099,6 +1099,9 @@ def test_a_failed_session_keeps_its_reported_ids_and_lists_no_rows():
     [base] = failed.events  # the base event ran before the failed add
     assert len(base["reported_ids"]) == 1
     assert base["memory_ids"] is None and base["stored_rows"] is None
+    assert base["forgotten_ids"] is None
+    # A listed session: no write lost a row to its own session.
+    assert [e["forgotten_ids"] for e in listed.events] == [[], [], []]
 
 
 def test_a_write_that_stored_nothing_records_zero_rows():
@@ -1658,6 +1661,113 @@ def test_a_suppressed_write_is_no_extraction_failure():
     failure = history.extraction_failure(user, outcome, True)
     assert second["event_id"] in failure
     assert first["event_id"] not in failure
+
+
+class FoldingKernel(FakeKernel):
+    """The kernel whose Mem0 extraction folds a fact's value into one
+    later write's row, as gpt-4o folded the revoked codename into user
+    19's docs wiki row in the Amendment 4 smoke (``s15``)."""
+
+    def __init__(self, event_id=None, value=None, **kwargs):
+        super().__init__(**kwargs)
+        self.event_id, self.value = event_id, value
+
+    def create_memory(self, agent_name, content=None, metadata=None,
+                      base_url=None, **kwargs):
+        if (metadata or {}).get("provenance_event") == self.event_id:
+            content = f"{content} That is for {self.value}."
+        return super().create_memory(agent_name, content, metadata,
+                                     base_url, **kwargs)
+
+
+def write_before_its_sessions_revoke(user):
+    """The first write of a session that later revokes a fact, and the
+    revoked value; ``(None, None)`` for a user without one."""
+    values = {e["event_id"]: e.get("value") for s in user.sessions
+              for e in s["events"]}
+    for s in user.sessions:
+        kinds = [e["type"] for e in s["events"]]
+        if "revoke" not in kinds:
+            continue
+        at = kinds.index("revoke")
+        writes = [e for e in s["events"][:at]
+                  if e["type"] in history.WRITE_EVENTS]
+        if writes:
+            return writes[0], values[s["events"][at]["target_event"]]
+    return None, None
+
+
+def test_a_write_its_sessions_forget_took_is_no_extraction_failure():
+    """Mem0 can fold a fact's value into the next row the same writer
+    stores, and the forget deletes that row as a carrier (Amendment 4).
+    When the write comes earlier in the revoke's own session, the
+    listing after the session holds no row of it. The write stored a
+    row, so it is no extraction failure, and its record names the row
+    its session deleted (``forgotten_ids``). In ``s15`` the check
+    failed user 19 for this (``u019-e08``)."""
+    user = next(u for u in map(v2_user, range(5))
+                if write_before_its_sessions_revoke(u)[0])
+    write, value = write_before_its_sessions_revoke(user)
+    kernel = FoldingKernel(write["event_id"], value)
+    with kernel.patched():
+        _, outcome = run(history.KernelLocus(), user)
+    assert outcome.failure is None
+    session = next(s for s in outcome.sessions for e in s.events
+                   if e["event_id"] == write["event_id"])
+    record = next(e for e in session.events
+                  if e["event_id"] == write["event_id"])
+    [named] = record["reported_ids"]
+    assert record["memory_ids"] == [] and record["stored_rows"] == 0
+    assert record["forgotten_ids"] == [named]
+    [revoke] = [e for e in session.events if e["type"] == "revoke"]
+    assert (named, "value") in {(d["memory_id"], d["reason"])
+                               for d in revoke["forget"]["deleted"]}
+    assert history.extraction_failure(user, outcome, True) is None
+    # No other write lost a row to its own session.
+    assert all(not e.get("forgotten_ids") for s in outcome.sessions
+               for e in s.events if e is not record)
+
+
+@pytest.mark.parametrize("removal,excused", [
+    ("deleted in its session", True),
+    ("swept in its session", True),
+    ("no reported id", False),
+    ("deleted in a later session", False),
+    ("one of two reported ids", False),
+])
+def test_only_its_own_sessions_removal_of_every_named_row_excuses_a_write(
+        removal, excused):
+    """The extraction check excuses a write that the listing after its
+    session shows empty only when its reply named rows and its own
+    session deleted or swept every one. A write whose reply named no
+    row failed silently, whatever else the session deleted; a later
+    session's delete cannot explain the earlier listing; and a named
+    row that nothing removed never reached the store."""
+    user, outcome = run(FakeLocus())
+    record = outcome.sessions[2]  # session 3: no revoke
+    event = user.sessions[2]["events"][0]
+    rows = outcome.listings[2]["rows"][record.writer]
+    rows[:] = [r for r in rows if r["metadata"]["provenance_event"]
+               != event["event_id"]]
+    write = next(e for e in record.events
+                 if e["event_id"] == event["event_id"])
+    [named] = write["reported_ids"]
+    if removal == "deleted in its session":
+        record.deleted_ids.append(named)
+    elif removal == "swept in its session":
+        write["swept_ids"] = [named]
+    elif removal == "no reported id":
+        write["reported_ids"] = []
+        record.deleted_ids.append("m-another-row")
+    elif removal == "deleted in a later session":
+        outcome.sessions[3].deleted_ids.append(named)
+    else:
+        write["reported_ids"].append("m-never-stored")
+        record.deleted_ids.append(named)
+    failure = history.extraction_failure(user, outcome, True)
+    assert (failure is None) is excused
+    if not excused:
+        assert event["event_id"] in failure
 
 
 def statement(event_id, kind, fact_key, value=None, aliases=(), **extra):

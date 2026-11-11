@@ -23,7 +23,8 @@ fails the user and keeps what ran. A probe whose diagnostics report a
 failed retrieval or injection is a consumer error, and ``score_turns``
 records a probe with an error unscored. Each write event's stored rows
 and ids come from the listing after its session, by
-``provenance_event``.
+``provenance_event``; a row that a forget or a sweep deleted later in
+that session is not among them (the event's ``forgotten_ids``).
 """
 import json
 import logging
@@ -550,10 +551,11 @@ def _with_base_fields(user: V2UserData, events: List[dict]) -> List[dict]:
 
 def _reported(records: List[dict], events: List[dict]) -> List[dict]:
     """The writer's event records, each write event's reply ids moved
-    to ``reported_ids``. Its ``memory_ids`` and ``stored_rows`` are None
-    until the listing after the session gives them (``_listed_rows``):
-    the kernel's Mem0 add names only its first fact. The event's type
-    is the script's (the record's own, for an event not in it)."""
+    to ``reported_ids``. Its ``memory_ids``, ``stored_rows`` and
+    ``forgotten_ids`` are None until the listing after the session
+    gives them (``_listed_rows``): the kernel's Mem0 add names only its
+    first fact. The event's type is the script's (the record's own, for
+    an event not in it)."""
     kinds = {event.get("event_id"): event.get("type") for event in events}
     out = []
     for record in records:
@@ -563,28 +565,45 @@ def _reported(records: List[dict], events: List[dict]) -> List[dict]:
             record["reported_ids"] = [
                 str(i) for i in record.get("memory_ids") or []]
             record["memory_ids"] = record["stored_rows"] = None
+            record["forgotten_ids"] = None
         out.append(record)
     return out
+
+
+def _removed_in_session(record: SessionRecord) -> set:
+    """The ids the session's own events removed: every row its revokes
+    deleted (``deleted_ids``) and every row its writes swept."""
+    removed = {str(i) for i in record.deleted_ids}
+    for event in record.events:
+        removed.update(str(i) for i in event.get("swept_ids") or [])
+    return removed
 
 
 def _listed_rows(record: SessionRecord, rows: List[dict]) -> None:
     """Fill each write event's ``memory_ids`` and ``stored_rows`` from
     ``rows``, the writer's rows in the listing after the session: those
     whose ``metadata.provenance_event`` is the event's id (Mem0 copies
-    a write's metadata onto every fact it extracts). The session's
-    ``stored_rows`` is their sum. A revoke's record is left as it is."""
+    a write's metadata onto every fact it extracts). A row that a forget
+    or a sweep deleted later in the session is in no listing: the
+    event's ``forgotten_ids`` are the ids its reply named
+    (``reported_ids``) that the session removed (Amendment 4: a Mem0
+    fold of a value the session forgot). The session's ``stored_rows``
+    is the listed rows' sum. A revoke's record is left as it is."""
     by_event: Dict[str, List[str]] = {}
     for row in rows:
         event = (row.get("metadata") or {}).get("provenance_event")
         if event is not None:
             by_event.setdefault(str(event), []).append(
                 str(row.get("memory_id")))
+    removed = _removed_in_session(record)
     stored = 0
     for event in record.events:
         if "reported_ids" not in event:  # not a write event
             continue
         found = by_event.get(str(event.get("event_id")), [])
         event["memory_ids"], event["stored_rows"] = found, len(found)
+        event["forgotten_ids"] = [i for i in event["reported_ids"]
+                                  if i in removed and i not in found]
         stored += len(found)
     record.stored_rows = stored
 
@@ -701,25 +720,38 @@ def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
                        backend_extraction: Optional[bool]) -> Optional[str]:
     """With backend extraction, every write event must have left a row
     (counted in the listing after its session, by ``provenance_event``);
-    a write that stored nothing is a backend that failed silently. A
-    write the library suppressed (its rows carried a forgotten value
-    and were swept, Amendment 4) stored nothing on purpose."""
+    a write that stored nothing is a backend that failed silently. Two
+    writes left no listed row and are no failure (Amendment 4): one the
+    library suppressed (its rows carried a forgotten value and were
+    swept), and one whose reply named rows that its own session then
+    removed, every one (a forget took a Mem0 fold of the value it
+    forgot, or a sweep). A write whose reply named no row is never
+    excused; neither is one whose named rows a later session removed,
+    or one with a named row that nothing removed."""
     if backend_extraction is not True:
         return None
     after = {listing["after"]: listing for listing in outcome.listings}
-    suppressed = {str(e.get("event_id")) for s in outcome.sessions
-                  for e in s.events if e.get("suppressed")}
+    records: Dict[str, tuple] = {}
+    for session in outcome.sessions:
+        removed = _removed_in_session(session)
+        for e in session.events:
+            records[str(e.get("event_id"))] = (e, removed)
     empty = []
     for event in write_events(user):
-        if event["event_id"] in suppressed:
+        record, removed = records.get(event["event_id"], ({}, set()))
+        if record.get("suppressed"):
             continue
         listing = after.get(f"session {event['session']}")
         if listing is None:
             continue
         rows = listing["rows"].get(event["writer"], [])
-        if not any((r.get("metadata") or {}).get("provenance_event")
-                   == event["event_id"] for r in rows):
-            empty.append(event["event_id"])
+        if any((r.get("metadata") or {}).get("provenance_event")
+               == event["event_id"] for r in rows):
+            continue
+        named = {str(i) for i in record.get("reported_ids") or []}
+        if named and named <= removed:
+            continue  # stored; its own session removed every row
+        empty.append(event["event_id"])
     if empty:
         return ("backend_extraction_failed: stored no rows: "
                 + ", ".join(empty))
