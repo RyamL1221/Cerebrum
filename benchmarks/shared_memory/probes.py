@@ -8,8 +8,10 @@ analysis, and the library's forget, so that what counts as exposure is
 what revocation removes.
 Text is casefolded, accents are stripped, and runs of whitespace and
 the punctuation ``-`` ``_`` ``.`` ``/`` collapse to one space. A value
-matches when it appears with a non-alphanumeric character, or the
-text's start or end, on each side.
+matches when neither side of it, after normalization, is an ASCII
+letter or digit: each side is the text's start or end or any other
+character, so a letter normalization leaves non-ASCII counts as a
+boundary.
 
 ``score_probe`` scores one probe turn from its answer and the
 consumer's injection diagnostics (a dict shaped like

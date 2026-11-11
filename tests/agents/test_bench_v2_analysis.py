@@ -234,9 +234,11 @@ def test_integration_rows_carry_the_t_interval_of_the_mean(tmp_path):
     assert ("| model | locus | backend | condition | n | mean | ci_low | "
             "ci_high | sd | share_ge_4 |") in text
     assert f"| 3.67 | {low:.2f} | {high:.2f} | 1.53 |" in text
-    # One score: no interval and no standard deviation.
+    # One score: no interval and no standard deviation; the mean is a
+    # float, printed like the others, though the score is whole.
     assert single["sd"] is None
-    assert "| 1 | 4 |  |  |  | 1.00 |" in text
+    assert isinstance(single["mean"], float)
+    assert "| 1 | 4.00 |  |  |  | 1.00 |" in text
 
 
 def test_named_as_past_counts_what_the_scorer_marks(tmp_path):

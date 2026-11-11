@@ -1737,10 +1737,11 @@ def test_a_write_its_sessions_forget_took_is_no_extraction_failure():
 ])
 def test_only_its_own_sessions_removal_of_every_named_row_excuses_a_write(
         removal, excused):
-    """The extraction check excuses a write that the listing after its
-    session shows empty only when its reply named rows and its own
-    session deleted or swept every one. A write whose reply named no
-    row failed silently, whatever else the session deleted; a later
+    """The extraction check excuses a write that was not suppressed and
+    that the listing after its session shows empty only when its reply
+    named rows and its own session deleted or swept every one. Such a
+    write whose reply named no row failed silently, whatever else the
+    session deleted; a later
     session's delete cannot explain the earlier listing; and a named
     row that nothing removed never reached the store."""
     user, outcome = run(FakeLocus())

@@ -135,15 +135,17 @@ class ReplicatedMemory:
             kernel_config["pipeline"]
         )
         # The store's tombstones, shared by its agents through the file
-        # (read on every check), not the kernel's: /memory/config does
-        # not carry the path.
+        # (read on every check). Not the kernel's file, which
+        # /memory/config reports outside ``pipeline``: a replicated
+        # store keeps its own.
         self.tombstones_path = tombstones_path or os.path.join(
             store_root(backend), "tombstones.sqlite"
         )
         self.tombstones = pipeline.TombstoneStore(self.tombstones_path)
         # Its own barrier and resolver (the library's defaults).
         # The provider's own LLM and embedding calls count to the user
-        # they serve (the library imports no SDK module: it is passed).
+        # they serve (no module of the library imports the SDK: the tag
+        # is passed).
         self.pipeline = pipeline.MemoryPipeline(
             self.provider, self.settings, tombstones=self.tombstones,
             usage_tag=usage.tagged,

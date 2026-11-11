@@ -738,6 +738,14 @@ def run_v2_session(
                 record["deleted_ids"] = [
                     entry["memory_id"] for entry in report["deleted"]
                 ]
+                # v2 runs one writer at a time, so a row the forget
+                # listed and then did not find was not deleted by
+                # another request: count it as a failed forget.
+                if report.get("not_found"):
+                    raise WriterError(
+                        "forget: rows it listed were not deleted: "
+                        f"{report['not_found']}"
+                    )
             elif event["type"] == V2_REVOKE:
                 record["revoke_path"] = REVOKE_OWNER
                 rows = listed_rows(list_rows(user_id))

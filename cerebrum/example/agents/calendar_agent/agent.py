@@ -2,8 +2,12 @@
 
 ``CalendarAgent`` stores the user's scheduling facts (a team-sync room,
 a weekly one-on-one, a conference talk) as ``calendar`` memories, one
-row per scripted event, and deletes its own rows of a fact the user
-revokes. It runs benchmark v2 sessions only
+row per scripted event. A fact the user revokes is forgotten through
+the kernel (``forget_memories``, Amendment 4: every row of the slot and
+every row carrying its values or aliases, of any agent, after a
+tombstone); under the ``writer_scoped`` control it lists and deletes
+only its own rows of the fact, and under ``no_delete`` it deletes
+nothing. It runs benchmark v2 sessions only
 (``shared_memory_utils.run_v2_session``) and calls no LLM: any other
 input fails the writer with a clear reason. Like the profile and task
 writers, it makes every kernel memory call through this module's SDK
@@ -50,6 +54,8 @@ class CalendarAgent:
     Attributes the deployment (the harness) sets: ``user_id``,
     ``share_memory`` (True: non-private events are shared),
     ``delete_on_revoke`` (True; False is the ``no_delete`` control),
+    ``forget_scope`` ("user", the default: a revoke is the user's
+    forget; "writer" is the ``writer_scoped`` control),
     ``extra_metadata`` (the provenance added to every write) and
     ``llms`` (unused: no LLM call).
     """

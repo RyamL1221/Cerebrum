@@ -15,8 +15,9 @@ and the listing calls of one condition:
 - ``AgentManagedLocus``: the native or replicated agents, built once per
   cell like deployed agents and re-pointed at each user.
 
-The negative controls (``no_memory``, ``no_delete``, ``no_visibility``)
-switch one property off so a probe shows it can fail.
+The negative controls (``no_memory``, ``no_delete``, ``no_visibility``,
+``writer_scoped``, ``no_supersession``) switch one property off so a
+probe shows it can fail.
 
 Since Amendment 2, any failure (a ``LocusFailure`` or any exception)
 fails the user and keeps what ran. A probe whose diagnostics report a
@@ -24,7 +25,8 @@ failed retrieval or injection is a consumer error, and ``score_turns``
 records a probe with an error unscored. Each write event's stored rows
 and ids come from the listing after its session, by
 ``provenance_event``; a row that a forget or a sweep deleted later in
-that session is not among them (the event's ``forgotten_ids``).
+that session is not among them (the ids its reply named that the
+session removed are the event's ``forgotten_ids``).
 """
 import json
 import logging
@@ -129,7 +131,8 @@ class LocusFailure(RuntimeError):
 
 class KernelLocus:
     """``kernel_shared``: the kernel agents over HTTP; the kernel stores,
-    selects, formats and writes the consumer's conversation."""
+    selects and formats, and writes the consumer's conversation when
+    its ``auto_extract`` is on (never in v2, Amendment 3)."""
 
     locus = "kernel"
     # Creates are captured as they are sent (``capture``).
@@ -725,9 +728,10 @@ def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
     library suppressed (its rows carried a forgotten value and were
     swept), and one whose reply named rows that its own session then
     removed, every one (a forget took a Mem0 fold of the value it
-    forgot, or a sweep). A write whose reply named no row is never
-    excused; neither is one whose named rows a later session removed,
-    or one with a named row that nothing removed."""
+    forgot, or a sweep). Any other write whose reply named no row (a
+    suppressed write's names none) is never excused; neither is one
+    whose named rows a later session removed, or one with a named row
+    that nothing removed."""
     if backend_extraction is not True:
         return None
     after = {listing["after"]: listing for listing in outcome.listings}

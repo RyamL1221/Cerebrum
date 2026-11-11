@@ -512,7 +512,7 @@ FORGET_REPORT = {
          "reason": "fact_key"},
         {"memory_id": "a0", "owner_agent": "task_agent", "reason": "alias"},
     ],
-    "not_found": ["p2"],
+    "not_found": [],
     "scrubbed": {"messages": 2, "history": 1},
 }
 # The report keys a revoke's record keeps (no other agent's text, and
@@ -559,6 +559,22 @@ def test_a_revoke_goes_through_the_users_forget(shape):
     assert record["forget"] == {key: FORGET_REPORT[key] for key in RECORDED}
     assert locus.lists == [] and locus.deletes == []
     assert not result["writer_failed"]
+
+
+def test_a_forget_that_left_a_listed_row_fails_the_writer():
+    """A forget whose report lists a row it listed but did not delete
+    (``not_found``) fails the writer: the revoke is recorded with its
+    report and an error, and the session stops there."""
+    report = {**FORGET_REPORT, "not_found": ["p2"]}
+    reply = {"response": {"success": True, "metadata": report}}
+    result = run(Writer(), [event("e9", "revoke", "pet"),
+                            event("e10", "add", "pet")],
+                 Locus(rows=sibling_rows()), forget=Forget(reply))
+    [record] = result["events"]
+    assert record["revoke_path"] == "forget"
+    assert record["forget"]["not_found"] == ["p2"]
+    assert "not deleted" in record["error"] and "p2" in record["error"]
+    assert result["writer_failed"]
 
 
 @pytest.mark.parametrize("scope,given", [("user", False), ("writer", True)])

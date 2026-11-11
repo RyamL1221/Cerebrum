@@ -275,10 +275,12 @@ def list_memories(agent_name: str,
     """List the memories ``agent_name`` owns for ``user_id``, unranked.
 
     Owner-only (benchmark v2, AIOS docs/BENCHMARK_V2.md): a writer lists
-    its own rows to find the ones it must delete on a revoke, and the
-    harness lists them to check what a delete left behind. Rows come
+    its own rows to find the ones it must delete on a revoke. Rows come
     back in ``search_results`` as ``{memory_id, content, metadata, ...}``;
-    ``k`` caps the count (the kernel's default reaches every row).
+    ``k`` caps the count (the kernel's default reaches every row). A row
+    that carries a forgotten value is left out, and its id is listed in
+    the reply's ``metadata["withheld"]``. The harness audits what a
+    forget left through the kernel's raw-store audit, not this listing.
     """
     params: Dict[str, Any] = {"user_id": user_id}
     if k is not None:
@@ -297,10 +299,22 @@ def forget_memories(agent_name: str,
     ``fact_key`` and every row, of any agent, that carries one of the
     fact's values or their aliases, scrubs the backend's stored
     messages, and keeps a tombstone, so no later write or read brings
-    the value back until the user states the fact again. The report is
-    in ``metadata``: the ids deleted with their owners and reasons, the
-    value and form counts, and the scrub's counts. It names no other
-    agent's text.
+    the value back until a new statement of the fact states it again.
+
+    The fact's values are the ``structured`` ``value`` and the
+    ``value_aliases`` in the metadata of the slot's rows (and of an
+    earlier tombstone of the slot). A restatement is a later write of
+    the slot whose ``structured`` value is one of them and whose
+    ``provenance_event`` is not a forgotten statement's; a statement in
+    the content alone does not count. A forget that finds no value
+    (``values_count`` 0) deletes by ``fact_key`` only: it then deletes
+    no other carrier, scrubs no message and keeps no tombstone, so a
+    later write of the value is kept.
+
+    The report is in ``metadata``: the ids deleted with their owners and
+    reasons, the value and form counts, the scrub's counts, and
+    ``not_found``, the rows it listed but found gone when deleting them.
+    It names no other agent's text.
     """
     query = MemoryQuery(
         operation_type="forget_memory",

@@ -554,7 +554,8 @@ def test_a_write_reports_what_it_retired_swept_and_lifted(store):
 def test_the_replicated_memory_tags_usage_and_keeps_tombstones_in_its_store(
         store, tmp_path):
     """``ReplicatedMemory`` passes the SDK's usage tag to its pipeline
-    (the library imports no cerebrum module, so the caller passes it),
+    (no module of the library imports cerebrum, so the caller passes
+    it),
     and keeps the store's tombstones in ``<store root>/
     tombstones.sqlite``, or the ``tombstones_path`` it is given: two
     memories of one store share them through the file."""

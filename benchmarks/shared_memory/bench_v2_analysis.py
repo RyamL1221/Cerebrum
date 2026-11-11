@@ -456,7 +456,9 @@ def integration_rows(cells: Dict[tuple, dict]) -> List[dict]:
                   and t.get("integration_score") is not None]
         if not scores:
             continue
-        mean = statistics.mean(scores)
+        # fmean: a float even when the scores average to a whole
+        # number, so every mean prints with two decimals.
+        mean = statistics.fmean(scores)
         sd = statistics.stdev(scores) if len(scores) > 1 else None
         low, high = t_interval(scores)
         rows.append({"model": model, "locus": locus, "backend": backend,

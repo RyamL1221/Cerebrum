@@ -236,7 +236,9 @@ def check_v2_settings(kernel_url: str, method: str,
     writes nothing. Since Amendment 4 a kernel or replicated method
     needs ``supersession`` as the control has it
     (``expected_supersession``), and a kernel method a tombstone file
-    and, on Mem0, a history file of the store's own."""
+    and, on Mem0, a history file of the store's own. The two file paths
+    are the kernel's, returned for every method (replicated and native
+    cells record them too) but checked only for a kernel method."""
     response = requests.get(f"{kernel_url}/memory/config", timeout=10)
     response.raise_for_status()
     body = response.json()
@@ -361,8 +363,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help=(
-            "AIOS kernel base URL (e.g. http://localhost:8001). "
-            "Overrides the CEREBRUM_KERNEL_URL env var and config default."
+            "AIOS kernel base URL (e.g. http://localhost:8001) for the "
+            "pre-flight checks and the backend usage reads. The agents "
+            "use the configured kernel (CEREBRUM_KERNEL_URL or the "
+            "config), so a v2 run refuses any other URL."
         ),
     )
     parser.add_argument(
@@ -483,7 +487,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Benchmark v2 negative control (AIOS docs/BENCHMARK_V2.md, "
             "\"Functional check\"): no_memory skips the sessions, "
             "no_delete makes revokes delete nothing, no_visibility makes "
-            "the native consumer ignore visibility. Needs --no-judge."
+            "the native consumer ignore visibility, writer_scoped makes "
+            "kernel and replicated writers revoke by their own list and "
+            "delete, no_supersession needs the kernel's "
+            "memory.supersession off. Needs --no-judge."
         ),
     )
     parser.add_argument(
@@ -1323,13 +1330,23 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    kernel_url = args.kernel_url or config.get_kernel_url()
+    configured = config.get_kernel_url()
+    kernel_url = args.kernel_url or configured
+    dataset_spec = (load_dataset(args.dataset)
+                    if isinstance(args.dataset, str) else None)
+    if (dataset_spec is not None and dataset_spec.version == 2
+            and kernel_url.rstrip("/") != configured.rstrip("/")):
+        # The agents, the replicated agents' settings, the audit and the
+        # judge use the configured kernel (read at import), so the
+        # pre-flight must check that one.
+        raise SystemExit(
+            f"--kernel-url {kernel_url}: a v2 run uses the configured "
+            f"kernel, {configured}; set CEREBRUM_KERNEL_URL instead"
+        )
     if args.provider:
         check_kernel_provider(kernel_url, args.provider)
     if args.condition is None:
         check_kernel_mode(kernel_url, canonical_condition(args.method))
-    dataset_spec = (load_dataset(args.dataset)
-                    if isinstance(args.dataset, str) else None)
     preflight = None
     if dataset_spec is not None and dataset_spec.version == 2:
         preflight = check_v2_settings(kernel_url, args.method,

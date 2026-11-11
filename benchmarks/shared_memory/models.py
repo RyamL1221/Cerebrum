@@ -603,7 +603,9 @@ class ExperimentMetadata(BaseModel):
     # Looked up at call time, so the test suite can stub it (the
     # live-kernel guard, tests/conftest.py).
     # Benchmark v2: the run's recency, control and the kernel settings
-    # the pre-flight checked (AIOS docs/BENCHMARK_V2.md, "Harness").
+    # the pre-flight checked (AIOS docs/BENCHMARK_V2.md, "Harness"). Its
+    # tombstones and history paths are the kernel's, in every cell: a
+    # replicated store keeps its own files in its store directory.
     run_settings: Dict[str, Any] = {}
     run_id: Optional[str] = None
     config_snapshot: dict = Field(

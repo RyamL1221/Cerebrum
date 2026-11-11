@@ -155,3 +155,21 @@ def test_a_kernel_mem0_store_needs_its_own_history_file(path, passes):
     assert preflight(kernel_config(provider="in-house",
                                    history_db_path=path))[
         "history_db_path"] == path
+
+
+def test_a_v2_run_refuses_a_kernel_url_its_agents_do_not_use(monkeypatch):
+    """``--kernel-url`` naming another kernel than the configured one
+    stops a v2 run before any pre-flight call: the pre-flight would
+    check that kernel while the agents, the audit and the judge use the
+    configured one."""
+    monkeypatch.setattr(run_evaluation.config, "get_kernel_url",
+                        lambda: "http://localhost:8000")
+    monkeypatch.setattr("sys.argv", [
+        "run_evaluation", "--dataset", "pilot_v2", "--trials", "1",
+        "--method", "kernel_shared", "--provider", "in-house",
+        "--no-judge", "--kernel-url", "http://localhost:8001",
+    ])
+    with patch.object(run_evaluation.requests, "get",
+                      side_effect=AssertionError("no kernel call")):
+        with pytest.raises(SystemExit, match="configured kernel"):
+            run_evaluation.main()
