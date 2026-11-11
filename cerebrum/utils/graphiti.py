@@ -57,28 +57,20 @@ def group_id(user_id: str) -> str:
     return f"{readable}_{digest}"
 
 
-def _json_object(text: str) -> Optional[dict]:
-    try:
-        value = json.loads(text)
-    except (TypeError, ValueError):
-        return None
-    return value if isinstance(value, dict) else None
-
-
 _TURN = re.compile(
     r"\AUser: (?P<user>.*?)\nAssistant: (?P<assistant>.*)\Z", re.DOTALL)
 
 
 def episode_body(content: str, memory_type: str = "") -> Tuple[str, str]:
     """The ``(episode_body, source)`` a write becomes
-    (GRAPHITI_BACKEND.md, "One episode per write"): a JSON object as a
-    ``json`` episode; a stored conversation turn (``User: ...\\nAssistant:
-    ...``) as ``user:`` and ``assistant:`` message lines; anything else,
-    the user's statement, as one ``user:`` message. ``source`` is the
-    ``EpisodeType`` value."""
+    (GRAPHITI_BACKEND.md, "One episode per write"): a stored conversation
+    turn (``User: ...\\nAssistant: ...``) as ``user:`` and ``assistant:``
+    message lines; anything else, JSON included, as the user's message
+    (``user: <content>``), as Mem0 takes it and the native agents write
+    it. As a ``json`` or ``text`` episode a statement has no subject, and
+    Graphiti extracted no fact from one (the V5 writer's JSON, the
+    functional check). ``source`` is the ``EpisodeType`` value."""
     text = content or ""
-    if _json_object(text) is not None:
-        return text, "json"
     turn = _TURN.match(text) if memory_type == "conversation" else None
     if turn:
         return (f"user: {turn['user']}\nassistant: {turn['assistant']}",
