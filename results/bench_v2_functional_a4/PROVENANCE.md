@@ -41,17 +41,25 @@ Subtask 15.
   (`.replicated_memory/<prefix>/<backend>/tombstones.sqlite`, and
   `history.db` for Mem0), and native Mem0 keeps its history in its
   store directory (`.native_memory/<prefix>/native_mem0/`). The
-  pre-flight records the kernel's two paths in every cell, the
-  replicated and native ones included.
+  pre-flight records the kernel's tombstones path in every cell, and
+  its Mem0 history path in every cell but the six in-house kernel
+  cells (`kinh`, `kinh_ns`), where `history_db_path` is null. The
+  replicated and native cells record the agent phase's kernel's two
+  paths, not their own stores'.
 - **Driver**: AIOS `scripts/run_bench_v2.sh` with `MODE=functional`
   and `OUTROOT=results/bench_v2_functional_a4`, in two launches:
   - `RUN_PREFIX=f15b`, started 2026-11-10 16:03 EST: the 9 kernel
     cells (Mem0 16:04 to 16:37, in-house 16:37 to 17:04). The first
-    agent cell (`replicated_mem0` H = 0, started 17:04) was stopped:
-    its harness was sent SIGTERM at 17:11 because the Mac was about
-    to sleep (clamshell sleep from 17:11:52 to 17:28:09). The driver
-    recorded the cell `FAILED` at 17:28:39 and restored `config.yaml`.
-    That cell wrote no results file. Its run log is in
+    agent cell (`replicated_mem0` H = 0, started 17:04) was to be
+    stopped before the Mac slept, but the Mac slept first (clamshell
+    sleep at 17:11:52, dark wakes of 9 to 17 seconds at 17:13, 17:14
+    and 17:21, full wake at 17:28:09). The cell ran on in the dark
+    wakes and after the wake: it finished user 3 at 17:28:33 and wrote
+    user 4's first 5 rows at 17:28:37 and 17:28:38. Its harness was
+    sent SIGTERM at 17:28:39. The driver recorded the cell `FAILED` at
+    17:28:39 and restored `config.yaml`. That cell wrote no results
+    file; its store keeps 89 rows of its 5 users, 4 tombstones, 99
+    history records and 67 messages. Its run log is in
     `repo-artifacts/Cerebrum/bench_v2_functional_a4_killed_f15b/`, its
     kernel log (`kernel_qwen_agent_20261110T170418.log`) is with the
     others, and its rows are in `.replicated_memory/f15b`.

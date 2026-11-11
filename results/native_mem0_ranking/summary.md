@@ -1,6 +1,6 @@
 # Native Mem0's order in the smoke (s14b)
 
-Replayed 90 probes; the replay reproduced 90 of 90 recorded fetches (rows, order and scores). In 90 of 90, every row's Mem0 score is its squared L2 distance to the question, capped at 1.0. Mem0's history: {'ADD': 1020, 'DELETE': 30}.
+Replayed 90 probes; the replay reproduced 90 of 90 recorded fetches (the row count, and the rows shown, their order and scores; a row the sharing rule hid is recorded only as a count). In 90 of 90, every row's Mem0 score is its squared L2 distance to the question, capped at 1.0. Mem0's history: {'ADD': 1020, 'DELETE': 30}.
 
 | Probe | n | target nearest by cosine | target in the fetch | target's Mem0 rank, median (range) | rows at 1.0 above it, median (range) | target's cosine, range |
 |---|---:|---:|---:|---|---|---|

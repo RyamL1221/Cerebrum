@@ -87,7 +87,7 @@ The mean with its 95% t-interval (none for n < 2).
 | qwen | kernel | inhouse | h0 | 30 | 2.87 | 2.50 | 3.23 | 0.97 | 0.40 |
 | qwen | kernel | mem0 | h0 | 30 | 3.57 | 3.25 | 3.89 | 0.86 | 0.73 |
 | qwen | native | inhouse | h0 | 30 | 3.10 | 2.73 | 3.47 | 0.99 | 0.50 |
-| qwen | native | mem0 | h0 | 30 | 3 | 2.62 | 3.38 | 1.02 | 0.47 |
+| qwen | native | mem0 | h0 | 30 | 3.00 | 2.62 | 3.38 | 1.02 | 0.47 |
 | qwen | replicated | inhouse | h0 | 30 | 2.87 | 2.50 | 3.23 | 0.97 | 0.40 |
 | qwen | replicated | mem0 | h0 | 30 | 3.60 | 3.31 | 3.89 | 0.77 | 0.77 |
 

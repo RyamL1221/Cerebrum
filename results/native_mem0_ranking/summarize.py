@@ -103,7 +103,9 @@ def main():
         "# Native Mem0's order in the smoke (s14b)",
         "",
         f"Replayed {len(probes)} probes; the replay reproduced "
-        f"{data['reproduced']} recorded fetches (rows, order and scores). "
+        f"{data['reproduced']} recorded fetches (the row count, and the "
+        "rows shown, their order and scores; a row the sharing rule hid "
+        "is recorded only as a count). "
         f"In {clamped} of {len(probes)}, every row's Mem0 score is its "
         "squared L2 distance to the question, capped at 1.0. Mem0's "
         f"history: {data['history_events']}.",

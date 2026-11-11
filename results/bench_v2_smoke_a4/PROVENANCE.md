@@ -46,7 +46,10 @@ smoke, not a verdict: no rule was pre-registered. Results: AIOS
   (`.replicated_memory/s15b/<backend>/tombstones.sqlite`, and
   `history.db` for Mem0), and native Mem0 keeps its history in its
   store directory (`.native_memory/s15b/native_mem0/`). The pre-flight
-  records the kernel's two paths in every cell.
+  records the kernel's tombstones path in every cell, and its Mem0
+  history path in every cell but kernel in-house, whose kernel runs no
+  Mem0 (`history_db_path` null there). The agent cells record the
+  agent phase's kernel's paths, not their own stores'.
 - **Driver**: AIOS `scripts/run_bench_v2.sh` with `MODE=smoke`,
   `RUN_PREFIX=s15b` and `OUTROOT=results/bench_v2_smoke_a4`, under
   `caffeinate -is`, started 2026-11-10 21:28 EST and finished
@@ -58,8 +61,19 @@ smoke, not a verdict: no rule was pre-registered. Results: AIOS
   settings from before the run.
 - **UTC dates** (AIOS known issue 42: Mem0's extraction prompt holds
   the UTC date, which it writes into facts): the run ran from 02:28 to
-  06:46 UTC, all on 2026-11-11. Every date Mem0 wrote into a fact, and
-  every date an answer gives, is November 11, 2026.
+  06:46 UTC, all on 2026-11-11. Every full date Mem0 wrote into a fact
+  is November 11, 2026 (once "the week of November 11, 2026", for
+  "this week"). Mem0 also wrote that month ("as of November 2026"),
+  the year for "this year" in 3 of its 4 inputs, and, in every Mem0
+  store, "December 2026" for "next month"; of those, only native
+  Mem0's rows for users 3, 9 and 18 reached a block. In-house rows hold
+  no calendar date. Every calendar date an answer takes from its block
+  is one of these. Four privacy answers give made-up events dates that
+  are in no block: replicated Mem0 user 15 (January to April 2027),
+  native Mem0 user 15 (November 15, 18 and 22, 2026), and native
+  in-house users 21 (March 14 to 22) and 6 ("2023", in a webinar's
+  title). In-house privacy answers also give made-up events weekdays
+  (kernel and replicated user 21, native users 6 and 21).
 - **Kernels**: one fresh kernel per phase:
   `kernel_qwen_kmem0_20261110T212802.log`,
   `kernel_qwen_kinh_20261110T221539.log` and
@@ -144,8 +158,10 @@ smoke, not a verdict: no rule was pre-registered. Results: AIOS
 ## Files
 
 - `analysis.md`, `analysis.json`: `bench_v2_analysis.py --no-criteria`
-  output at Cerebrum `0995994`, which adds two readings after the run:
-  `target_forgotten` (misses) and `same_writer` (forgets).
+  output at Cerebrum `ec623ab`. `0995994` added two readings after the
+  run, `target_forgotten` (misses) and `same_writer` (forgets), and
+  `ec623ab` prints every integration mean with two decimals (native
+  Mem0's 3 as 3.00); nothing else in the output changed.
 - The per-trial results files, run logs, kernel logs and the driver log
   are in `repo-artifacts/Cerebrum/bench_v2_smoke_a4/` (checksums in its
   `SHA256SUMS`). They are not committed.
