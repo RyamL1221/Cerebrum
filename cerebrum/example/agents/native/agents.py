@@ -1,7 +1,9 @@
 """Agents that manage their own memory (docs/NATIVE_USAGE.md in AIOS).
 
 ``backend`` is ``"mem0"`` (the ``mem0`` SDK, used as its documentation
-shows) or ``"inhouse"`` (Chroma, by the minimal convention in the spec).
+shows), ``"inhouse"`` (Chroma, by the minimal convention in the spec) or
+``"graphiti"`` (Graphiti on Neo4j, as its documentation shows; Subtask
+16, docs/NATIVE_USAGE.md "native_graphiti").
 The kernel serves the LLM calls only: no agent here makes a kernel memory
 call. Each agent holds its own backend client.
 
@@ -43,7 +45,7 @@ from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.llm.apis import llm_chat
 from cerebrum.utils import usage
 
-BACKENDS = ("mem0", "inhouse")
+BACKENDS = ("mem0", "inhouse", "graphiti")
 COSINE = {"hnsw": {"space": "cosine"}}
 
 
@@ -73,10 +75,14 @@ class NativeMemory:
             raise ValueError(f"unknown native backend {backend!r}")
         self.backend = backend
         self.settings = settings
-        # Mem0 extracts facts from every write (infer=True).
-        self.backend_extraction = backend == "mem0"
+        # Mem0 (infer=True) and Graphiti extract facts from every write.
+        self.backend_extraction = backend in ("mem0", "graphiti")
         if backend == "mem0":
             self.mem0 = backends.mem0_client(settings)
+        elif backend == "graphiti":
+            self.runner, self.graphiti = backends.graphiti_client(settings)
+            # Episodes this handle deleted: a row of one went with it.
+            self._removed: set = set()
         else:
             self.chroma = backends.chroma_client()
             self.embed = backends.Embedder(settings.embedding)
@@ -103,6 +109,10 @@ class NativeMemory:
             return self._write(messages, text, agent_name, metadata, user_id)
 
     def _write(self, messages, text, agent_name, metadata, user_id) -> list:
+        if self.backend == "graphiti":
+            return self.runner.run(
+                self._graphiti_write, messages, text, agent_name, metadata,
+                user_id)
         if self.backend == "mem0":
             result = self.mem0.add(
                 messages, user_id=user_id, agent_id=agent_name,
@@ -124,6 +134,107 @@ class NativeMemory:
             )
             return [memory_id]
 
+    # -- Graphiti (docs/NATIVE_USAGE.md, "native_graphiti") -------------
+
+    async def _graphiti_write(self, messages, text, agent_name, metadata,
+                              user_id) -> list:
+        """One episode: the turn as the documented ``role: message``
+        lines, the agent's metadata as JSON in ``source_description``
+        (Graphiti keeps no metadata). Returns a row id per fact the
+        episode produced or restated (``<fact>:<episode>``)."""
+        from graphiti_core.nodes import EpisodeType
+
+        lines = [f"{m['role']}: {m['content']}" for m in messages
+                 if m.get("content")]
+        group = backends.graphiti_group(user_id)
+        async with self.runner.lock(group):
+            result = await self.graphiti.add_episode(
+                name=f"{agent_name}:{metadata.get('memory_type', '')}:"
+                     f"{uuid.uuid4()}",
+                episode_body="\n".join(lines) or f"user: {text}",
+                source=EpisodeType.message,
+                source_description=json.dumps(metadata, default=str),
+                reference_time=datetime.now(timezone.utc),
+                group_id=group,
+            )
+        episode = result.episode.uuid
+        return [f"{edge.uuid}:{episode}" for edge in result.edges
+                if episode in (edge.episodes or [])]
+
+    async def _graphiti_rows(self, user_id: str,
+                             owner: Optional[str] = None) -> List[dict]:
+        """Every row of the user's group, one per fact and episode, with
+        the episode's metadata, by Graphiti's documented getters, in
+        write order; ``owner`` keeps only that agent's episodes."""
+        group = backends.graphiti_group(user_id)
+        episodes = await self.graphiti.nodes.episode.get_by_group_ids(
+            [group], limit=V2_LIST_LIMIT)
+        edges = await self.graphiti.edges.entity.get_by_group_ids(
+            [group], limit=V2_LIST_LIMIT)
+        meta = {e.uuid: (e, _episode_metadata(e)) for e in episodes}
+        rows = []
+        for edge in edges:
+            for episode_uuid in edge.episodes or []:
+                if episode_uuid not in meta:
+                    continue
+                episode, metadata = meta[episode_uuid]
+                if owner is not None and metadata.get("owner_agent") != owner:
+                    continue
+                rows.append((episode.created_at, edge.created_at,
+                             _graphiti_row(edge, episode_uuid, metadata)))
+        rows.sort(key=lambda r: (r[0], r[1], r[2]["memory_id"]))
+        return [row for _, _, row in rows]
+
+    async def _graphiti_search(self, query, user_id, k, agent_name):
+        """Graphiti's ``search()``, one row per fact in its order, with
+        the metadata of the fact's first episode ``agent_name`` may see
+        by the sharing convention (the first episode when it may see
+        none, so the convention then hides the row)."""
+        group = backends.graphiti_group(user_id)
+        edges = await self.graphiti.search(
+            query, group_ids=[group], num_results=k)
+        wanted = sorted({u for edge in edges for u in edge.episodes or []})
+        episodes = (await self.graphiti.nodes.episode.get_by_uuids(wanted)
+                    if wanted else [])
+        meta = {e.uuid: _episode_metadata(e) for e in episodes
+                if e.group_id == group}
+        rows = []
+        for edge in edges:
+            own = [(u, meta[u]) for u in edge.episodes or [] if u in meta]
+            if not own:
+                continue
+            seen = [(u, m) for u, m in own
+                    if in_partition(user_id, m)
+                    and (agent_name is None or visible(agent_name, m))]
+            episode_uuid, metadata = (seen or own)[0]
+            rows.append(_graphiti_row(edge, episode_uuid, metadata))
+        return rows
+
+    async def _graphiti_delete(self, user_id, memory_id) -> bool:
+        """The row's episode, deleted with Graphiti's ``remove_episode``:
+        it deletes the facts no other episode claims and rebuilds the
+        summaries of the entities it mentioned (with the LLM)."""
+        from graphiti_core.errors import NodeNotFoundError
+
+        parts = str(memory_id).split(":")
+        if len(parts) != 2:
+            return False
+        episode_uuid = parts[1]
+        if episode_uuid in self._removed:
+            return True  # the row went with its episode
+        try:
+            episode = await self.graphiti.nodes.episode.get_by_uuid(
+                episode_uuid)
+        except NodeNotFoundError:
+            return False
+        group = backends.graphiti_group(user_id)
+        if episode.group_id != group:
+            return False
+        async with self.runner.lock(group):
+            await self.graphiti.remove_episode(episode_uuid)
+        self._removed.add(episode_uuid)
+        return True
+
     def list_own(self, user_id: str, agent_name: str) -> List[dict]:
         """Every row ``agent_name`` stored for ``user_id``, as
         ``{memory_id, content, metadata}``, up to ``V2_LIST_LIMIT``, by
@@ -133,6 +244,9 @@ class NativeMemory:
         ``agent_id`` as Mem0's do). A writer lists its own rows to delete
         a revoked fact's (benchmark v2)."""
         with usage.tagged(user_id):
+            if self.backend == "graphiti":
+                return self.runner.run(self._graphiti_rows, user_id,
+                                       agent_name)
             if self.backend == "mem0":
                 results = self.mem0.get_all(
                     filters={"user_id": user_id, "agent_id": agent_name},
@@ -173,6 +287,9 @@ class NativeMemory:
         ``delete(ids=...)`` on the user's collection, after ``get``
         found it (Chroma deletes a missing id silently)."""
         with usage.tagged(user_id):
+            if self.backend == "graphiti":
+                return self.runner.run(self._graphiti_delete, user_id,
+                                       memory_id)
             if self.backend == "mem0":
                 row = self.mem0.get(memory_id)
                 if not row or row.get("user_id") != user_id:
@@ -185,10 +302,16 @@ class NativeMemory:
             collection.delete(ids=[memory_id])
             return True
 
-    def search(self, query: str, user_id: str, k: int) -> List[dict]:
+    def search(self, query: str, user_id: str, k: int,
+               agent_name: Optional[str] = None) -> List[dict]:
         """The user's memories nearest the query, as
-        ``{memory_id, content, metadata, score}`` rows, in backend order."""
+        ``{memory_id, content, metadata, score}`` rows, in backend order.
+        Graphiti's rows are facts, each with the metadata of an episode
+        ``agent_name`` may see when it has one."""
         with usage.tagged(user_id):
+            if self.backend == "graphiti":
+                return self.runner.run(self._graphiti_search, query,
+                                       user_id, k, agent_name)
             return self._search(query, user_id, k)
 
     def _search(self, query: str, user_id: str, k: int) -> List[dict]:
@@ -231,6 +354,40 @@ class NativeMemory:
                 result["metadatas"][0], result["distances"][0],
             )
         ]
+
+
+def _episode_metadata(episode: Any) -> Dict[str, Any]:
+    """The agent's metadata kept in a Graphiti episode's
+    ``source_description``; ``{}`` when it holds none."""
+    try:
+        value = json.loads(episode.source_description or "")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _iso(value: Any) -> Optional[str]:
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def _graphiti_row(edge: Any, episode_uuid: str,
+                  metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """A fact as one episode claims it, with that episode's metadata and
+    Graphiti's validity (recorded, never filtered on)."""
+    return {
+        "memory_id": f"{edge.uuid}:{episode_uuid}",
+        "content": edge.fact,
+        "metadata": {
+            **metadata,
+            "graphiti_edge_uuid": edge.uuid,
+            "graphiti_episode_uuid": episode_uuid,
+            "graphiti_valid_at": _iso(edge.valid_at),
+            "graphiti_invalid_at": _iso(edge.invalid_at),
+            "graphiti_expired_at": _iso(edge.expired_at),
+            "graphiti_episode_count": len(edge.episodes or []),
+        },
+        "score": None,
+    }
 
 
 class _NativeWriter:
@@ -308,7 +465,7 @@ class _NativeWriter:
         metadata.setdefault(
             "created_at", datetime.now(timezone.utc).isoformat()
         )
-        if getattr(self.memory, "backend", None) == "inhouse":
+        if getattr(self.memory, "backend", None) in ("inhouse", "graphiti"):
             metadata["agent_id"] = self.agent_name
         return self.memory.write(
             [{"role": "user", "content": content}], content,
@@ -455,7 +612,7 @@ class NativeAssistantAgent:
             metadata["session"] = self.session
         if self.probe_id is not None:
             metadata["provenance_event"] = self.probe_id
-        if getattr(self.memory, "backend", None) == "inhouse":
+        if getattr(self.memory, "backend", None) in ("inhouse", "graphiti"):
             metadata["agent_id"] = self.agent_name
         return metadata
 
@@ -512,7 +669,8 @@ class NativeAssistantAgent:
         user_id = self.user_id
         k = self.k if self.k is not None else self.memory.settings.k
         started = time.perf_counter()
-        rows = self.memory.search(task_input, user_id, k)
+        rows = self.memory.search(task_input, user_id, k,
+                                  agent_name=self.agent_name)
         searched = time.perf_counter()
         kept, counts = self._select(rows, user_id, k)
         selected = time.perf_counter()

@@ -1313,7 +1313,7 @@ class RowsMemory:
         self.settings = settings(**recency)
         self.writes = []
 
-    def search(self, query, user_id, k):
+    def search(self, query, user_id, k, agent_name=None):
         return [dict(r, metadata=dict(r["metadata"])) for r in self.rows][:k]
 
     def write(self, messages, text, agent_name, metadata):

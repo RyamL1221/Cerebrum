@@ -125,6 +125,7 @@ RESULT_KEYS = (
     "budget_bound", "answer_words", "other_values_in_answer",
     "semantic_best", "semantic_only", "semantic_error",
     "deleted_ids_in_block", "contaminated", "retired_in_block",
+    "backend_invalidated_in_block",
 )
 # The keys of each row in ``rows_with_*``.
 ROW_KEYS = ("memory_id", "owner_agent", "memory_type", "fact_key",
@@ -442,7 +443,8 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
                 embed: Optional[Embed] = None, locus: str,
                 visible_stored_rows: Optional[int] = None,
                 k: int = 10,
-                retired_events: Iterable[str] = ()) -> Dict[str, Any]:
+                retired_events: Iterable[str] = (),
+                invalidated_ids: Iterable[str] = ()) -> Dict[str, Any]:
     """Score one probe turn (the keys are ``RESULT_KEYS``).
 
     ``probe`` is the dataset's probe record (a dict or a model):
@@ -479,6 +481,11 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
     the store's marks); ``retired_in_block`` lists the injected rows
     whose ``provenance_event`` is one of them (Amendment 4). It decides
     no pass.
+
+    ``invalidated_ids`` are the rows the backend itself marked invalid
+    (``history.backend_invalidated_rows``: Graphiti's own supersession,
+    Subtask 16); ``backend_invalidated_in_block`` lists the injected
+    rows among them. It decides no pass and is credited to no locus.
     """
     kind = _get(probe, "type")
     expected = list(_get(probe, "expected") or [])
@@ -568,6 +575,12 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
         if str(row.get("provenance_event")) in retired
     ]
 
+    invalidated = {str(memory_id) for memory_id in invalidated_ids or ()}
+    backend_invalidated_in_block = [
+        str(row.get("memory_id")) for row in injected
+        if str(row.get("memory_id")) in invalidated
+    ]
+
     contaminated = any(
         rows and all(row["source"] == "conversation" for row in rows)
         for rows in (rows_with_expected, rows_with_stale,
@@ -609,6 +622,7 @@ def score_probe(probe: Any, answer: Optional[str], diagnostics: Any, *,
         "deleted_ids_in_block": deleted_in_block,
         "contaminated": contaminated,
         "retired_in_block": retired_in_block,
+        "backend_invalidated_in_block": backend_invalidated_in_block,
     }
 
 

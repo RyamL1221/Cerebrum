@@ -101,6 +101,26 @@ def mem0_client(settings: NativeSettings):
     return seed_mem0_llm(client, settings.backend_llm.get("seed"))
 
 
+def graphiti_client(settings: NativeSettings):
+    """The process's Graphiti client and runner, on the shared Neo4j
+    database (docs/NATIVE_USAGE.md, "native_graphiti"): the pinned
+    backend LLM through LiteLLM, the pinned embedder, no cross-encoder
+    (``cerebrum.utils.graphiti``, which the kernel's provider uses
+    too)."""
+    from cerebrum.utils import graphiti
+
+    install_litellm_logger()
+    return graphiti.shared_graphiti(settings.backend_llm, settings.embedding)
+
+
+def graphiti_group(user_id: str) -> str:
+    """The user's Graphiti group: Graphiti accepts only letters, digits,
+    ``_`` and ``-``, so the readable part of the id and a hash of it."""
+    from cerebrum.utils import graphiti
+
+    return graphiti.group_id(user_id)
+
+
 def chroma_client():
     """The in-house condition's Chroma store."""
     import chromadb

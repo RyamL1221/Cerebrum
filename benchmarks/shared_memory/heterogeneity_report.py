@@ -24,6 +24,8 @@ LOCUS_BACKEND = {
     "replicated_inhouse": ("replicated", "inhouse"),
     "native_mem0": ("native", "mem0"),
     "native_inhouse": ("native", "inhouse"),
+    "replicated_graphiti": ("replicated", "graphiti"),
+    "native_graphiti": ("native", "graphiti"),
 }
 LEAKS = ("cross_user_rows", "private_rows_from_others")
 DELTAS = ("memories_missing", "raw_payload_rows")
@@ -41,7 +43,8 @@ def cell_of(metadata: dict, method: str) -> Tuple[str, str]:
     if method in LOCUS_BACKEND:
         return LOCUS_BACKEND[method]
     provider = (metadata.get("config_snapshot") or {}).get("provider", "")
-    return "kernel", "mem0" if provider == "mem0" else "inhouse"
+    return "kernel", {"mem0": "mem0", "graphiti": "graphiti"}.get(
+        provider, "inhouse")
 
 
 def load(root: str) -> Dict[tuple, dict]:

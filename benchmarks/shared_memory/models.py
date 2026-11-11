@@ -396,6 +396,9 @@ class ProbeResult(BaseModel):
     # Injected rows that are earlier statements of a fact with a later
     # one (Amendment 4; from the dataset). None in older files.
     retired_in_block: Optional[List[str]] = None
+    # Injected rows the backend itself marked invalid (Graphiti's own
+    # supersession, Subtask 16). None in older files.
+    backend_invalidated_in_block: Optional[List[str]] = None
     visible_stored_rows: Optional[int] = None
     diagnostics: Optional["InjectionDiagnostics"] = None
     judge_scores: Optional[Dict[str, Any]] = None
@@ -491,6 +494,9 @@ class TrialResult(BaseModel):
     # dataset's order) in the listing after the history, with the mark
     # each carries (``superseded_by``; None when unmarked).
     retired_rows: List[Dict[str, Any]] = []
+    # Subtask 16: the rows after the history the backend itself marked
+    # invalid (Graphiti), apart from the kernel's marks.
+    backend_invalidated_rows: List[Dict[str, Any]] = []
     failed: bool = False
     error_message: Optional[str] = None
 

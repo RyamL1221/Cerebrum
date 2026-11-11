@@ -141,7 +141,7 @@ class OneRowMemory:
             embedding=EMBEDDING, backend_llm={}, k=10)
         self.writes = []
 
-    def search(self, query, user_id, k):
+    def search(self, query, user_id, k, agent_name=None):
         return [{"memory_id": "a", "content": "I live in Tallinn.",
                  "score": 0.5,
                  "metadata": {"user_id": user_id,

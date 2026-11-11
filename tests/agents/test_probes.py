@@ -236,6 +236,7 @@ def test_every_probe_type_returns_the_contract_keys(kind):
         "budget_bound", "answer_words", "other_values_in_answer",
         "semantic_best", "semantic_only", "semantic_error",
         "deleted_ids_in_block", "contaminated", "retired_in_block",
+        "backend_invalidated_in_block",
     }
     result = score(kind, "Some answer.", SHELL)
     assert tuple(result) == pr.RESULT_KEYS
@@ -1078,3 +1079,22 @@ def test_retired_in_block_lists_the_injected_rows_of_retired_statements(
     assert score(kind, answer, conversation_row("x", "c1"), SYNC_ADD,
                  locus=locus, retired_events=["u0_e05"])[
         "retired_in_block"] == ["a1"]
+
+
+@pytest.mark.parametrize("locus", pr.LOCI)
+def test_backend_invalidated_in_block_lists_the_backends_marked_rows(locus):
+    """``backend_invalidated_in_block`` (Subtask 16) lists, in block
+    order, the injected rows the backend itself marked invalid (Graphiti's
+    own supersession, from the listing after the history), in every
+    locus; it decides no pass."""
+    rows = (SYNC_ADD, PET_ADD, SYNC_UPDATE)
+    answer = "It is in the Birch room."
+    marked = score("recency", answer, *rows, locus=locus,
+                   invalidated_ids=["a1", "zz"])
+    assert marked["backend_invalidated_in_block"] == ["a1"]
+    plain = score("recency", answer, *rows, locus=locus)
+    assert plain["backend_invalidated_in_block"] == []
+    assert {k: v for k, v in marked.items()
+            if k != "backend_invalidated_in_block"} == {
+        k: v for k, v in plain.items()
+        if k != "backend_invalidated_in_block"}

@@ -726,7 +726,8 @@ def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
             user, FakeLocus(), VariantRunner(None, "kernel"),
             control=control)
         outcome.backend_extraction = False
-        # Mark the recency add's row, as supersession would.
+        # Mark the recency add's row, as supersession would, and its
+        # update's row as Graphiti's own invalidation would (Subtask 16).
         recency = next(p for p in user.probes if p["type"] == "recency")
         listing = next(l for l in outcome.listings
                        if l["after"] == "history")
@@ -735,7 +736,11 @@ def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
                 dict(r, metadata=dict(r["metadata"],
                                       superseded_by=recency["target_event"]))
                 if r["metadata"].get("provenance_event")
-                == recency["source_events"][0] else r
+                == recency["source_events"][0] else
+                dict(r, metadata=dict(r["metadata"],
+                                      graphiti_invalid_at="2026-11-11"))
+                if r["metadata"].get("provenance_event")
+                == recency["target_event"] else r
                 for r in rows]
         seen.update(user=user, outcome=outcome, mark=recency["target_event"])
         return user, outcome, "kernel"
@@ -753,6 +758,17 @@ def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
     assert trial.retired_rows == expected
     again = TrialResult.model_validate_json(trial.model_dump_json())
     assert again.retired_rows == expected
+    # Graphiti's own invalidations are recorded apart (Subtask 16).
+    invalidated = history.backend_invalidated_rows(seen["outcome"])
+    assert [r["provenance_event"] for r in invalidated] == [seen["mark"]]
+    assert invalidated[0]["invalid_at"] == "2026-11-11"
+    assert trial.backend_invalidated_rows == invalidated
+    assert again.backend_invalidated_rows == invalidated
+    ids = {r["memory_id"] for r in invalidated}
+    for probe in trial.probe_results:
+        injected = {str(r.memory_id) for r in
+                    probe.diagnostics.injected_memories or []}
+        assert set(probe.backend_invalidated_in_block) == injected & ids
 
 
 def test_base_events_reach_the_writers_with_their_fields():

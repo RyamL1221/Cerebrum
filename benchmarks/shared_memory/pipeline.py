@@ -811,19 +811,27 @@ class MethodPipeline:
             return self._run_replicated(
                 trial_data, method_user_id, "inhouse"
             )
+        elif self.method == "native_graphiti":
+            return self._run_native(trial_data, method_user_id, "graphiti")
+        elif self.method == "replicated_graphiti":
+            return self._run_replicated(
+                trial_data, method_user_id, "graphiti"
+            )
         else:
             raise ValueError(
                 f"Unknown method: {self.method!r}. "
                 "Valid methods are: kernel_shared, naive_concat, vanilla_rag, "
                 "kernel_private, native_mem0, native_inhouse, "
-                "replicated_mem0, replicated_inhouse."
+                "native_graphiti, replicated_mem0, replicated_inhouse, "
+                "replicated_graphiti."
             )
 
     # -- benchmark v2 (AIOS docs/BENCHMARK_V2.md, "Harness") ---------------
 
     V2_METHODS = ("kernel_shared",) + tuple(
         m for m in ("replicated_mem0", "replicated_inhouse",
-                    "native_mem0", "native_inhouse"))
+                    "replicated_graphiti", "native_mem0", "native_inhouse",
+                    "native_graphiti"))
 
     def run_history_trial(
         self, user: "V2UserData",
@@ -846,9 +854,10 @@ class MethodPipeline:
             extraction = AgentPipeline._kernel_backend_extraction()
             version = AgentPipeline._kernel_pipeline_version()
         else:
-            backend = "mem0" if self.method.endswith("mem0") else "inhouse"
-            kind = "native" if self.method.startswith("native") else \
-                "replicated"
+            kind, backend = self.method.split("_", 1)
+            if kind not in ("native", "replicated") or backend not in (
+                    "mem0", "inhouse", "graphiti"):
+                raise ValueError(f"no locus and backend in {self.method!r}")
             agents = self._v2_agents(kind, backend)
             locus = history.AgentManagedLocus(kind, agents,
                                               self.assistant_llms)

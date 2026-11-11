@@ -359,7 +359,7 @@ class FakeNativeMemory:
         # The stored ids, as NativeMemory.write returns them (Subtask 14).
         return [self.rows[-1]["memory_id"]]
 
-    def search(self, query, user_id, k):
+    def search(self, query, user_id, k, agent_name=None):
         return [dict(r, metadata=dict(r["metadata"])) for r in self.rows
                 if r["metadata"].get("user_id") == user_id][:k]
 

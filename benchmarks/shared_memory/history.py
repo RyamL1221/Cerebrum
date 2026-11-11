@@ -882,6 +882,35 @@ def retired_rows(user: V2UserData,
     return out
 
 
+def backend_invalidated_rows(
+        outcome: HistoryOutcome) -> List[Dict[str, Any]]:
+    """The rows in the listing after the history that the backend itself
+    marked invalid: Graphiti's own supersession (``graphiti_invalid_at``
+    or ``graphiti_expired_at``; Subtask 16, AIOS GRAPHITI_BACKEND.md),
+    of every agent, with owner, event and slot. Recorded apart from the
+    kernel's marks (``retired_rows``) and credited to no locus; empty
+    for the other backends."""
+    history = next((listing for listing in outcome.listings
+                    if listing["after"] == "history"), None)
+    if history is None:
+        return []
+    out = []
+    for owner, rows in history["rows"].items():
+        for row in rows:
+            metadata = row.get("metadata") or {}
+            if (metadata.get("graphiti_invalid_at")
+                    or metadata.get("graphiti_expired_at")):
+                out.append({
+                    "memory_id": str(row.get("memory_id")),
+                    "owner_agent": owner,
+                    "provenance_event": metadata.get("provenance_event"),
+                    "fact_key": metadata.get("fact_key"),
+                    "invalid_at": metadata.get("graphiti_invalid_at"),
+                    "expired_at": metadata.get("graphiti_expired_at"),
+                })
+    return out
+
+
 def user_values(user: V2UserData) -> List[Dict[str, Any]]:
     """Each fact's value with its aliases, event and slot (the scorer's
     ``user_values``)."""
@@ -947,6 +976,8 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
     values = user_values(user)
     deleted = deleted_ids(outcome)
     retired = retired_events(user)
+    invalidated = [row["memory_id"]
+                   for row in backend_invalidated_rows(outcome)]
     out = []
     for turn in outcome.turns:
         probe = turn.probe
@@ -977,6 +1008,7 @@ def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
             probe, turn.answer, turn.diagnostics, user_values=values,
             deleted_ids=deleted, embed=embed, locus=locus,
             visible_stored_rows=visible, k=k, retired_events=retired,
+            invalidated_ids=invalidated,
         )
         fields = {key: value for key, value in score.items()
                   if key in ProbeResult.model_fields}

@@ -727,11 +727,26 @@ def test_the_integration_block_reports_its_rows_and_the_base_rows(tmp_path):
             ba.integration_base_rows(mean)[0]["score"]) == (2.0, 2.0)
 
 
+def graphiti_trial(index, invalidated=("g1:e1",)):
+    """A Graphiti cell's trial: rows Graphiti marked invalid after the
+    history, one of them in every probe's block (Subtask 16)."""
+    found = trial(index, ALL_PASS,
+                  backend_invalidated_in_block=list(invalidated))
+    found["backend_invalidated_rows"] = [
+        {"memory_id": memory_id, "owner_agent": "profile_agent",
+         "provenance_event": "e3", "fact_key": "city",
+         "invalid_at": "2026-11-11T16:16:42", "expired_at": None}
+        for memory_id in invalidated]
+    return found
+
+
 def test_the_readings_reach_the_report_and_the_json(tmp_path):
     build(tmp_path)
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared", [graphiti_trial(0)])
     cells = ba.load(tmp_path)
     extra = ba.readings(cells)
-    assert set(extra) == {"forgets", "supersession", "exposure",
+    assert set(extra) == {"forgets", "supersession",
+                          "backend_invalidations", "exposure",
                           "carriers", "stored_carriers", "misses", "slots",
                           "earlier_answers", "integration_blocks",
                           "integration_base_rows"}
@@ -781,6 +796,8 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
         ("supersession", "Supersession (Amendment 4)",
          ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
           "excluded"]),
+        ("backend_invalidations", "Graphiti's own invalidations (Subtask 16)",
+         ["invalidated_rows", "probes", "invalidated_in_block"]),
         ("exposure", "Trial-level exposure (deletion, privacy)",
          ["probe", "n", "passed", "exposed", "passed_exposed"]),
         ("carriers", "Deletion failures by carrier",
@@ -822,6 +839,10 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             "history (from the dataset) and how many carry a mark "
             "(`marked`)", "probes whose block held a retired row",
             "rows the selection excluded as retired"],
+        "backend_invalidations": [
+            "its own supersession, kept apart from the kernel's above and "
+            "credited to no locus", "`invalidated_rows`: rows after the "
+            "history it marked invalid", "probes whose block held one"],
         "exposure": [
             "A probe checks only its own block and answer.",
             "`exposed`: trials whose forbidden value appears in any "
@@ -1294,3 +1315,55 @@ def test_the_supersession_reading_counts_probes_and_rows(tmp_path):
                == ("kernel", "inhouse", "h0"))
     assert (row["probes"], row["retired_in_block"], row["excluded"]) == (
         12, 1, 13)
+
+
+def test_graphitis_invalidations_are_read_apart(tmp_path):
+    """Graphiti's own invalidations (Subtask 16) get a reading of their
+    own, per Graphiti cell only, from the trials' records; failed trials
+    are left out. The other backends' cells have none, so a run without
+    Graphiti prints the report it printed before."""
+    build(tmp_path)
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+          [graphiti_trial(0), graphiti_trial(1, ("g2:e1", "g3:e4")),
+           dict(graphiti_trial(2), failed=True)])
+    write(tmp_path, "qwen", "agent", "h0_native_graphiti",
+          [graphiti_trial(0, ())])
+    rows = {(r["locus"], r["condition"]): r
+            for r in ba.backend_invalidation_rows(ba.load(tmp_path))}
+    assert set(rows) == {("kernel", "h0"), ("native", "h0")}
+    kernel = rows[("kernel", "h0")]
+    assert (kernel["invalidated_rows"], kernel["probes"],
+            kernel["invalidated_in_block"]) == (3, 12, 12)
+    assert rows[("native", "h0")]["invalidated_rows"] == 0
+    assert rows[("native", "h0")]["invalidated_in_block"] == 0
+    other = tmp_path / "other"
+    build(other)
+    assert ba.backend_invalidation_rows(ba.load(other)) == []
+
+
+def test_the_graphiti_scrub_criterion_joins_only_with_graphiti(tmp_path):
+    """Every Graphiti forget at H = 0 must scrub an episode; the
+    criterion is added only when a Graphiti cell is in the run, so the
+    other backends' criteria are unchanged."""
+    def graphiti_forget(index, episodes):
+        found = lib_trial(index)
+        revoke_of(found)["forget"]["scrubbed"]["messages"] = episodes
+        return found
+
+    def criterion(root):
+        return next((c for c in ba.library_criteria(ba.load(root))
+                     if c["criterion"].startswith("every Graphiti forget")),
+                    None)
+
+    build_library(tmp_path)
+    assert criterion(tmp_path) is None
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+          [graphiti_forget(0, 2)])
+    found = criterion(tmp_path)
+    assert found["holds"] is True
+    assert found["evidence"] == "1 of 1 forgets (2 episodes)"
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+          [graphiti_forget(0, 2), graphiti_forget(1, 0)])
+    found = criterion(tmp_path)
+    assert found["holds"] is False
+    assert found["evidence"] == "1 of 2 forgets (2 episodes)"

@@ -1095,6 +1095,8 @@ class EvaluationOrchestrator:
             reappeared_memory_ids=history.reappeared_ids(outcome),
             revoked_value_rows=history.revoked_value_rows(user, outcome),
             retired_rows=history.retired_rows(user, outcome),
+            backend_invalidated_rows=history.backend_invalidated_rows(
+                outcome),
             assistant_response=integration.observed,
             injection_diagnostics=integration.diagnostics,
             judge_free=judge_free_measures.measure(

@@ -12,6 +12,8 @@ hypothesis
 # External agent frameworks (used by benchmarks)
 chromadb==1.5.9  # pinned in both repos (Subtask 10)
 mem0ai==2.0.2  # pinned in both repos (Subtask 9d)
+graphiti-core==0.31.2  # pinned in both repos (Subtask 16)
+neo4j==6.4.1  # Graphiti's Neo4j driver
 azure-identity  # Azure credentials for native_mem0
 litellm==1.83.0  # native_mem0: Mem0 LLM routed through LiteLLM (token counting)
 ollama

@@ -50,11 +50,14 @@ CELLS = {
     "replicated_inhouse": ("replicated", "inhouse"),
     "native_mem0": ("native", "mem0"),
     "native_inhouse": ("native", "inhouse"),
+    "replicated_graphiti": ("replicated", "graphiti"),
+    "native_graphiti": ("native", "graphiti"),
 }
 # The driver's kernel phases; "_ns" runs the no_supersession control
-# in a kernel of its own (Amendment 4).
+# in a kernel of its own (Amendment 4). "kgra" is Graphiti (Subtask 16).
 PHASE_BACKEND = {"kmem0": "mem0", "kinh": "inhouse",
-                 "kmem0_ns": "mem0", "kinh_ns": "inhouse"}
+                 "kmem0_ns": "mem0", "kinh_ns": "inhouse",
+                 "kgra": "graphiti", "kgra_ns": "graphiti"}
 # The loci that run the library's forget and supersession.
 LIBRARY_LOCI = ("kernel", "replicated")
 
@@ -395,6 +398,24 @@ def library_criteria(cells: Dict[tuple, dict]) -> List[dict]:
         "evidence": f"{sum(n > 0 for n in scrubs)} of {len(scrubs)} "
                     f"forgets ({sum(scrubs)} messages)",
     })
+    # Graphiti's history is its episodes (Subtask 16): a forget blanks or
+    # deletes every episode that held the value. Only with Graphiti
+    # cells, so earlier runs' criteria are unchanged.
+    graphiti = [((event.get("forget") or {}).get("scrubbed") or {})
+                .get("messages") or 0
+                for key, trial in trials if key[2] == "graphiti"
+                and not trial.get("failed")
+                for event in _events(trial, "revoke")
+                if event.get("revoke_path") == "forget"]
+    if any(key[2] == "graphiti" for key, _ in trials):
+        out.append({
+            "criterion": "every Graphiti forget at H = 0 scrubbed an "
+                         "episode",
+            "holds": bool(graphiti) and all(n > 0 for n in graphiti),
+            "evidence": f"{sum(n > 0 for n in graphiti)} of "
+                        f"{len(graphiti)} forgets ({sum(graphiti)} "
+                        "episodes)",
+        })
     return out
 
 
@@ -403,7 +424,7 @@ def contrast_rows(cells: Dict[tuple, dict], model: str,
     """Kernel against replicated per backend and probe type, paired by
     user: exact McNemar on the discordant pairs."""
     rows = []
-    for backend in ("mem0", "inhouse"):
+    for backend in ("mem0", "inhouse", "graphiti"):
         k = cells.get((model, "kernel", backend, condition))
         r = cells.get((model, "replicated", backend, condition))
         if not k or not r:
@@ -870,10 +891,36 @@ def supersession_rows(cells: Dict[tuple, dict]) -> List[dict]:
     return rows
 
 
+def backend_invalidation_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per Graphiti cell (Subtask 16): Graphiti's own invalidations, kept
+    apart from the kernel's supersession and credited to no locus: the
+    rows after the history it marked invalid, and the probes whose block
+    held one. No rows for the other backends."""
+    rows = []
+    for (model, locus, backend, condition), cell in sorted(cells.items()):
+        if backend != "graphiti":
+            continue
+        row = {**_key(model, locus, backend, condition),
+               "invalidated_rows": 0, "probes": 0,
+               "invalidated_in_block": 0}
+        for trial in cell["trials"]:
+            if trial.get("failed"):
+                continue
+            row["invalidated_rows"] += len(
+                trial.get("backend_invalidated_rows") or [])
+            for probe in trial.get("probe_results") or []:
+                row["probes"] += 1
+                row["invalidated_in_block"] += bool(
+                    probe.get("backend_invalidated_in_block"))
+        rows.append(row)
+    return rows
+
+
 def readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
     """Every reading above, by name."""
     return {"forgets": forget_rows(cells),
             "supersession": supersession_rows(cells),
+            "backend_invalidations": backend_invalidation_rows(cells),
             "exposure": exposure_rows(cells),
             "carriers": carrier_rows(cells),
             "stored_carriers": stored_carrier_rows(cells),
@@ -905,6 +952,12 @@ READING_SECTIONS = [
      "retired row; rows the selection excluded as retired.",
      ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
       "excluded"]),
+    ("backend_invalidations", "Graphiti's own invalidations (Subtask 16)",
+     "Graphiti marks a fact invalid when it judges a later one "
+     "contradicts it: its own supersession, kept apart from the "
+     "kernel's above and credited to no locus. `invalidated_rows`: rows "
+     "after the history it marked invalid; probes whose block held one.",
+     ["invalidated_rows", "probes", "invalidated_in_block"]),
     ("exposure", "Trial-level exposure (deletion, privacy)",
      "A probe checks only its own block and answer. `exposed`: trials "
      "whose forbidden value appears in any probe's block or answer; "
