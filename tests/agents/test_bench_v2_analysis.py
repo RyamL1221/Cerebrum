@@ -496,6 +496,55 @@ def test_misses_are_split_by_where_the_expected_value_was(tmp_path):
             contradiction["conversation_only"]) == (2, 0, 2, 0)
 
 
+ALL_REMOVED = ({"memory_ids": ["r1"], "reported_ids": ["r1"]},
+               {"deleted_ids": ["r1", "r2"]})
+
+
+@pytest.mark.parametrize("target, removal, in_block, filed", [
+    # A later revoke deleted the target's only row.
+    (*ALL_REMOVED, False, "target_forgotten"),
+    # A row only its reply named (deleted before any listing saw it).
+    ({"memory_ids": [], "reported_ids": ["r1"]}, {"deleted_ids": ["r1"]},
+     False, "target_forgotten"),
+    # A later write swept it.
+    ({"memory_ids": ["r1"], "reported_ids": ["r1"]}, {"swept_ids": ["r1"]},
+     False, "target_forgotten"),
+    # One of its two rows is left.
+    ({"memory_ids": ["r1", "r2"], "reported_ids": ["r1", "r2"]},
+     {"deleted_ids": ["r1"]}, False, "not_in_block"),
+    # It stored no row.
+    ({"memory_ids": [], "reported_ids": []}, {"deleted_ids": ["r1"]},
+     False, "not_in_block"),
+    # The value reached the block by another row.
+    (*ALL_REMOVED, True, "conversation_only"),
+])
+def test_a_miss_whose_target_rows_were_all_removed_is_filed_apart(
+        tmp_path, target, removal, in_block, filed):
+    """A failed probe whose expected value is not in the block is
+    ``target_forgotten`` when the trial's revokes deleted, or its writes
+    swept, every row its target event stored, listed or only named by
+    its reply; otherwise ``not_in_block``, as is a target that stored no
+    row. A value in the block is filed by its rows, whatever the target
+    lost."""
+    cells = one_cell(tmp_path, [custom(0, [
+        probe("recall", False, target_event="e5", expected_in_block=in_block,
+              rows_with_expected=[{"source": "conversation"}] if in_block
+              else [])], sessions=[
+        {"session": 2, "writer": "profile_agent", "deleted_ids": [],
+         "events": [{"event_id": "e5", "type": "add", "swept_ids": [],
+                     **target}]},
+        {"session": 6, "writer": "profile_agent",
+         "deleted_ids": removal.get("deleted_ids", []),
+         "events": [{"event_id": "e9", "type": "revoke"},
+                    {"event_id": "e12", "type": "add", "memory_ids": [],
+                     "reported_ids": [],
+                     "swept_ids": removal.get("swept_ids", [])}]}])])
+    (row,) = ba.miss_rows(cells)
+    classes = ("target_forgotten", "not_in_block", "in_block_no_row",
+               "conversation_only", "in_writer_row")
+    assert {c: row[c] for c in classes if row[c]} == {filed: 1}
+
+
 def test_contradiction_is_reported_per_slot(tmp_path):
     """Known issue 44: slots whose question repeats the earlier
     statement's words are read apart. ``lenient`` counts the answers
@@ -711,8 +760,8 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             for name, title, _, keys in ba.READING_SECTIONS] == [
         ("forgets", "Revokes and the forget (Amendment 4)",
          ["revokes", "forget", "deleted", "fact_key", "value", "alias",
-          "other_agents", "no_values", "messages", "history", "swept",
-          "suppressed"]),
+          "other_agents", "same_writer", "no_values", "messages",
+          "history", "swept", "suppressed"]),
         ("supersession", "Supersession (Amendment 4)",
          ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
           "excluded"]),
@@ -723,8 +772,8 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
         ("stored_carriers", "Deletion probes by what the store kept",
          ["stored", "failures", "passes"]),
         ("misses", "Failures: where the expected value was",
-         ["probe", "failed", "named", "not_in_block", "in_block_no_row",
-          "conversation_only", "in_writer_row"]),
+         ["probe", "failed", "named", "target_forgotten", "not_in_block",
+          "in_block_no_row", "conversation_only", "in_writer_row"]),
         ("slots", "Contradiction by slot",
          ["slot", "n", "passed", "lenient"]),
         ("earlier_answers",
@@ -745,7 +794,9 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             "the rows the forgets deleted (by reason: the slot's "
             "`fact_key`, a `value` or an `alias`",
             "`other_agents`: rows of agents other than the revoking "
-            "writer)", "forgets that found no value",
+            "writer;", "`same_writer`: rows of the revoking writer "
+            "deleted by a value or an alias, rows of its other facts",
+            "forgets that found no value",
             "the Mem0 history scrub (`messages` deleted, `history` records "
             "cleared)", "rows later writes `swept` and writes "
             "`suppressed`"],
@@ -776,7 +827,10 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
         "misses": [
             "Failed recall, recency and contradiction probes by where the "
             "expected value was",
-            "`not_in_block` (never stored, or selection lost it)",
+            "`target_forgotten` (not in the block, and a forget or a "
+            "sweep deleted every row the target event stored",
+            "`not_in_block` (any other failure outside the block: never "
+            "stored, or selection lost it)",
             "`in_block_no_row` (the block text holds it, no injected row "
             "does)", "`conversation_only` (only the consumer's own earlier "
             "answers held it)", "`in_writer_row` (a writer's row held it)",
@@ -1139,27 +1193,35 @@ def test_the_library_criteria_join_the_check_only_with_its_loci(tmp_path):
 
 def test_the_forget_and_supersession_readings(tmp_path):
     """The two Amendment 4 readings, per cell: the revokes, those
-    through the forget, what the forgets deleted by reason and of other
-    agents (not the revoking writer), forgets that found no value, the
-    Mem0 scrub, and what later writes swept or had suppressed (kernel
-    and replicated cells only); the rows writes retired, the earlier
-    statements' rows and how many are marked, the probes whose block
-    held a retired row, and the rows selection excluded as retired.
-    Failed trials are left out."""
+    through the forget, what the forgets deleted by reason, of other
+    agents (not the revoking writer) and of the revoking writer by a
+    value or an alias (a fold; not its slot's row), forgets that found
+    no value, the Mem0 scrub, and what later writes swept or had
+    suppressed (kernel and replicated cells only); the rows writes
+    retired, the earlier statements' rows and how many are marked, the
+    probes whose block held a retired row, and the rows selection
+    excluded as retired. Failed trials are left out."""
     cells = library_cells(tmp_path)
     h0(cells)[1]["failed"] = True
+    # Two folds: the forget deleted two of the revoking writer's rows of
+    # other facts, by the value and by an alias.
+    revoke_of(h0(cells, backend="mem0")[0])["forget"]["deleted"] += [
+        {"memory_id": "m7", "owner_agent": "profile_agent",
+         "reason": "value"},
+        {"memory_id": "m8", "owner_agent": "profile_agent",
+         "reason": "alias"}]
     forgets = {(r["locus"], r["backend"], r["condition"]): r
                for r in ba.forget_rows(cells)}
     assert {key[0] for key in forgets} == {"kernel", "replicated"}
     columns = ("revokes", "forget", "deleted", "fact_key", "value", "alias",
-               "other_agents", "no_values", "messages", "history", "swept",
-               "suppressed")
+               "other_agents", "same_writer", "no_values", "messages",
+               "history", "swept", "suppressed")
     assert [forgets[("kernel", "mem0", "h0")][c] for c in columns] == [
-        2, 2, 6, 2, 2, 2, 4, 0, 4, 2, 2, 2]
+        2, 2, 8, 2, 3, 3, 4, 2, 0, 4, 2, 2, 2]
     assert [forgets[("kernel", "inhouse", "h0")][c] for c in columns] == [
-        1, 1, 3, 1, 1, 1, 2, 0, 0, 0, 1, 1]
+        1, 1, 3, 1, 1, 1, 2, 0, 0, 0, 0, 1, 1]
     assert [forgets[("kernel", "inhouse", "writer_scoped")][c]
-            for c in columns] == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
+            for c in columns] == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
     no_value = cells[("qwen", "kernel", "inhouse", "no_supersession")]
     revoke_of(no_value["trials"][0])["forget"]["values_count"] = 0
     assert next(r for r in ba.forget_rows(cells)

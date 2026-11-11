@@ -575,27 +575,62 @@ def stored_carrier_rows(cells: Dict[tuple, dict]) -> List[dict]:
     return rows
 
 
+def _removed_ids(trial: dict) -> set:
+    """The ids of the rows the trial's history removed: every row its
+    revokes deleted (each session's ``deleted_ids``) and every row its
+    writes swept (``swept_ids``)."""
+    removed = set()
+    for session in trial.get("sessions") or []:
+        removed.update(str(i) for i in session.get("deleted_ids") or [])
+        for event in session.get("events") or []:
+            removed.update(str(i) for i in event.get("swept_ids") or [])
+    return removed
+
+
+def _target_removed(trial: dict, probe: dict, removed: set) -> bool:
+    """Whether the history removed every row the probe's target event
+    stored: the rows listed after its session (``memory_ids``) and the
+    ids its reply named (``reported_ids``). False for a target that
+    stored none."""
+    target = str(probe.get("target_event"))
+    for event in _events(trial):
+        if str(event.get("event_id")) == target:
+            ids = {str(i) for key in ("memory_ids", "reported_ids")
+                   for i in event.get(key) or []}
+            return bool(ids) and ids <= removed
+    return False
+
+
 def miss_rows(cells: Dict[tuple, dict]) -> List[dict]:
     """Failed recall, recency and contradiction probes by where the
-    expected value was: ``not_in_block`` (never stored, or selection
-    lost it), ``in_block_no_row`` (the block text holds it, no injected
-    row does), ``conversation_only`` (only the consumer's own earlier
-    answers held it) or ``in_writer_row`` (a writer's row held it).
-    ``named``: the failures whose answer named the expected value too
-    (recency and contradiction: they failed on the stale value)."""
+    expected value was: ``target_forgotten`` (not in the block, and a
+    forget or a sweep deleted every row the target event stored, as when
+    Mem0 folded a forgotten value into the target's row),
+    ``not_in_block`` (any other failure outside the block: never stored,
+    or selection lost it),
+    ``in_block_no_row`` (the block text holds it, no injected row does),
+    ``conversation_only`` (only the consumer's own earlier answers held
+    it) or ``in_writer_row`` (a writer's row held it). ``named``: the
+    failures whose answer named the expected value too (recency and
+    contradiction: they failed on the stale value)."""
     rows = []
     for (model, locus, backend, condition), cell in sorted(cells.items()):
         for kind in ("recall", "recency", "contradiction"):
-            probes = [p for p in _probes(cell["trials"], kind)
+            probes = [(trial, p) for trial in cell["trials"]
+                      if not trial.get("failed")
+                      for p in _probes([trial], kind)
                       if p.get("passed") is False]
             if not probes:
                 continue
             counts = Counter()
-            for probe in probes:
+            for trial, probe in probes:
                 sources = {row.get("source") for row
                            in probe.get("rows_with_expected") or []}
                 if not probe.get("expected_in_block"):
-                    counts["not_in_block"] += 1
+                    removed = _target_removed(trial, probe,
+                                              _removed_ids(trial))
+                    counts["target_forgotten" if removed
+                           else "not_in_block"] += 1
                 elif not sources:
                     counts["in_block_no_row"] += 1
                 elif sources == {"conversation"}:
@@ -604,8 +639,9 @@ def miss_rows(cells: Dict[tuple, dict]) -> List[dict]:
                     counts["in_writer_row"] += 1
             rows.append({**_key(model, locus, backend, condition),
                          "probe": kind, "failed": len(probes),
-                         "named": sum(1 for p in probes
+                         "named": sum(1 for _, p in probes
                                       if p.get("expected_present")),
+                         "target_forgotten": counts["target_forgotten"],
                          "not_in_block": counts["not_in_block"],
                          "in_block_no_row": counts["in_block_no_row"],
                          "conversation_only": counts["conversation_only"],
@@ -756,17 +792,21 @@ def integration_base_rows(cells: Dict[tuple, dict]) -> List[dict]:
 def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
     """Per kernel and replicated cell (Amendment 4): the revokes and how
     they went (through the forget or the owner), what the forgets
-    deleted by reason and how many rows of other agents, the forgets
-    that found no value, the history scrub's counts, and what later
-    writes swept or had suppressed."""
+    deleted by reason, how many rows of other agents and how many of
+    the revoking writer's rows other than the slot's (``same_writer``:
+    deleted by a value or an alias, as a Mem0 fold of the value into
+    another of its facts' rows is), the forgets that found no value,
+    the history scrub's counts, and what later writes swept or had
+    suppressed."""
     rows = []
     for (model, locus, backend, condition), cell in sorted(cells.items()):
         if locus not in LIBRARY_LOCI:
             continue
         row = {**_key(model, locus, backend, condition), "revokes": 0,
                "forget": 0, "deleted": 0, "fact_key": 0, "value": 0,
-               "alias": 0, "other_agents": 0, "no_values": 0,
-               "messages": 0, "history": 0, "swept": 0, "suppressed": 0}
+               "alias": 0, "other_agents": 0, "same_writer": 0,
+               "no_values": 0, "messages": 0, "history": 0, "swept": 0,
+               "suppressed": 0}
         for trial in cell["trials"]:
             if trial.get("failed"):
                 continue
@@ -781,8 +821,10 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
                     reason = entry.get("reason")
                     if reason in ("fact_key", "value", "alias"):
                         row[reason] += 1
-                    row["other_agents"] += (
-                        entry.get("owner_agent") != event.get("writer"))
+                    other = entry.get("owner_agent") != event.get("writer")
+                    row["other_agents"] += other
+                    row["same_writer"] += (
+                        not other and reason in ("value", "alias"))
                 row["no_values"] += not report.get("values_count")
                 scrubbed = report.get("scrubbed") or {}
                 row["messages"] += scrubbed.get("messages") or 0
@@ -843,13 +885,14 @@ READING_SECTIONS = [
      "Per kernel and replicated cell: revokes, those that went through "
      "the forget, the rows the forgets deleted (by reason: the slot's "
      "`fact_key`, a `value` or an `alias`; `other_agents`: rows of "
-     "agents other than the revoking writer), forgets that found no "
-     "value, the Mem0 history scrub (`messages` deleted, `history` "
-     "records cleared), and rows later writes `swept` and writes "
-     "`suppressed`.",
+     "agents other than the revoking writer; `same_writer`: rows of the "
+     "revoking writer deleted by a value or an alias, rows of its other "
+     "facts, as a Mem0 fold is), forgets that found no value, the Mem0 "
+     "history scrub (`messages` deleted, `history` records cleared), and "
+     "rows later writes `swept` and writes `suppressed`.",
      ["revokes", "forget", "deleted", "fact_key", "value", "alias",
-      "other_agents", "no_values", "messages", "history", "swept",
-      "suppressed"]),
+      "other_agents", "same_writer", "no_values", "messages", "history",
+      "swept", "suppressed"]),
     ("supersession", "Supersession (Amendment 4)",
      "`retired`: rows writes marked retired; `earlier_rows`: the "
      "earlier statements' rows after the history (from the dataset) and "
@@ -877,14 +920,17 @@ READING_SECTIONS = [
      ["stored", "failures", "passes"]),
     ("misses", "Failures: where the expected value was",
      "Failed recall, recency and contradiction probes by where the "
-     "expected value was: `not_in_block` (never stored, or selection "
-     "lost it), `in_block_no_row` (the block text holds it, no injected "
-     "row does), `conversation_only` (only the consumer's own earlier "
+     "expected value was: `target_forgotten` (not in the block, and a "
+     "forget or a sweep deleted every row the target event stored, as "
+     "when Mem0 folded a forgotten value into it), `not_in_block` (any "
+     "other failure outside the block: never stored, or selection lost "
+     "it), `in_block_no_row` (the block text holds it, no injected row "
+     "does), `conversation_only` (only the consumer's own earlier "
      "answers held it), `in_writer_row` (a writer's row held it). "
      "`named`: failures whose answer named the expected value too (they "
      "failed on the stale value).",
-     ["probe", "failed", "named", "not_in_block", "in_block_no_row",
-      "conversation_only", "in_writer_row"]),
+     ["probe", "failed", "named", "target_forgotten", "not_in_block",
+      "in_block_no_row", "conversation_only", "in_writer_row"]),
     ("slots", "Contradiction by slot",
      "`lenient`: answers that name the later value.",
      ["slot", "n", "passed", "lenient"]),
