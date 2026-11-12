@@ -212,8 +212,10 @@ def check_kernel_mode(kernel_url: str, method: str) -> None:
         )
 
 
-# Amendment 3: a 300-token budget (Amendment 1's was 500).
-V2_SETTINGS = {"max_injected_memories": 10, "max_memory_tokens": 300,
+# Amendment 3: a 300-token budget (Amendment 1's was 500). Amendment 6:
+# k 30, so that the budget, not the cap, limits a kernel or replicated
+# block; native consumers keep k 10 (pipeline.V2_NATIVE_K).
+V2_SETTINGS = {"max_injected_memories": 30, "max_memory_tokens": 300,
                "relevance_threshold": 0.0, "block_format": "compact"}
 V2_BARRIER_TIMEOUT_MS = 60_000
 # Amendment 4: supersession on, except under its control.

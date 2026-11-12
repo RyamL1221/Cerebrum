@@ -13,7 +13,7 @@ by intercepting create_memory calls from the harness side.
 import logging
 import time
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
@@ -53,6 +53,12 @@ from benchmarks.shared_memory.models import (
     V2UserData,
     WrittenMemoryRecord,
 )
+
+# Benchmark v2, Amendment 6 (AIOS docs/BENCHMARK_V2.md): a native
+# consumer's k. The kernel's max_injected_memories (30 in v2) is the
+# kernel and replicated loci's, whose 300-token budget limits a block;
+# a native consumer has no budget and keeps the reference k, 10.
+V2_NATIVE_K = 10
 
 
 @dataclass
@@ -952,8 +958,12 @@ class MethodPipeline:
                 NativeCalendarAgent,
             )
 
-            settings = native_backends.NativeSettings.from_kernel_config(
-                kernel_config)
+            # Amendment 6: the kernel's k is the kernel and replicated
+            # loci's; a native consumer, with no budget, keeps k 10.
+            settings = replace(
+                native_backends.NativeSettings.from_kernel_config(
+                    kernel_config),
+                k=V2_NATIVE_K)
             make = lambda: NativeMemory(backend, settings)  # noqa: E731
             classes = (NativeProfileAgent, NativeTaskAgent,
                        NativeCalendarAgent, NativeAssistantAgent)

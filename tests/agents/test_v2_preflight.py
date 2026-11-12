@@ -25,7 +25,7 @@ def kernel_config(auto_inject=True, auto_extract=False, provider="in-house",
     """A ``/memory/config`` body that passes the v2 pre-flight for a
     kernel method (supersession on, a tombstone file), with
     ``pipeline`` changes."""
-    settings = {"max_injected_memories": 10, "max_memory_tokens": 300,
+    settings = {"max_injected_memories": 30, "max_memory_tokens": 300,
                 "relevance_threshold": 0.0, "block_format": "compact",
                 "block_recency": True, "block_recency_unit": "session",
                 "write_barrier": {"enabled": True, "timeout_ms": 60000},
@@ -68,6 +68,48 @@ def test_the_v2_budget_is_300_tokens():
     native = kernel_config(auto_inject=False)
     assert preflight(native, "native_mem0")["pipeline"][
         "max_memory_tokens"] == 300
+
+
+def test_the_v2_k_is_30_so_the_budget_limits_a_block():
+    """Amendment 6: k 30 in every v2 cell's kernel, so the 300-token
+    budget, not the cap, limits a kernel or replicated block; the
+    earlier k 10 is refused."""
+    assert run_evaluation.V2_SETTINGS["max_injected_memories"] == 30
+    with pytest.raises(SystemExit,
+                       match="max_injected_memories is 10, not 30"):
+        preflight(kernel_config(max_injected_memories=10))
+    assert preflight(kernel_config(auto_inject=False), "native_mem0")[
+        "pipeline"]["max_injected_memories"] == 30
+
+
+def test_v2_native_consumers_keep_k_10_and_replicated_the_kernels():
+    """Amendment 6: a v2 native consumer, with no budget, keeps k 10
+    (``V2_NATIVE_K``); a replicated agent's pipeline takes the kernel's
+    settings, k 30 included."""
+    from types import SimpleNamespace
+
+    from benchmarks.shared_memory import pipeline as pl
+    from cerebrum.example.agents.replicated import agents as replicated
+
+    config = {"embedding": {"provider": "ollama",
+                            "model": "nomic-embed-text"},
+              "max_injected_memories": 30,
+              "pipeline": {"max_injected_memories": 30,
+                           "max_memory_tokens": 300}}
+    built = []
+    with patch.object(pl.AgentPipeline, "_kernel_memory_config",
+                      return_value=config), \
+            patch.object(pl, "NativeMemory", side_effect=lambda b, s:
+                         built.append(("native", s.k)) or
+                         SimpleNamespace(settings=s)), \
+            patch.object(replicated, "ReplicatedMemory",
+                         side_effect=lambda b, c: built.append(
+                             ("replicated", c["max_injected_memories"]))
+                         or SimpleNamespace()):
+        pl.MethodPipeline("native_inhouse")._v2_agents("native", "inhouse")
+        pl.MethodPipeline("replicated_inhouse")._v2_agents(
+            "replicated", "inhouse")
+    assert built == [("native", 10)] * 4 + [("replicated", 30)] * 4
 
 
 # -- Amendment 4 -------------------------------------------------------------

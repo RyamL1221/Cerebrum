@@ -9,9 +9,9 @@ as AIOS ``scripts/run_bench_v2.sh`` writes them and reports:
   intervals, the lenient recency and contradiction rates, and how often
   the cap and the budget bound;
 - the functional check's criteria, each with its evidence (since
-  Amendment 4 the budget's binding is reported, not required, and the
-  library's deletion, supersession and guard have criteria of their
-  own);
+  Amendment 4 the library's deletion, supersession and guard have
+  criteria of their own; since Amendment 6 a limit, the budget or the
+  cap, must bind in every kernel and replicated cell);
 - for the smoke: the integration mean per cell with its 95%
   t-interval, kernel against replicated per probe type (paired over
   users, exact McNemar), and the share of identical in-house blocks;
@@ -237,25 +237,20 @@ def criteria(cells: Dict[tuple, dict]) -> List[dict]:
                 counts[0] += 1
                 counts[1] += bool(p.get("cap_bound"))
                 counts[2] += bool(p.get("budget_bound"))
-    no_cap = [key for key, (_, cap, _) in sorted(bound.items()) if not cap]
+    # Amendment 6: since k is 30 the budget is meant to limit a block,
+    # and the cap still can; a cell needs some probe one of them bound.
+    unlimited = [key for key, (_, cap, budget) in sorted(bound.items())
+                 if not cap and not budget]
     out.append({
-        "criterion": "the cap binds in some probe of every kernel and "
-                     "replicated cell (H = 0 and H = 2)",
-        "holds": bool(bound) and not no_cap,
-        "evidence": "; ".join(f"{l} {b}: {cap} of {n}"
-                              for (m, l, b), (n, cap, _)
+        "criterion": "a limit (the budget or the cap) binds in some probe "
+                     "of every kernel and replicated cell (H = 0 and "
+                     "H = 2)",
+        "holds": bool(bound) and not unlimited,
+        "evidence": "; ".join(f"{l} {b}: budget {budget}, cap {cap} of {n}"
+                              for (m, l, b), (n, cap, budget)
                               in sorted(bound.items()))
-        + (f"; cells without a binding cap: {no_cap}" if no_cap else ""),
-    })
-    budget = sum(budget for (m, l, b), (_, _, budget) in bound.items()
-                 if b == "inhouse")
-    # Amendment 4: reported, not required ("holds" is None).
-    out.append({
-        "criterion": "the budget's binding in kernel and replicated "
-                     "in-house cells (H = 0 and H = 2): reported, not "
-                     "required",
-        "holds": None,
-        "evidence": f"{budget} probes with a binding budget",
+        + (f"; cells where no limit bound: {unlimited}"
+           if unlimited else ""),
     })
     if any(key[1] in LIBRARY_LOCI for key in cells):
         out += library_criteria(cells)

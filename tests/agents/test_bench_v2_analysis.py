@@ -99,46 +99,34 @@ def test_the_criteria_hold_only_with_the_evidence(tmp_path):
     privacy = next(c for t, c in by_text.items()
                    if t.startswith("the kernel's privacy"))
     assert privacy["holds"]
-    [budget] = [c for t, c in by_text.items() if "budget" in t]
-    # Amendment 4 (Decision 8): the budget's binding is reported, not
-    # required, so the criterion holds None, and its evidence still
-    # counts the probes (budget=True marks all six of that trial).
-    assert budget["criterion"].startswith("the budget's binding")
-    assert budget["holds"] is None
-    assert budget["evidence"] == "6 probes with a binding budget"
+    # Amendment 6: a limit, the budget or the cap, binds in every
+    # kernel and replicated cell; the evidence counts both (budget=True
+    # marks all six probes of one kernel in-house trial).
+    limit = limit_criterion(tmp_path)
+    assert limit["holds"], limit
+    assert "kernel inhouse: budget 6, cap 24 of 24" in limit["evidence"]
     deletion = next(c for t, c in by_text.items()
                     if t.startswith("deletion passes among"))
     assert deletion["holds"]
 
 
-def test_the_budget_is_reported_even_when_it_never_binds(tmp_path):
-    """A budget that bound in no probe is a finding, not a failure: the
-    criterion holds None with a zero count, as when it binds (Decision
-    8), and the report prints it."""
-    write(tmp_path, "qwen", "kinh", "h0_kernel_shared",
-          [trial(0, ALL_PASS)])
-    cells = ba.load(tmp_path)
-    checks = ba.criteria(cells)
-    [budget] = [c for c in checks if "budget" in c["criterion"]]
-    assert budget["holds"] is None
-    assert budget["evidence"] == "0 probes with a binding budget"
-    text = ba.markdown(cells, [], [], checks, [], [])
-    assert (f"| {budget['criterion']} |  | {budget['evidence']} |"
-            in text)
-
-
-def test_the_budget_counts_the_in_house_cells_only(tmp_path):
-    """The budget's binding is read in the kernel and replicated
-    in-house cells (Amendment 4): a Mem0 cell's binding budget, kernel
-    or replicated, is not counted."""
-    build(tmp_path)
-    write(tmp_path, "qwen", "kmem0", "h0_kernel_shared",
-          [trial(0, ALL_PASS, budget=True)])
-    write(tmp_path, "qwen", "agent", "h0_replicated_mem0",
-          [trial(0, ALL_PASS, budget=True)])
-    [budget] = [c for c in ba.criteria(ba.load(tmp_path))
-                if "budget" in c["criterion"]]
-    assert budget["evidence"] == "6 probes with a binding budget"
+def test_a_cell_the_budget_alone_limited_holds_the_limit_criterion(
+        tmp_path):
+    """Amendment 6 (AIOS docs/BENCHMARK_V2.md): with k 30 the budget is
+    meant to limit a block, so a cell whose cap never bound passes when
+    its budget did, and fails only when neither bound."""
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+          [trial(0, ALL_PASS, cap=False, budget=True)])
+    limit = limit_criterion(tmp_path)
+    assert limit["holds"], limit
+    assert limit["evidence"] == "kernel graphiti: budget 6, cap 0 of 6"
+    write(tmp_path, "qwen", "agent_gra", "h0_replicated_graphiti",
+          [trial(0, ALL_PASS, cap=False, budget=False)])
+    limit = limit_criterion(tmp_path)
+    assert not limit["holds"]
+    assert "('qwen', 'replicated', 'graphiti')" in limit["evidence"]
+    assert not any("budget's binding" in c["criterion"]
+                   for c in ba.criteria(ba.load(tmp_path)))
 
 
 def test_a_kernel_privacy_leak_breaks_its_criterion(tmp_path):
@@ -152,28 +140,28 @@ def test_a_kernel_privacy_leak_breaks_its_criterion(tmp_path):
     assert not privacy["holds"]
 
 
-def cap_criterion(root):
+def limit_criterion(root):
     return next(c for c in ba.criteria(ba.load(root))
-                if c["criterion"].startswith("the cap binds"))
+                if c["criterion"].startswith("a limit"))
 
 
-def test_the_cap_criterion_reads_a_cell_as_locus_and_backend(tmp_path):
+def test_the_limit_criterion_reads_a_cell_as_locus_and_backend(tmp_path):
     """The spec's cells are locus x backend, over H = 0 and H = 2:
-    no_memory skips the sessions, so its cap cannot bind, and that does
+    no_memory skips the sessions, so no limit can bind, and that does
     not fail the kernel in-house cell."""
     build(tmp_path)
     write(tmp_path, "qwen", "kinh", "no_memory_kernel_shared",
           [trial(0, {}, cap=False)])
-    cap = cap_criterion(tmp_path)
-    assert cap["holds"], cap
-    assert "kernel inhouse: 24 of 24" in cap["evidence"]
-    # A real cell whose cap never binds, in either condition, fails it.
+    limit = limit_criterion(tmp_path)
+    assert limit["holds"], limit
+    assert "kernel inhouse: budget 6, cap 24 of 24" in limit["evidence"]
+    # A real cell where no limit binds, in either condition, fails it.
     for cell in ("h0_kernel_shared", "h2_kernel_shared"):
         write(tmp_path, "qwen", "kinh", cell, [trial(0, ALL_PASS,
                                                      cap=False)])
-    cap = cap_criterion(tmp_path)
-    assert not cap["holds"]
-    assert "('qwen', 'kernel', 'inhouse')" in cap["evidence"]
+    limit = limit_criterion(tmp_path)
+    assert not limit["holds"]
+    assert "('qwen', 'kernel', 'inhouse')" in limit["evidence"]
 
 
 def test_the_contrast_pairs_users_and_counts_identical_blocks(tmp_path):
