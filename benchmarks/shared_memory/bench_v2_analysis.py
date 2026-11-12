@@ -830,7 +830,8 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
             continue
         row = {**_key(model, locus, backend, condition), "revokes": 0,
                "forget": 0, "deleted": 0, "fact_key": 0, "value": 0,
-               "alias": 0, "other_agents": 0, "same_writer": 0,
+               "alias": 0, "entity": 0, "other_agents": 0,
+               "same_writer": 0,
                "no_values": 0, "messages": 0, "history": 0, "swept": 0,
                "suppressed": 0}
         for trial in cell["trials"]:
@@ -845,7 +846,7 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 for entry in report.get("deleted") or []:
                     row["deleted"] += 1
                     reason = entry.get("reason")
-                    if reason in ("fact_key", "value", "alias"):
+                    if reason in ("fact_key", "value", "alias", "entity"):
                         row[reason] += 1
                     other = entry.get("owner_agent") != event.get("writer")
                     row["other_agents"] += other
@@ -965,15 +966,16 @@ READING_SECTIONS = [
     ("forgets", "Revokes and the forget (Amendment 4)",
      "Per kernel and replicated cell: revokes, those that went through "
      "the forget, the rows the forgets deleted (by reason: the slot's "
-     "`fact_key`, a `value` or an `alias`; `other_agents`: rows of "
+     "`fact_key`, a `value` or an `alias`, or an `entity`: a Graphiti "
+     "scrub deleted it with an entity a form names; `other_agents`: rows of "
      "agents other than the revoking writer; `same_writer`: rows of the "
      "revoking writer deleted by a value or an alias, rows of its other "
      "facts, as a Mem0 fold is), forgets that found no value, the Mem0 "
      "history scrub (`messages` deleted, `history` records cleared), and "
      "rows later writes `swept` and writes `suppressed`.",
      ["revokes", "forget", "deleted", "fact_key", "value", "alias",
-      "other_agents", "same_writer", "no_values", "messages", "history",
-      "swept", "suppressed"]),
+      "entity", "other_agents", "same_writer", "no_values", "messages",
+      "history", "swept", "suppressed"]),
     ("supersession", "Supersession (Amendment 4)",
      "`retired`: rows writes marked retired; `earlier_rows`: the "
      "earlier statements' rows after the history (from the dataset) and "

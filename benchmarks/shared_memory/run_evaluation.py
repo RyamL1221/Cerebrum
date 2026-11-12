@@ -167,10 +167,11 @@ def check_kernel_provider(kernel_url: str, expected: str) -> None:
 def read_backend_usage(kernel_url: str, user_id: str) -> dict:
     """The kernel's record of its memory backend's own LLM and embedding
     calls for one trial's user, as TokenUsage fields. Reading empties the
-    record."""
+    record. The kernel first waits for the user's writes, up to the
+    write barrier's timeout (Subtask 16), so the read outlasts it."""
     response = requests.get(
         f"{kernel_url}/memory/cost",
-        params={"user_id": user_id}, timeout=30,
+        params={"user_id": user_id}, timeout=120,
     )
     response.raise_for_status()
     body = response.json()

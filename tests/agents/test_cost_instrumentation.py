@@ -175,6 +175,11 @@ def test_kernel_backend_usage_is_read_from_memory_cost():
     assert get.call_args.kwargs["params"] == {"user_id": "ana__ks"}
     assert fields["embedding_tokens"].calls == 4
     assert fields["backend_llm_tokens"].calls == 0
+    # The kernel waits on the user's writes before it reads (Subtask
+    # 16), up to the barrier's timeout: the read must outlast that wait,
+    # or a timed-out read would leave the trial with no backend calls.
+    assert get.call_args.kwargs["timeout"] > (
+        run_evaluation.V2_BARRIER_TIMEOUT_MS / 1000)
 
 
 def test_trial_result_has_the_cost_fields():

@@ -792,8 +792,8 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             for name, title, _, keys in ba.READING_SECTIONS] == [
         ("forgets", "Revokes and the forget (Amendment 4)",
          ["revokes", "forget", "deleted", "fact_key", "value", "alias",
-          "other_agents", "same_writer", "no_values", "messages",
-          "history", "swept", "suppressed"]),
+          "entity", "other_agents", "same_writer", "no_values",
+          "messages", "history", "swept", "suppressed"]),
         ("supersession", "Supersession (Amendment 4)",
          ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
           "excluded"]),
@@ -1282,19 +1282,22 @@ def test_the_forget_and_supersession_readings(tmp_path):
         {"memory_id": "m7", "owner_agent": "profile_agent",
          "reason": "value"},
         {"memory_id": "m8", "owner_agent": "profile_agent",
-         "reason": "alias"}]
+         "reason": "alias"},
+        # A row a Graphiti scrub deleted with an entity (Subtask 16).
+        {"memory_id": "m9", "owner_agent": "task_agent",
+         "reason": "entity"}]
     forgets = {(r["locus"], r["backend"], r["condition"]): r
                for r in ba.forget_rows(cells)}
     assert {key[0] for key in forgets} == {"kernel", "replicated"}
     columns = ("revokes", "forget", "deleted", "fact_key", "value", "alias",
-               "other_agents", "same_writer", "no_values", "messages",
-               "history", "swept", "suppressed")
+               "entity", "other_agents", "same_writer", "no_values",
+               "messages", "history", "swept", "suppressed")
     assert [forgets[("kernel", "mem0", "h0")][c] for c in columns] == [
-        2, 2, 8, 2, 3, 3, 4, 2, 0, 4, 2, 2, 2]
+        2, 2, 9, 2, 3, 3, 1, 5, 2, 0, 4, 2, 2, 2]
     assert [forgets[("kernel", "inhouse", "h0")][c] for c in columns] == [
-        1, 1, 3, 1, 1, 1, 2, 0, 0, 0, 0, 1, 1]
+        1, 1, 3, 1, 1, 1, 0, 2, 0, 0, 0, 0, 1, 1]
     assert [forgets[("kernel", "inhouse", "writer_scoped")][c]
-            for c in columns] == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
+            for c in columns] == [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
     no_value = cells[("qwen", "kernel", "inhouse", "no_supersession")]
     revoke_of(no_value["trials"][0])["forget"]["values_count"] = 0
     assert next(r for r in ba.forget_rows(cells)

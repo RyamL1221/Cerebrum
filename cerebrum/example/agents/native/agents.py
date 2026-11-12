@@ -192,10 +192,26 @@ class NativeMemory:
         """Graphiti's ``search()``, one row per fact in its order, with
         the metadata of the fact's first episode ``agent_name`` may see
         by the sharing convention (the first episode when it may see
-        none, so the convention then hides the row)."""
+        none, so the convention then hides the row).
+
+        ``search()`` writes ``num_results`` into the shared recipe
+        ``EDGE_HYBRID_SEARCH_RRF``, which Graphiti's edge resolution
+        reads too (``edge_operations.py:532, :564``); it is put back
+        after the call, so one consumer's k (5 for a V4 consumer) does
+        not change how later writes, of any user, are ingested. The
+        harness runs one trial at a time, so no write is ingested
+        during the call."""
+        from graphiti_core.search.search_config_recipes import (
+            EDGE_HYBRID_SEARCH_RRF,
+        )
+
         group = backends.graphiti_group(user_id)
-        edges = await self.graphiti.search(
-            query, group_ids=[group], num_results=k)
+        limit = EDGE_HYBRID_SEARCH_RRF.limit
+        try:
+            edges = await self.graphiti.search(
+                query, group_ids=[group], num_results=k)
+        finally:
+            EDGE_HYBRID_SEARCH_RRF.limit = limit
         wanted = sorted({u for edge in edges for u in edge.episodes or []})
         episodes = (await self.graphiti.nodes.episode.get_by_uuids(wanted)
                     if wanted else [])

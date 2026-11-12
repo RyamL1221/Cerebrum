@@ -171,6 +171,23 @@ def test_search_gives_each_fact_an_episode_the_agent_may_see(memory):
     assert [r["content"] for r in rows] == [e.fact for e in plain]
 
 
+def test_a_search_leaves_the_recipe_ingestion_reads(memory):
+    """``search()`` writes ``num_results`` into the shared
+    ``EDGE_HYBRID_SEARCH_RRF``, which Graphiti's edge resolution also
+    reads (``edge_operations.py:532, :564``). A V4 consumer searches with
+    k 5: the recipe must be as it was after, so the next writes, its own
+    and the next user's, are ingested as everyone else's."""
+    from graphiti_core.search.search_config_recipes import (
+        EDGE_HYBRID_SEARCH_RRF,
+    )
+
+    user = new_user(memory)
+    write(memory, user, "My chat tool is Mattermost.")
+    before = EDGE_HYBRID_SEARCH_RRF.limit
+    memory.search("chat tool", user, 5, agent_name="assistant_agent")
+    assert EDGE_HYBRID_SEARCH_RRF.limit == before
+
+
 def test_a_revoke_deletes_the_rows_episode(splitting):
     """Deleting a row removes its episode with ``remove_episode``, and
     with it the episode's other facts; a row that went with an episode
