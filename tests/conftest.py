@@ -27,6 +27,12 @@ import pytest
 # pytester runs the guard's own tests (tests/test_live_kernel_guard.py).
 pytest_plugins = ["pytester"]
 
+# Test reports carry no key value (Subtask 17, Decision 3): the hook
+# redacts every report before the terminal or a JUnit XML prints it.
+from cerebrum.utils.pytest_redact import (  # noqa: E402,F401
+    pytest_runtest_makereport,
+)
+
 LIVE_KERNEL_ENV = "CEREBRUM_LIVE_KERNEL_TESTS"
 ONLINE_ENV = "CEREBRUM_ONLINE_TESTS"
 
