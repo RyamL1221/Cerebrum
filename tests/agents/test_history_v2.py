@@ -2097,3 +2097,68 @@ def test_probe_results_carry_the_retired_rows_in_their_block():
             memory_id for memory_id, event in injected.items()
             if event in retired]
         assert {injected[i] for i in result.retired_in_block} == retired
+
+
+def mark_invalid(outcome, event_id, at="2026-11-11T00:00:00+00:00"):
+    """Mark the rows of ``event_id`` in the listing after the history as
+    Graphiti's own invalidation leaves them (``graphiti_invalid_at`` and
+    ``graphiti_expired_at``), with no mark of the kernel's
+    (``superseded_by``)."""
+    listing = next(l for l in outcome.listings if l["after"] == "history")
+    for owner, rows in listing["rows"].items():
+        listing["rows"][owner] = [
+            dict(r, metadata=dict(r["metadata"], graphiti_invalid_at=at,
+                                  graphiti_expired_at=at))
+            if r["metadata"].get("provenance_event") == event_id else r
+            for r in rows]
+
+
+def test_graphitis_own_marks_do_not_reach_retired_in_block():
+    """Graphiti's own invalidations are recorded apart and credited to
+    no locus; ``retired_in_block`` reads only the kernel's retired
+    statements, from the dataset (AIOS docs/GRAPHITI_BACKEND.md,
+    "Supersession: two mechanisms, one measured"). A row Graphiti
+    marked invalid that is no earlier statement (the recency update,
+    its slot's latest) is in every block's
+    ``backend_invalidated_in_block`` and in none's
+    ``retired_in_block``."""
+    user = v2_user(0)
+    latest = next(p for p in user.probes
+                  if p["type"] == "recency")["target_event"]
+    retired = set(history.retired_events(user))
+    assert latest not in retired
+    _, outcome = run(FakeLocus(), user)
+    mark_invalid(outcome, latest)
+    results = history.score_turns(user, outcome, "kernel")
+    assert len(results) == 6
+    for turn, result in zip(outcome.turns, results):
+        injected = {str(r["memory_id"]): r["provenance_event"]
+                    for r in turn.diagnostics["injected_memories"]}
+        marked = [i for i, event in injected.items() if event == latest]
+        assert marked
+        assert result.backend_invalidated_in_block == marked
+        assert result.retired_in_block == [
+            memory_id for memory_id, event in injected.items()
+            if event in retired]
+
+
+def test_graphitis_own_marks_do_not_mark_retired_rows():
+    """``retired_rows`` carries only the kernel's mark
+    (``superseded_by``; AIOS docs/GRAPHITI_BACKEND.md, "Supersession:
+    two mechanisms, one measured"): an earlier statement's row that
+    Graphiti marked invalid and the kernel did not (``no_supersession``,
+    or the native locus) is listed unmarked, so the analysis does not
+    count it as marked; Graphiti's mark is in
+    ``backend_invalidated_rows``."""
+    user = v2_user(0)
+    probes = {p["type"]: p for p in user.probes}
+    earlier = probes["recency"]["source_events"][0]
+    _, outcome = run(FakeLocus(), user)
+    mark_invalid(outcome, earlier)
+    found = {r["provenance_event"]: r
+             for r in history.retired_rows(user, outcome)}
+    assert earlier in found
+    assert [r["superseded_by"] for r in found.values()] == [None] * len(
+        found)
+    assert [r["provenance_event"] for r in
+            history.backend_invalidated_rows(outcome)] == [earlier]

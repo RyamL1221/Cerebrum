@@ -144,3 +144,94 @@ def test_agent_cells_report_their_v2_trials(tmp_path):
     assert rows[("native", 2)]["v2_trials"] == expected
     assert rows[("replicated", 0)]["v2_trials"] == 0
     assert rows[("kernel", 2)]["v2_trials"] is None
+
+
+def pilot_gaps(tmp_path, means):
+    """A pilot ``gaps.csv`` with one H = 2 mean per (model, vs) in
+    ``means``, the same in every scope and dimension."""
+    path = tmp_path / "pilot_gaps.csv"
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=[
+            "model", "vs", "scope", "dimension", "contrast", "n", "mean",
+            "ci_low", "ci_high"])
+        writer.writeheader()
+        for (model, vs), mean in means.items():
+            for scope in ("pooled", "mem0", "inhouse"):
+                for dimension in pa.DIMENSIONS:
+                    writer.writerow({"model": model, "vs": vs,
+                                     "scope": scope, "dimension": dimension,
+                                     "contrast": "H2", "n": 30,
+                                     "mean": mean, "ci_low": mean - 0.5,
+                                     "ci_high": mean + 0.5})
+    return str(path)
+
+
+def test_the_cells_are_read_where_the_driver_writes_them(tmp_path):
+    """The smoke reads its cells at the paths AIOS
+    ``scripts/run_pilot_v1_graphiti.sh`` writes (``cell_path``,
+    ``<model>/<phase>/h<H>_<method>``): the kernel in phase ``kgra``,
+    replicated and native in phase ``agent_gra``."""
+    paths = {locus: str(gs.cell_file(tmp_path, "qwen", locus, 2)
+                        .relative_to(tmp_path)) for locus in gs.CELLS}
+    assert paths == {
+        "kernel": "qwen/kgra/h2_kernel_shared/results_kernel_shared.json",
+        "replicated": "qwen/agent_gra/h2_replicated_graphiti/"
+                      "results_replicated_graphiti.json",
+        "native": "qwen/agent_gra/h2_native_graphiti/"
+                  "results_native_graphiti.json"}
+
+
+def test_the_cost_table_gives_latency_in_seconds(tmp_path):
+    """``latency_s`` is the cells' mean trial latency in seconds, from
+    the trials' ``latency_seconds`` (GRAPHITI_BACKEND.md, "Measured in
+    the smokes", gives latency per user in seconds)."""
+    write_cells(tmp_path, grows)
+    cells, _ = gs.load(tmp_path)
+    for trials in cells.values():
+        for index, found in trials.items():
+            found["latency_seconds"] = 20.0 + index % 2
+    rows = gs.cost_rows(cells, gs.load_prices())
+    assert [r["latency_s"] for r in rows] == [20.5] * len(cells)
+
+
+def test_the_direction_is_read_against_the_same_model_and_contrast(
+        tmp_path):
+    """A reading compares the H = 2 mean with the pilot's H = 2 means for
+    the same model and the same contrast (kernel - replicated or kernel -
+    native) in every scope (PILOT.md; the readings' note). The pilot's
+    other contrast and other model, with other signs, do not count."""
+    write_cells(tmp_path, grows)
+    cells, _ = gs.load(tmp_path)
+    reference = pilot_gaps(tmp_path, {
+        ("qwen", "replicated"): 0.7, ("qwen", "native"): -0.4,
+        ("gpt4o", "replicated"): -0.9, ("gpt4o", "native"): -0.9})
+    reads = {(r["vs"], r["dimension"]): r for r in gs.readings(
+        gs.gap_rows(cells), gs.read_reference(reference))}
+    for dimension in pa.PRIMARY:
+        replicated = reads[("replicated", dimension)]
+        assert replicated["pilot_h2"] == dict.fromkeys(
+            ("pooled", "mem0", "inhouse"), 0.7)
+        assert replicated["same_direction"] is True
+        native = reads[("native", dimension)]
+        assert native["pilot_h2"] == dict.fromkeys(
+            ("pooled", "mem0", "inhouse"), -0.4)
+        assert native["same_direction"] is False
+
+
+def test_the_gap_tables_give_h0_h2_and_their_difference(tmp_path):
+    """Each gap table's row gives H0, H2 and H2−H0 under the header of
+    each (the analysis.md tables DEV_STATUS.md, Subtask 16, reports)."""
+    def widens(locus, level, i):
+        base = 4.0 + (i % 3) * 0.3
+        if locus == "kernel":
+            return base, base
+        apart = 0.5 if level == 0 else 1.5
+        return base - apart, base - apart
+    write_cells(tmp_path, widens)
+    cells, _ = gs.load(tmp_path)
+    prices = gs.load_prices()
+    text = gs.markdown([], pa.cell_rows(cells, prices),
+                       gs.cost_rows(cells, prices), gs.gap_rows(cells), [])
+    assert text.count("| dimension | H0 | H2 | H2−H0 |") == 2
+    assert text.count("| profile | +0.50 [+0.50, +0.50] | "
+                      "+1.50 [+1.50, +1.50] | +1.00 [+1.00, +1.00] |") == 2

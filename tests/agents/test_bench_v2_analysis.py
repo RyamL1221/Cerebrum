@@ -1407,3 +1407,66 @@ def test_the_graphiti_scrub_criterion_joins_only_with_graphiti(tmp_path):
     found = criterion(tmp_path)
     assert found["holds"] is False
     assert found["evidence"] == "1 of 2 forgets (2 episodes)"
+
+
+def test_load_reads_the_graphiti_phases(tmp_path):
+    """The driver's Graphiti phases (AIOS ``scripts/run_bench_v2.sh``,
+    Subtask 16): ``kgra`` and its no_supersession kernel ``kgra_ns``
+    hold kernel cells on Graphiti; ``agent_gra`` and ``agent_gra_ns``
+    hold the replicated and native Graphiti cells, whose locus and
+    backend come from the method (GRAPHITI_BACKEND.md: the third
+    backend, in all three loci)."""
+    for phase, cell in (
+            ("kgra", "h0_kernel_shared"),
+            ("kgra_ns", "no_supersession_kernel_shared"),
+            ("agent_gra", "h0_replicated_graphiti"),
+            ("agent_gra", "h0_native_graphiti"),
+            ("agent_gra_ns", "no_supersession_replicated_graphiti")):
+        write(tmp_path, "qwen", phase, cell, [trial(0, ALL_PASS)])
+    assert set(ba.load(tmp_path)) == {
+        ("qwen", "kernel", "graphiti", "h0"),
+        ("qwen", "kernel", "graphiti", "no_supersession"),
+        ("qwen", "replicated", "graphiti", "h0"),
+        ("qwen", "native", "graphiti", "h0"),
+        ("qwen", "replicated", "graphiti", "no_supersession")}
+
+
+def test_the_contrast_pairs_the_graphiti_cells(tmp_path):
+    """Kernel against replicated on Graphiti, paired by user as on the
+    other backends (DEV_STATUS.md, Subtask 16: in the v2 smoke kernel
+    and replicated "agree on all 150 pairs", this table's reading)."""
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+          [trial(0, ALL_PASS), trial(1, ALL_PASS)])
+    write(tmp_path, "qwen", "agent_gra", "h0_replicated_graphiti",
+          [trial(0, ALL_PASS), trial(1, {**ALL_PASS, "recall": False})])
+    rows = {r["probe"]: r
+            for r in ba.contrast_rows(ba.load(tmp_path), "qwen")
+            if r["backend"] == "graphiti"}
+    assert set(rows) == set(ba.JUDGE_FREE)
+    assert (rows["recall"]["pairs"], rows["recall"]["kernel_only"],
+            rows["recall"]["replicated_only"]) == (2, 1, 0)
+    assert (rows["deletion"]["pairs"], rows["deletion"]["kernel_only"],
+            rows["deletion"]["replicated_only"]) == (2, 0, 0)
+
+
+def test_the_graphiti_scrub_criterion_reads_h0_only(tmp_path):
+    """The Graphiti scrub criterion reads the H = 0 cells, as the Mem0
+    one does (Amendment 4; DEV_STATUS.md, Subtask 16: "every Graphiti
+    forget scrubbed an episode"): a forget under a control or at H = 2
+    is not counted, whatever it scrubbed."""
+    def graphiti_forget(index, episodes):
+        found = lib_trial(index)
+        revoke_of(found)["forget"]["scrubbed"]["messages"] = episodes
+        return found
+
+    build_library(tmp_path)
+    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+          [graphiti_forget(0, 2)])
+    write(tmp_path, "qwen", "kgra", "h2_kernel_shared",
+          [graphiti_forget(0, 0)])
+    write(tmp_path, "qwen", "kgra_ns", "no_supersession_kernel_shared",
+          [graphiti_forget(0, 0)])
+    found = next(c for c in ba.library_criteria(ba.load(tmp_path))
+                 if c["criterion"].startswith("every Graphiti forget"))
+    assert found["holds"] is True
+    assert found["evidence"] == "1 of 1 forgets (2 episodes)"

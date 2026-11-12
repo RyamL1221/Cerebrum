@@ -9,6 +9,7 @@ with ``remove_episode``."""
 import json
 import socket
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -34,10 +35,10 @@ pytestmark = [needs_neo4j, pytest.mark.skipif(
     not ollama_ready(), reason="needs the local Ollama")]
 
 
-def make_memory(monkeypatch, split=False):
+def make_memory(monkeypatch, split=False, llm=None):
     runner = clients.GraphitiRunner()
-    graphiti = clients.build_graphiti(runner, {}, EMBEDDING,
-                                      llm=scripted_llm(split=split))
+    graphiti = clients.build_graphiti(
+        runner, {}, EMBEDDING, llm=llm or scripted_llm(split=split))
     monkeypatch.setattr(backends, "graphiti_client",
                         lambda settings: (runner, graphiti))
     memory = native.NativeMemory("graphiti", backends.NativeSettings(
@@ -205,3 +206,135 @@ def test_a_revoke_deletes_the_rows_episode(splitting):
     assert not splitting.delete(other, kept[0])
     assert not splitting.delete(user, f"x:{uuid.uuid4()}")
     assert splitting.backend_extraction is True
+
+
+def test_a_write_is_dated_now_in_utc(memory, monkeypatch):
+    """A writer's episode has ``reference_time=<now, UTC>``, a
+    timezone-aware time (docs/NATIVE_USAGE.md, "native_graphiti",
+    "Writers"). Graphiti dates the episode, and the facts it extracts,
+    from it; a naive local time would be compared with Graphiti's own
+    UTC times."""
+    sent = []
+    add_episode = memory.graphiti.add_episode
+
+    async def spy(**kwargs):
+        sent.append(kwargs)
+        return await add_episode(**kwargs)
+
+    monkeypatch.setattr(memory.graphiti, "add_episode", spy)
+    user = new_user(memory)
+    before = datetime.now(timezone.utc)
+    write(memory, user, "I live in Utrecht.")
+    after = datetime.now(timezone.utc)
+    (call,) = sent
+    moment = call["reference_time"]
+    assert moment.tzinfo is not None
+    assert moment.utcoffset() == timedelta(0)
+    assert before <= moment <= after
+
+
+# Each fact's valid_at (the scripted LLM dates none by itself), and the
+# order the test's search() returns them in: neither by date nor against
+# it, so a sort by date in either direction would move them.
+DATED = {
+    "My chat tool is Mattermost.": "2026-03-01T00:00:00Z",
+    "My calendar is Outlook.": "2026-06-01T00:00:00Z",
+    "My notes app is Obsidian.": "2026-01-01T00:00:00Z",
+}
+SEARCH_ORDER = ["My chat tool is Mattermost.", "My calendar is Outlook.",
+                "My notes app is Obsidian."]
+
+
+def dated_llm(dates):
+    """The scripted LLM, giving each fact it extracts its ``valid_at``
+    from ``dates`` (by the fact's text)."""
+    llm = scripted_llm()
+    extract = llm._generate_response
+
+    async def dated(messages, response_model=None, *args, **kwargs):
+        reply = await extract(messages, response_model, *args, **kwargs)
+        if getattr(response_model, "__name__", "") == "ExtractedEdges":
+            for edge in reply["edges"]:
+                edge["valid_at"] = dates.get(edge["fact"])
+        return reply
+
+    llm._generate_response = dated
+    return llm
+
+
+def test_search_keeps_graphitis_order_for_dated_facts(monkeypatch):
+    """Facts are used in the order ``search()`` returns them
+    (docs/NATIVE_USAGE.md, "native_graphiti", "Order and scores", and
+    "Evidence: native Graphiti's search as returned", which says the
+    order is pinned by tests), also when Graphiti has dated them: here
+    ``search()`` returns them in an order that is not their dates', and
+    the rows keep it. Without dates (the other tests) a reorder by date
+    would go unseen."""
+    memory = make_memory(monkeypatch, llm=dated_llm(DATED))
+    try:
+        user = new_user(memory)
+        for text in DATED:
+            write(memory, user, text)
+        search = memory.graphiti.search
+
+        async def in_order(*args, **kwargs):
+            edges = await search(*args, **kwargs)
+            assert sorted(e.fact for e in edges) == sorted(DATED)
+            return sorted(edges, key=lambda e: SEARCH_ORDER.index(e.fact))
+
+        monkeypatch.setattr(memory.graphiti, "search", in_order)
+        rows = memory.search("my tools", user, 10,
+                             agent_name="assistant_agent")
+        assert [r["content"] for r in rows] == SEARCH_ORDER
+        assert [r["metadata"]["graphiti_valid_at"][:10] for r in rows] == [
+            DATED[text][:10] for text in SEARCH_ORDER]
+    finally:
+        close(memory)
+
+
+def test_a_fact_takes_the_first_episode_the_agent_may_see(memory):
+    """A fact several writes claim gets the metadata of the first of its
+    episodes the searching agent may see (``NativeMemory._graphiti_search``;
+    docs/NATIVE_USAGE.md, "native_graphiti", "Sharing"): here another
+    agent's private write, then two shared ones; the row carries the
+    first shared write's owner, session and event, which the block's
+    session age and the probes' provenance read."""
+    user = new_user(memory)
+    text = "My chat tool is Mattermost."
+    write(memory, user, text, owner="task_agent", policy="private",
+          session=0, provenance_event="u0-e00")
+    write(memory, user, text, session=1, provenance_event="u0-e01")
+    write(memory, user, text, owner="calendar_agent", session=2,
+          provenance_event="u0-e02")
+    rows = memory.search(text, user, 10, agent_name="assistant_agent")
+    (row,) = [r for r in rows if r["content"] == text]
+    metadata = row["metadata"]
+    assert metadata["graphiti_episode_count"] == 3
+    assert (metadata["owner_agent"], metadata["session"],
+            metadata["provenance_event"]) == ("profile_agent", 1, "u0-e01")
+
+
+def test_the_assistant_sees_a_fact_through_its_shared_episode(memory,
+                                                               monkeypatch):
+    """The AssistantAgent's own search applies the sharing convention per
+    fact through its episodes (docs/NATIVE_USAGE.md, "native_graphiti",
+    "Sharing"): it passes its name, so a fact Graphiti merged from another
+    agent's private write and a shared one reaches its block through the
+    shared one. Searching without the name would give the fact its first
+    episode, the private one, which the convention then hides."""
+    user = new_user(memory)
+    text = "My chat tool is Mattermost."
+    write(memory, user, text, owner="task_agent", policy="private")
+    write(memory, user, text)
+    monkeypatch.setattr(native, "llm_chat", lambda **kwargs: {
+        "response": {"response_message": "Noted."}})
+    assistant = native.NativeAssistantAgent("assistant_agent", memory)
+    assistant.user_id = user
+    assistant.store_conversation = False
+    result = assistant.run("Which chat tool do I use?")
+    injected = {m["content"]: m
+                for m in result["injection_diagnostics"]["injected_memories"]}
+    assert text in injected
+    assert injected[text]["owner_agent"] == "profile_agent"
+    assert injected[text]["sharing_policy"] == "shared"
+    assert text in result["injection_diagnostics"]["block_text"]
