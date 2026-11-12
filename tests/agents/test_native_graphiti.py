@@ -338,3 +338,50 @@ def test_the_assistant_sees_a_fact_through_its_shared_episode(memory,
     assert injected[text]["owner_agent"] == "profile_agent"
     assert injected[text]["sharing_policy"] == "shared"
     assert text in result["injection_diagnostics"]["block_text"]
+
+
+def invalidating_llm(invalid):
+    """The scripted LLM, giving the facts it extracts whose text is in
+    ``invalid`` an ``invalid_at``, as Graphiti's edge extraction does
+    for a fact it reads as no longer true."""
+    llm = scripted_llm()
+    extract = llm._generate_response
+
+    async def marked(messages, response_model=None, *args, **kwargs):
+        reply = await extract(messages, response_model, *args, **kwargs)
+        if getattr(response_model, "__name__", "") == "ExtractedEdges":
+            for edge in reply["edges"]:
+                if edge["fact"] in invalid:
+                    edge["invalid_at"] = invalid[edge["fact"]]
+        return reply
+
+    llm._generate_response = marked
+    return llm
+
+
+def test_search_leaves_out_the_facts_graphiti_invalidated(monkeypatch):
+    """The native consumer uses only the facts Graphiti holds true now:
+    ``search()``'s own filter on ``invalid_at`` IS NULL (Subtask 17,
+    Decision 2; docs/NATIVE_USAGE.md, "native_graphiti", "Validity").
+    Graphiti still stores the invalidated fact, which a plain search
+    returns; the consumer's k facts are all current ones."""
+    stale = "My chat tool is Mattermost."
+    memory = make_memory(monkeypatch, llm=invalidating_llm(
+        {stale: "2026-06-01T00:00:00Z"}))
+    try:
+        user = new_user(memory)
+        write(memory, user, stale)
+        write(memory, user, "My calendar is Outlook.")
+        rows = memory.search("my tools", user, 10,
+                             agent_name="assistant_agent")
+        assert [r["content"] for r in rows] == ["My calendar is Outlook."]
+        assert all(r["metadata"]["graphiti_invalid_at"] is None
+                   for r in rows)
+        plain = memory.runner.run(
+            memory.graphiti.search, "my tools",
+            group_ids=[backends.graphiti_group(user)], num_results=10)
+        assert sorted(e.fact for e in plain) == [
+            "My calendar is Outlook.", stale]
+        assert next(e for e in plain if e.fact == stale).invalid_at
+    finally:
+        close(memory)

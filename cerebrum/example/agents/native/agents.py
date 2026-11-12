@@ -194,6 +194,11 @@ class NativeMemory:
         by the sharing convention (the first episode when it may see
         none, so the convention then hides the row).
 
+        Only facts Graphiti has not invalidated: ``search()``'s own
+        ``search_filter`` with ``invalid_at`` IS NULL, so the k facts it
+        returns are the ones it holds true now (docs/NATIVE_USAGE.md,
+        "native_graphiti", "Validity"; Subtask 17, Decision 2).
+
         ``search()`` writes ``num_results`` into the shared recipe
         ``EDGE_HYBRID_SEARCH_RRF``, which Graphiti's edge resolution
         reads too (``edge_operations.py:532, :564``); it is put back
@@ -204,12 +209,20 @@ class NativeMemory:
         from graphiti_core.search.search_config_recipes import (
             EDGE_HYBRID_SEARCH_RRF,
         )
+        from graphiti_core.search.search_filters import (
+            ComparisonOperator,
+            DateFilter,
+            SearchFilters,
+        )
 
         group = backends.graphiti_group(user_id)
+        current = SearchFilters(invalid_at=[[DateFilter(
+            comparison_operator=ComparisonOperator.is_null)]])
         limit = EDGE_HYBRID_SEARCH_RRF.limit
         try:
             edges = await self.graphiti.search(
-                query, group_ids=[group], num_results=k)
+                query, group_ids=[group], num_results=k,
+                search_filter=current)
         finally:
             EDGE_HYBRID_SEARCH_RRF.limit = limit
         wanted = sorted({u for edge in edges for u in edge.episodes or []})
