@@ -9,7 +9,10 @@ and `docs/NATIVE_USAGE.md`, "native_graphiti". Result: AIOS
 
 `analysis.md` and `analysis.json` read the 14 cells below from three
 result folders (`bench_v2_functional_graphiti`, `_a5`, `_a5b`), linked
-into one tree for `bench_v2_analysis`. 70 user-trials, 0 failed.
+into one tree for `bench_v2_analysis`. 70 user-trials, 0 failed. They
+were made at Cerebrum `f34653b`, before `abfd503` added the forget
+table's `entity` column; regenerated with the final code, the output
+differs only by that column (0 in every row) and the forget note.
 
 - **Cells and code.** Each results file records Cerebrum and AIOS
   commits, neither `-dirty`:
