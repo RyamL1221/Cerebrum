@@ -39,6 +39,7 @@ from cerebrum.example.agents.native.agents import (
 from cerebrum.example.agents import variants as variant_catalog
 from cerebrum.example.agents.variants import apply_variant
 from benchmarks.shared_memory import judge_free
+from cerebrum.utils import usage
 from benchmarks.shared_memory.models import (
     EMPTY_WRITE_IS_LOSS,
     InjectedMemoryEntry,
@@ -130,6 +131,9 @@ class VariantRunner:
             variant_catalog.role_of(agent)  # unknown agents fail early
         self.locus = locus
         self.not_applied: Dict[str, str] = {}
+        # The user id each run tagged its requests with (a V2 variant
+        # rewrites it), in run order.
+        self.user_ids: List[str] = []
 
     def run(self, agent_name: str, agent: Any, task_input: str) -> dict:
         code = self.codes.get(agent_name)
@@ -137,7 +141,28 @@ class VariantRunner:
         with apply_variant(variant, agent, agent_name, self.locus) as skipped:
             if skipped:
                 self.not_applied[agent_name] = f"{code}: {skipped}"
+            if getattr(agent, "user_id", None):
+                self.user_ids.append(agent.user_id)
             return agent.run(task_input)
+
+
+def trial_backend_usage(backend: dict, user_ids: List[str]) -> dict:
+    """An agent-managed trial's backend usage: what the assistant's run
+    took under its own user id, plus the calls tagged with the trial's
+    other ids (``VariantRunner.user_ids``): a V2 writer's rewritten id,
+    or the writers' base id when a V2 assistant's was rewritten. Without
+    them those calls were never counted (as benchmark v2's Amendment 2,
+    ``history.ManagedLocus.backend_usage``). A take removes what it
+    returns, so no call is counted twice."""
+    records = list(backend.get("records") or [])
+    for user_id in dict.fromkeys(user_ids):  # each id once, in order
+        records += usage.ACCUMULATOR.take(user_id)
+    return {
+        "backend_llm_tokens": usage.summarize(
+            records, usage.BACKEND_EXTRACTION),
+        "embedding_tokens": usage.summarize(records, usage.EMBEDDING),
+        "records": records,
+    }
 
 
 def measures(
@@ -1329,7 +1354,8 @@ class MethodPipeline:
             "assistant_agent", assistant_agent, trial_data.follow_up_query,
         )
         timing = assistant_result["timing"]
-        backend = assistant_result["backend_usage"]
+        backend = trial_backend_usage(
+            assistant_result["backend_usage"], runner.user_ids)
 
         reader = AgentPipeline(share_memory=True)
         diagnostics = reader._extract_injection_diagnostics(assistant_result)

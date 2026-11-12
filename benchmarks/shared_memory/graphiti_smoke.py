@@ -70,15 +70,26 @@ def load(root: Path) -> Tuple[dict, dict]:
     return cells, metadata
 
 
+def v2_trials(locus: str, trials: dict) -> Optional[int]:
+    """In an agent locus, the trials with a V2 (identity) variant: a V2
+    agent tags its backend calls with a rewritten id, which a harness
+    before Subtask 16's ``pipeline.trial_backend_usage`` did not count.
+    None for the kernel, which reads usage under canonical ids."""
+    if locus == "kernel":
+        return None
+    return sum(1 for t in trials.values()
+               if "V2" in (t.get("variants_applied") or {}).values())
+
+
 def cost_rows(cells: dict, prices: dict) -> List[dict]:
     """Per cell: the backend's calls and USD per user, the total USD per
-    user, and the trial latency."""
+    user, the trial latency, and ``v2_trials``."""
     rows = []
     for (model, locus, backend, level), trials in sorted(cells.items()):
         summary = cell_summary(list(trials.values()), prices)
         rows.append({
             "model": model, "locus": locus, "level": level,
-            "n": summary["n"],
+            "n": summary["n"], "v2_trials": v2_trials(locus, trials),
             "backend_calls": summary.get("backend_calls"),
             "backend_usd": summary.get("backend_usd"),
             "total_usd": summary.get("total_usd"),
@@ -169,11 +180,18 @@ def markdown(problems, cell_table, costs, gaps, reads) -> str:
                                   "integration", "leak_rate",
                                   "missing_rate", "facts_in_block"]),
             "", "## Cost and latency (per user)", "",
-            pa.table(costs, ["model", "locus", "level", "n",
+            pa.table(costs, ["model", "locus", "level", "n", "v2_trials",
                              "backend_calls", "backend_usd", "total_usd",
                              "latency_s"],
-                     {k: (lambda v: "" if v is None else f"{v:.4f}")
-                      for k in ("backend_usd", "total_usd")}),
+                     {"v2_trials": lambda v: "" if v is None else str(v),
+                      **{k: (lambda v: "" if v is None else f"{v:.4f}")
+                         for k in ("backend_usd", "total_usd")}}),
+            "", "`v2_trials`: an agent locus's trials with a V2 (identity) "
+            "variant. A harness before Subtask 16's fix "
+            "(`pipeline.trial_backend_usage`) did not count the backend "
+            "calls a V2 agent tagged with its rewritten id: in a cell it "
+            "recorded, with `v2_trials` > 0, `backend_calls` and the USD "
+            "are lower bounds.",
             "", "## Kernel − replicated and kernel − native "
             "(mean [95% CI])", ""]
     for model in MODELS:

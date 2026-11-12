@@ -160,6 +160,26 @@ def test_native_trial_records_every_cost_field(native_harness, method):
                                   wait=0) == []
 
 
+@pytest.mark.parametrize("variants", [
+    None, {"profile_agent": "V2"}, {"assistant_agent": "V2"}])
+def test_agent_managed_v1_trial_counts_every_user_id(native_harness,
+                                                     variants):
+    """A V2 agent tags its backend calls with a rewritten id. The
+    assistant's run took only its own id's calls, so a V2 writer's calls
+    or, under a V2 assistant, every writer's were never counted
+    (Subtask 16's pilot_v1 smoke)."""
+    method = "native_mem0"
+    result = MethodPipeline(method=method, assistant_llms=GPT4O).run_trial(
+        native.TRIAL, variants=variants
+    )
+    # Profile, task and the assistant's conversation write.
+    assert result.backend_llm_tokens.calls == 3
+    assert result.backend_llm_tokens.total_tokens == 3 * 3100
+    base = native.TRIAL.user_id + "__" + method
+    for uid in (base, f"{base}@users.example"):
+        assert usage.ACCUMULATOR.take(uid, wait=0) == []
+
+
 def test_kernel_backend_usage_is_read_from_memory_cost():
     body = {
         "backend_llm_tokens": {"calls": 0, "prompt_tokens": 0,

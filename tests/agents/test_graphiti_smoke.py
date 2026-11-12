@@ -127,3 +127,20 @@ def test_main_reports_a_missing_cell_and_writes_its_files(tmp_path):
     assert "### qwen: kernel − replicated" in text
     assert {p.name for p in out.iterdir()} >= {"cells.csv", "cost.csv",
                                                "gaps.csv"}
+
+
+def test_agent_cells_report_their_v2_trials(tmp_path):
+    """An agent cell recorded before Subtask 16's fix undercounts its V2
+    trials' backend calls, so the cost table names how many it has; the
+    kernel counts them."""
+    write_cells(tmp_path, grows)
+    cells, _ = gs.load(tmp_path)
+    rows = {(r["locus"], r["level"]): r
+            for r in gs.cost_rows(cells, gs.load_prices())}
+    expected = sum(1 for i in range(pa.USERS)
+                   if "V2" in SCHEDULE.variants(2, i).values())
+    assert expected > 0
+    assert rows[("replicated", 2)]["v2_trials"] == expected
+    assert rows[("native", 2)]["v2_trials"] == expected
+    assert rows[("replicated", 0)]["v2_trials"] == 0
+    assert rows[("kernel", 2)]["v2_trials"] is None
