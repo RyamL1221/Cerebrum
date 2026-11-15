@@ -106,6 +106,49 @@ def _probes(trials: List[dict], kind: str, echo: Optional[bool] = None):
     return out
 
 
+# Every table's standard columns (Subtask 17): the mean block a row's
+# probes saw, in tokens and in rows, so a difference between loci can be
+# read against what each injected.
+BLOCK = ["block_tokens", "block_rows"]
+
+
+def _block_size(probes: List[dict]) -> dict:
+    """The mean block of ``probes``: ``block_tokens`` (the diagnostics'
+    ``tokens_estimated``) and ``block_rows`` (injected rows); None for
+    no probe."""
+    if not probes:
+        return dict.fromkeys(BLOCK)
+    diagnostics = [p.get("diagnostics") or {} for p in probes]
+    return {"block_tokens": statistics.fmean(
+                d.get("tokens_estimated") or 0 for d in diagnostics),
+            "block_rows": statistics.fmean(
+                len(d.get("injected_memories") or []) for d in diagnostics)}
+
+
+def _cell_probes(cell: dict, kind: Optional[str] = None) -> List[dict]:
+    """The probes of the cell's trials that did not fail; of ``kind``
+    only, when given."""
+    return [p for t in cell["trials"] if not t.get("failed")
+            for p in t.get("probe_results") or []
+            if kind is None or p["type"] == kind]
+
+
+def with_block_size(rows: List[dict], cells: Dict[tuple, dict],
+                    kind: Optional[str] = None) -> List[dict]:
+    """``rows`` (keyed by cell) with the block columns: over the probes
+    of the row's ``probe`` type when it names one, else of ``kind``
+    (all of the cell's probes when None)."""
+    out = []
+    for row in rows:
+        cell = cells[(row["model"], row["locus"], row["backend"],
+                      row["condition"])]
+        probe = row.get("probe")
+        out.append({**row, **_block_size(_cell_probes(
+            cell, probe if probe in JUDGE_FREE + ("integration",)
+            else kind))})
+    return out
+
+
 def cell_rows(cells: Dict[tuple, dict]) -> List[dict]:
     """One row per cell and probe type (deletion also per echo split)."""
     rows = []
@@ -132,6 +175,7 @@ def cell_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 # own conversation rows (earlier probes' answers).
                 "contaminated": sum(1 for p in probes
                                     if p.get("contaminated")),
+                **_block_size(probes),
             }
             if kind in ("recency", "contradiction"):
                 lenient = [p for p in probes
@@ -170,6 +214,7 @@ def binding_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 1 for p in probes if p.get("budget_bound")),
             "tokens_median": statistics.median(tokens) if tokens else None,
             "tokens_max": max(tokens) if tokens else None,
+            **_block_size(probes),
         })
     return rows
 
@@ -414,6 +459,21 @@ def library_criteria(cells: Dict[tuple, dict]) -> List[dict]:
     return out
 
 
+CONTRAST_BLOCK = [f"{locus}_{column}" for locus in ("kernel", "replicated")
+                  for column in BLOCK]
+
+
+def _locus_blocks(kernel: dict, replicated: dict,
+                  kind: Optional[str] = None) -> dict:
+    """The block columns of the kernel and the replicated cell, each
+    prefixed with its locus."""
+    return {f"{locus}_{column}": value
+            for locus, cell in (("kernel", kernel),
+                                ("replicated", replicated))
+            for column, value in _block_size(
+                _cell_probes(cell, kind)).items()}
+
+
 def contrast_rows(cells: Dict[tuple, dict], model: str,
                   condition: str = "h0") -> List[dict]:
     """Kernel against replicated per backend and probe type, paired by
@@ -444,7 +504,8 @@ def contrast_rows(cells: Dict[tuple, dict], model: str,
             rows.append({"model": model, "backend": backend, "probe": kind,
                          "pairs": both, "kernel_only": b,
                          "replicated_only": c,
-                         "p_mcnemar": mcnemar_exact(b, c) if both else None})
+                         "p_mcnemar": mcnemar_exact(b, c) if both else None,
+                         **_locus_blocks(k, r, kind)})
         if backend == "inhouse":
             same = total = 0
             for i in sorted(set(ku) & set(ru)):
@@ -457,7 +518,7 @@ def contrast_rows(cells: Dict[tuple, dict], model: str,
             rows.append({"model": model, "backend": backend,
                          "probe": "identical blocks", "pairs": total,
                          "kernel_only": same, "replicated_only": None,
-                         "p_mcnemar": None})
+                         "p_mcnemar": None, **_locus_blocks(k, r)})
     return rows
 
 
@@ -482,7 +543,8 @@ def integration_rows(cells: Dict[tuple, dict]) -> List[dict]:
                      "condition": condition, "n": len(scores),
                      "mean": mean, "ci_low": low, "ci_high": high,
                      "sd": sd,
-                     "share_ge_4": sum(s >= 4 for s in scores) / len(scores)})
+                     "share_ge_4": sum(s >= 4 for s in scores) / len(scores),
+                     **_block_size(_cell_probes(cell, "integration"))})
     return rows
 
 
@@ -941,7 +1003,16 @@ def writes_without_fact_rows(cells: Dict[tuple, dict]) -> List[dict]:
 
 
 def readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
-    """Every reading above, by name."""
+    """Every reading above, by name, each row with the block columns
+    (of the integration probes for the integration readings)."""
+    found = _readings(cells)
+    return {name: with_block_size(
+                rows, cells,
+                "integration" if name.startswith("integration") else None)
+            for name, rows in found.items()}
+
+
+def _readings(cells: Dict[tuple, dict]) -> Dict[str, List[dict]]:
     return {"forgets": forget_rows(cells),
             "supersession": supersession_rows(cells),
             "backend_invalidations": backend_invalidation_rows(cells),
@@ -1076,6 +1147,9 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
            f"{len(cells)} cells, "
            f"{sum(len(c['trials']) for c in cells.values())} user-trials, "
            f"{sum(1 for c in cells.values() for t in c['trials'] if t.get('failed'))} failed.",
+           "", "Every table ends with `block_tokens` and `block_rows`: "
+           "the mean block of the row's probes, in tokens and in rows "
+           "(per locus in the kernel-against-replicated table).",
            "", "## Per-probe pass matrix", "",
            "Pass rates with 95% Wilson intervals; recency and "
            "contradiction also give the lenient rate (the new value "
@@ -1087,11 +1161,11 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
                         "passed", "n", "rate", "ci_low", "ci_high",
                         "lenient", "names_both", "named_as_past",
                         "in_block", "in_answer", "contaminated",
-                        "cap_bound", "budget_bound", "probes"]), "",
+                        "cap_bound", "budget_bound", "probes"] + BLOCK), "",
            "## Cap and budget", "",
            table(binding, ["model", "locus", "backend", "condition",
                            "probes", "cap_bound", "budget_bound",
-                           "tokens_median", "tokens_max"]), ""]
+                           "tokens_median", "tokens_max"] + BLOCK), ""]
     if checks:
         out += ["## Functional check criteria", "",
                 table(checks, ["criterion", "holds", "evidence"]), ""]
@@ -1099,18 +1173,19 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
         out += ["## Kernel against replicated (paired over users)", "",
                 table(contrasts, ["model", "backend", "probe", "pairs",
                                   "kernel_only", "replicated_only",
-                                  "p_mcnemar"]), ""]
+                                  "p_mcnemar"] + CONTRAST_BLOCK), ""]
     if integration:
         out += ["## Integration (judge v2)", "",
                 "The mean with its 95% t-interval (none for n < 2).", "",
                 table(integration, ["model", "locus", "backend",
                                     "condition", "n", "mean", "ci_low",
-                                    "ci_high", "sd", "share_ge_4"]), ""]
+                                    "ci_high", "sd", "share_ge_4"]
+                      + BLOCK), ""]
     for name, title, note, keys in READING_SECTIONS:
         found = (extra or {}).get(name)
         if found:
             out += [f"## {title}", "", note, "",
-                    table(found, CELL_KEYS + keys), ""]
+                    table(found, CELL_KEYS + keys + BLOCK), ""]
     return "\n".join(out) + "\n"
 
 

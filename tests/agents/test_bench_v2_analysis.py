@@ -175,6 +175,65 @@ def test_the_contrast_pairs_users_and_counts_identical_blocks(tmp_path):
     assert same["pairs"] == 12 and same["kernel_only"] == 12
 
 
+def sized(trials, kind, tokens, rows):
+    """``trials`` with every ``kind`` probe's block set to ``tokens``
+    tokens and ``rows`` injected rows."""
+    for t in trials:
+        for p in t["probe_results"]:
+            if p["type"] == kind:
+                p["diagnostics"]["tokens_estimated"] = tokens
+                p["diagnostics"]["injected_memories"] = [{}] * rows
+    return trials
+
+
+def test_every_table_reports_the_mean_block_per_locus(tmp_path):
+    """``block_tokens`` and ``block_rows`` (Subtask 17): the mean block
+    of the row's probes, of its probe type when it has one, per locus in
+    the contrast; a failed trial's probes are left out."""
+    kernel = sized([trial(0, ALL_PASS), trial(1, ALL_PASS)],
+                   "recall", 280, 7)
+    kernel[1]["probe_results"][2]["diagnostics"]["tokens_estimated"] = 120
+    failed = trial(2, ALL_PASS)
+    failed["failed"] = True
+    sized([failed], "recall", 9999, 99)
+    write(tmp_path, "qwen", "kinh", "h0_kernel_shared", kernel + [failed])
+    write(tmp_path, "qwen", "agent", "h0_replicated_inhouse",
+          sized([trial(0, ALL_PASS), trial(1, ALL_PASS)], "recall", 90, 2))
+    cells = ba.load(tmp_path)
+    recall = {r["locus"]: r for r in ba.cell_rows(cells)
+              if r["probe"] == "recall"}
+    assert (recall["kernel"]["block_tokens"],
+            recall["kernel"]["block_rows"]) == (200.0, 7.0)
+    assert recall["replicated"]["block_tokens"] == 90.0
+    # The cell's every probe: five at 300 tokens and 0 rows per trial,
+    # and the recall one.
+    binding = {r["locus"]: r for r in ba.binding_rows(cells)}
+    assert binding["kernel"]["block_tokens"] == pytest.approx(
+        (10 * 300 + 280 + 120) / 12)
+    assert binding["kernel"]["block_rows"] == pytest.approx(14 / 12)
+    (contrast,) = [r for r in ba.contrast_rows(cells, "qwen")
+                   if r["probe"] == "recall"]
+    assert (contrast["kernel_block_tokens"],
+            contrast["replicated_block_tokens"],
+            contrast["kernel_block_rows"],
+            contrast["replicated_block_rows"]) == (200.0, 90.0, 7.0, 2.0)
+    (integration,) = [r for r in ba.integration_rows(cells)
+                      if r["locus"] == "kernel"]
+    assert integration["block_tokens"] == 300.0
+    exposure = ba.readings(cells)["exposure"]
+    assert all(r["block_tokens"] == 300.0 for r in exposure
+               if r["locus"] == "kernel")
+    text = ba.markdown(cells, ba.cell_rows(cells), ba.binding_rows(cells),
+                       [], ba.contrast_rows(cells, "qwen"),
+                       ba.integration_rows(cells), ba.readings(cells))
+    headers = [line for line in text.splitlines()
+               if line.startswith("| model |")]
+    assert headers and all(
+        line.endswith("| block_tokens | block_rows |")
+        or line.endswith("| replicated_block_tokens | "
+                         "replicated_block_rows |") for line in headers)
+
+
 def test_markdown_lists_every_section(tmp_path):
     build(tmp_path)
     cells = ba.load(tmp_path)
@@ -758,10 +817,12 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
     assert at == sorted(at)
     assert ("| model | locus | backend | condition | probe | n | passed | "
             "exposed | passed_exposed |") in full
-    # Each reading has rows, and each row exactly its section's columns.
+    # Each reading has rows, and each row exactly its section's columns
+    # and the block columns.
     for name, _, _, keys in ba.READING_SECTIONS:
         assert extra[name] and all(
-            set(r) == set(ba.CELL_KEYS + keys) for r in extra[name]), name
+            set(r) == set(ba.CELL_KEYS + keys + ba.BLOCK)
+            for r in extra[name]), name
     # The report main writes holds each reading with its title, its note
     # and its columns. The titles and columns are pinned, in order. Of
     # each note, the phrases in `defined` are pinned, in any order, and
@@ -775,7 +836,8 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
     text = md.read_text()
     for name, title, note, keys in ba.READING_SECTIONS:
         assert (f"## {title}\n\n{note}\n\n| "
-                + " | ".join(ba.CELL_KEYS + keys) + " |") in text, name
+                + " | ".join(ba.CELL_KEYS + keys + ba.BLOCK) + " |"
+                ) in text, name
     assert [(name, title, keys)
             for name, title, _, keys in ba.READING_SECTIONS] == [
         ("forgets", "Revokes and the forget (Amendment 4)",
