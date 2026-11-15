@@ -14,7 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from cerebrum.utils.redact import redact_report, secret_values
+from cerebrum.utils.redact import (
+    file_secret_configs,
+    redact_report,
+    secret_values,
+)
 
 DEFAULT_AIOS = Path(__file__).resolve().parents[3] / "AIOS"
 
@@ -22,25 +26,9 @@ DEFAULT_AIOS = Path(__file__).resolve().parents[3] / "AIOS"
 @lru_cache(maxsize=1)
 def _file_configs() -> tuple:
     """The kernel checkout's ``.env`` and ``aios/config/config.yaml``
-    (``AIOS_ROOT``, default the sibling ``AIOS``; each when it exists),
-    read once a session."""
-    root = Path(os.environ.get("AIOS_ROOT") or DEFAULT_AIOS)
-    configs = []
-    env_file = root / ".env"
-    if env_file.is_file():
-        from dotenv import dotenv_values
-
-        configs.append({name.lower(): value for name, value
-                        in dotenv_values(env_file).items()})
-    config_file = root / "aios" / "config" / "config.yaml"
-    if config_file.is_file():
-        import yaml
-
-        try:
-            configs.append(yaml.safe_load(config_file.read_text()) or {})
-        except yaml.YAMLError:
-            pass
-    return tuple(configs)
+    (``AIOS_ROOT``, default the sibling ``AIOS``), read once a
+    session."""
+    return file_secret_configs(os.environ.get("AIOS_ROOT") or DEFAULT_AIOS)
 
 
 def report_secrets() -> tuple:
@@ -51,5 +39,12 @@ def report_secrets() -> tuple:
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
+    outcome = yield
+    redact_report(outcome.get_result(), report_secrets())
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector):
+    """A module that fails to import or raises while collected."""
     outcome = yield
     redact_report(outcome.get_result(), report_secrets())

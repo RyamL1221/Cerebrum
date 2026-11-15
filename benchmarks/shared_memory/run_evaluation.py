@@ -1337,10 +1337,10 @@ def decoding_from_args(args) -> dict | None:
 
 def main():
     """Parse CLI arguments and run the evaluation orchestrator."""
-    # No key value reaches a log record or its traceback (Subtask 17,
-    # Decision 3): the driver loads the kernel's .env into the
-    # environment, whose secret values these are.
-    redact.install_log_redaction(redact.secret_values())
+    # No key value reaches a log record, its traceback or the standard
+    # streams (Subtask 17, Decision 3): the driver loads the kernel's
+    # .env into the environment, whose secret values these are.
+    redact.install_redaction(redact.secret_values())
     parser = build_arg_parser()
     args = parser.parse_args()
 
