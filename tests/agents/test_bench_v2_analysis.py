@@ -885,8 +885,10 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             "writer;", "`same_writer`: rows of the revoking writer "
             "deleted by a value or an alias, rows of its other facts",
             "forgets that found no value",
-            "the Mem0 history scrub (`messages` deleted, `history` records "
-            "cleared)", "rows later writes `swept` and writes "
+            "the history scrub (Mem0: `messages` deleted, `history` "
+            "records cleared; A-MEM: `history` counts the carrier notes it "
+            "deleted, as `derived` does)", "rows later writes `swept` and "
+            "writes "
             "`suppressed`"],
         "supersession": [
             "`retired`: rows writes marked retired",

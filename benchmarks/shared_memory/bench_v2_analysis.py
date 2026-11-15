@@ -142,7 +142,9 @@ def with_block_size(rows: List[dict], cells: Dict[tuple, dict],
                     kind: Optional[str] = None) -> List[dict]:
     """``rows`` (keyed by cell) with the block columns: over the probes
     of the row's ``probe`` type when it names one, else of ``kind``
-    (all of the cell's probes when None)."""
+    (all of the cell's probes when None). A row that splits them further
+    (a slot, a carrier, a count of base rows) gets its cell's mean, as
+    the report's note says."""
     out = []
     for row in rows:
         cell = cells[(row["model"], row["locus"], row["backend"],
@@ -981,7 +983,7 @@ def backend_invalidation_rows(cells: Dict[tuple, dict]) -> List[dict]:
 
 
 def writes_without_fact_rows(cells: Dict[tuple, dict]) -> List[dict]:
-    """Per Graphiti and A-MEM cell (Amendments 5 and 7): the scored
+    """Per Graphiti and A-MEM cell (Amendments 5 and 8): the scored
     trials, those with a write the backend stored no row from
     (``writes_without_fact``: a lost memory, not a failed trial), those
     writes, and the probes whose target was one, with their passes. No
@@ -1044,8 +1046,10 @@ READING_SECTIONS = [
      "`other_agents`: rows of "
      "agents other than the revoking writer; `same_writer`: rows of the "
      "revoking writer deleted by a value or an alias, rows of its other "
-     "facts, as a Mem0 fold is), forgets that found no value, the Mem0 "
-     "history scrub (`messages` deleted, `history` records cleared), and "
+     "facts, as a Mem0 fold is), forgets that found no value, the "
+     "history scrub (Mem0: `messages` deleted, `history` records "
+     "cleared; A-MEM: `history` counts the carrier notes it deleted, as "
+     "`derived` does), and "
      "rows later writes `swept` and writes `suppressed`.",
      ["revokes", "forget", "deleted", "fact_key", "value", "alias",
       "entity", "derived", "other_agents", "same_writer", "no_values",
@@ -1069,7 +1073,7 @@ READING_SECTIONS = [
      "Graphiti sometimes extracts a write's entities but no fact, and "
      "its search returns facts only: a write Graphiti stored no fact "
      "from is a lost memory, not a failed trial (and an A-MEM write "
-     "that stored no note, Amendment 7). `trials`: scored "
+     "that stored no note, Amendment 8). `trials`: scored "
      "trials; `with_one`: scored trials with such a write; "
      "`writes_without_fact`: those writes; `probes_on_them`: probes "
      "whose target was one, and `passed_on_them`.",
@@ -1158,8 +1162,12 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
            f"{sum(len(c['trials']) for c in cells.values())} user-trials, "
            f"{sum(1 for c in cells.values() for t in c['trials'] if t.get('failed'))} failed.",
            "", "Every table ends with `block_tokens` and `block_rows`: "
-           "the mean block of the row's probes, in tokens and in rows "
-           "(per locus in the kernel-against-replicated table).",
+           "the mean block, in tokens and in rows, of the row's probe "
+           "type in its cell where the row names one (per locus in the "
+           "kernel-against-replicated table), else of the cell's probes "
+           "(its integration probes in the integration readings): a "
+           "row that splits a cell's probes further (a slot, a carrier, "
+           "a count of base rows) shows its cell's mean.",
            "", "## Per-probe pass matrix", "",
            "Pass rates with 95% Wilson intervals; recency and "
            "contradiction also give the lenient rate (the new value "

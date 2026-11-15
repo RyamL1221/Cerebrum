@@ -1,6 +1,6 @@
 """The harness, analysis and reports on A-MEM's cells (NeurIPS Subtask
 17, AIOS docs/AMEM_BACKEND.md): the conditions and their dispatch,
-Amendment 7 (an A-MEM write that stored no note is a lost memory), the
+Amendment 8 (an A-MEM write that stored no note is a lost memory), the
 analysis's kamem phases, its ``derived`` forget reason and its
 writes-without-a-row reading, the pilot report's ``--backend amem``,
 and the heterogeneity report's cells."""
@@ -39,7 +39,7 @@ def test_a_v1_amem_trial_runs_on_amem(method, runner):
 
 
 def test_an_amem_write_that_stored_no_note_is_a_lost_memory():
-    """Amendment 7: as on Graphiti (Amendment 5), not Mem0."""
+    """Amendment 8: as on Graphiti (Amendment 5), not Mem0."""
     assert "amem" in EMPTY_WRITE_IS_LOSS
     assert "mem0" not in EMPTY_WRITE_IS_LOSS
 

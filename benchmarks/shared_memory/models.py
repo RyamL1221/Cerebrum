@@ -23,7 +23,7 @@ from cerebrum.config.config_manager import config
 # scored. Mem0 logs and swallows its extraction errors, so its empty
 # write still fails the trial (Subtask 10). A-MEM stores the note it is
 # given even when its LLM fails (Subtask 17, AIOS AMEM_BACKEND.md), so
-# a write that stored none is a lost memory too (Amendment 7).
+# a write that stored none is a lost memory too (Amendment 8).
 EMPTY_WRITE_IS_LOSS = frozenset({"graphiti", "amem"})
 
 
