@@ -2,7 +2,7 @@
 
 7 cells, 210 user-trials, 0 failed.
 
-Every table ends with `block_tokens` and `block_rows`: the mean block of the row's probes, in tokens and in rows (per locus in the kernel-against-replicated table).
+Every table ends with `block_tokens` and `block_rows`: the mean block, in tokens and in rows, of the row's probe type in its cell where the row names one (per locus in the kernel-against-replicated table), else of the cell's probes (its integration probes in the integration readings): a row that splits a cell's probes further (a slot, a carrier, a count of base rows) shows its cell's mean.
 
 ## Per-probe pass matrix
 
@@ -109,16 +109,16 @@ The mean with its 95% t-interval (none for n < 2).
 
 ## Revokes and the forget (Amendment 4)
 
-Per kernel and replicated cell: revokes, those that went through the forget, the rows the forgets deleted (by reason: the slot's `fact_key`, a `value` or an `alias`, or an `entity`: a Graphiti scrub deleted it with an entity a form names; `other_agents`: rows of agents other than the revoking writer; `same_writer`: rows of the revoking writer deleted by a value or an alias, rows of its other facts, as a Mem0 fold is), forgets that found no value, the Mem0 history scrub (`messages` deleted, `history` records cleared), and rows later writes `swept` and writes `suppressed`.
+Per kernel and replicated cell: revokes, those that went through the forget, the rows the forgets deleted (by reason: the slot's `fact_key`, a `value` or an `alias`, or an `entity`: a Graphiti scrub deleted it with an entity a form names, or `derived`: an A-MEM scrub deleted it because its derived text carried a form; `other_agents`: rows of agents other than the revoking writer; `same_writer`: rows of the revoking writer deleted by a value or an alias, rows of its other facts, as a Mem0 fold is), forgets that found no value, the history scrub (Mem0: `messages` deleted, `history` records cleared; A-MEM: `history` counts the carrier notes it deleted, as `derived` does), and rows later writes `swept` and writes `suppressed`.
 
-| model | locus | backend | condition | revokes | forget | deleted | fact_key | value | alias | entity | other_agents | same_writer | no_values | messages | history | swept | suppressed | block_tokens | block_rows |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| qwen | kernel | graphiti | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 10 | 0 | 0 | 40 | 66 | 0 | 0 | 284.94 | 17.47 |
-| qwen | kernel | inhouse | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 264.08 | 11.59 |
-| qwen | kernel | mem0 | h0 | 30 | 30 | 43 | 30 | 13 | 0 | 0 | 10 | 3 | 0 | 40 | 86 | 0 | 0 | 284.89 | 11.83 |
-| qwen | replicated | graphiti | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 10 | 0 | 0 | 40 | 66 | 0 | 0 | 284.58 | 17.32 |
-| qwen | replicated | inhouse | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 264.08 | 11.59 |
-| qwen | replicated | mem0 | h0 | 30 | 30 | 43 | 30 | 13 | 0 | 0 | 10 | 3 | 0 | 40 | 86 | 0 | 0 | 283.24 | 11.64 |
+| model | locus | backend | condition | revokes | forget | deleted | fact_key | value | alias | entity | derived | other_agents | same_writer | no_values | messages | history | swept | suppressed | block_tokens | block_rows |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| qwen | kernel | graphiti | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 0 | 10 | 0 | 0 | 40 | 66 | 0 | 0 | 284.94 | 17.47 |
+| qwen | kernel | inhouse | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 264.08 | 11.59 |
+| qwen | kernel | mem0 | h0 | 30 | 30 | 43 | 30 | 13 | 0 | 0 | 0 | 10 | 3 | 0 | 40 | 86 | 0 | 0 | 284.89 | 11.83 |
+| qwen | replicated | graphiti | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 0 | 10 | 0 | 0 | 40 | 66 | 0 | 0 | 284.58 | 17.32 |
+| qwen | replicated | inhouse | h0 | 30 | 30 | 40 | 30 | 10 | 0 | 0 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 264.08 | 11.59 |
+| qwen | replicated | mem0 | h0 | 30 | 30 | 43 | 30 | 13 | 0 | 0 | 0 | 10 | 3 | 0 | 40 | 86 | 0 | 0 | 283.24 | 11.64 |
 
 ## Supersession (Amendment 4)
 
@@ -146,7 +146,7 @@ Graphiti marks a fact invalid when it judges a later one contradicts it: its own
 
 ## Graphiti writes that stored no fact (Amendment 5)
 
-Graphiti sometimes extracts a write's entities but no fact, and its search returns facts only: a write Graphiti stored no fact from is a lost memory, not a failed trial. `trials`: scored trials; `with_one`: scored trials with such a write; `writes_without_fact`: those writes; `probes_on_them`: probes whose target was one, and `passed_on_them`.
+Graphiti sometimes extracts a write's entities but no fact, and its search returns facts only: a write Graphiti stored no fact from is a lost memory, not a failed trial (and an A-MEM write that stored no note, Amendment 8). `trials`: scored trials; `with_one`: scored trials with such a write; `writes_without_fact`: those writes; `probes_on_them`: probes whose target was one, and `passed_on_them`.
 
 | model | locus | backend | condition | trials | with_one | writes_without_fact | probes_on_them | passed_on_them | block_tokens | block_rows |
 |---|---|---|---|---|---|---|---|---|---|---|
