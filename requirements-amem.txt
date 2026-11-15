@@ -1,0 +1,16 @@
+# The A-MEM backend of the benchmark (NeurIPS Subtask 17, AIOS
+# docs/AMEM_BACKEND.md), apart from requirements.txt, which is the SDK
+# package's dependency list: a published package cannot carry a git
+# reference, and the SDK does not need torch. Every package A-MEM needs
+# that the venv lacked, at the versions installed; install with
+#   pip install --no-deps -r requirements-amem.txt
+agentic-memory @ git+https://github.com/WujiangXu/A-mem-sys@f303dfc71e07bdc787f4bc135d4cea328ae30e99
+rank_bm25==0.2.2
+nltk==3.9.4
+sentence-transformers==6.3.0
+transformers==5.17.0
+torch==2.15.0
+mpmath==1.3.0
+networkx==3.6.1
+safetensors==0.8.0
+sympy==1.14.0

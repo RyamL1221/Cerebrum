@@ -14,13 +14,14 @@ CONDITIONS = ("kernel_shared", "naive_concat", "vanilla_rag", "kernel_private")
 
 # Agents manage memory themselves (docs/NATIVE_USAGE.md in AIOS): the
 # kernel must run with injection and extraction off.
-NATIVE_CONDITIONS = ("native_mem0", "native_inhouse", "native_graphiti")
+NATIVE_CONDITIONS = ("native_mem0", "native_inhouse", "native_graphiti",
+                     "native_amem")
 
 # Every agent runs the kernel's memory pipeline library itself
 # (docs/REPLICATED_LOGIC.md in AIOS): the kernel must run with injection
 # and extraction off, as for the native conditions.
 REPLICATED_CONDITIONS = ("replicated_mem0", "replicated_inhouse",
-                         "replicated_graphiti")
+                         "replicated_graphiti", "replicated_amem")
 
 # Conditions whose agents manage memory themselves.
 AGENT_MANAGED_CONDITIONS = NATIVE_CONDITIONS + REPLICATED_CONDITIONS

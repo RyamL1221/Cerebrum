@@ -1,7 +1,8 @@
 """The pilot_v1 smoke on Graphiti (NeurIPS Subtask 16, AIOS
-docs/GRAPHITI_BACKEND.md): the Subtask 11 pilot's locus contrasts on a
-third backend, for one model at H = 0 and 2 on pilot_v1's 30 users, as
-AIOS ``scripts/run_pilot_v1_graphiti.sh`` writes them.
+docs/GRAPHITI_BACKEND.md) or A-MEM (Subtask 17, AIOS docs/AMEM_BACKEND.md,
+``--backend amem``): the Subtask 11 pilot's locus contrasts on a third
+or fourth backend, for one model at H = 0 and 2 on pilot_v1's 30 users,
+as AIOS ``scripts/run_pilot_v1_graphiti.sh`` writes them (``BACKEND``).
 
 It reads the cells with ``pilot_analysis``'s statistics and reports:
 
@@ -37,33 +38,42 @@ from benchmarks.shared_memory.pilot_schedule import PATH, Schedule
 MODELS = ("qwen",)
 LEVELS = (0, 2)
 BACKEND = "graphiti"
-# locus -> (phase, method)
-CELLS = {
-    "kernel": ("kgra", "kernel_shared"),
-    "replicated": ("agent_gra", "replicated_graphiti"),
-    "native": ("agent_gra", "native_graphiti"),
-}
+# backend -> the driver's kernel and agent phases
+PHASES = {"graphiti": ("kgra", "agent_gra"), "amem": ("kamem", "agent_amem")}
 OTHERS = ("replicated", "native")
 
 
-def cell_file(root: Path, model: str, locus: str, level: int) -> Path:
-    phase, method = CELLS[locus]
+def cells_for(backend: str = BACKEND) -> Dict[str, Tuple[str, str]]:
+    """locus -> (phase, method) for a backend."""
+    kernel, agent = PHASES[backend]
+    return {"kernel": (kernel, "kernel_shared"),
+            "replicated": (agent, f"replicated_{backend}"),
+            "native": (agent, f"native_{backend}")}
+
+
+# locus -> (phase, method), Graphiti's
+CELLS = cells_for(BACKEND)
+
+
+def cell_file(root: Path, model: str, locus: str, level: int,
+              backend: str = BACKEND) -> Path:
+    phase, method = cells_for(backend)[locus]
     return (root / model / phase / f"h{level}_{method}"
             / f"results_{method}.json")
 
 
-def load(root: Path) -> Tuple[dict, dict]:
-    """As ``pilot_analysis.load``: ``cells[(model, locus, "graphiti",
-    H)]`` is the trials by index, ``metadata`` the experiment metadata."""
+def load(root: Path, backend: str = BACKEND) -> Tuple[dict, dict]:
+    """As ``pilot_analysis.load``: ``cells[(model, locus, backend, H)]``
+    is the trials by index, ``metadata`` the experiment metadata."""
     cells, metadata = {}, {}
     for model in MODELS:
         for locus in CELLS:
             for level in LEVELS:
-                path = cell_file(root, model, locus, level)
+                path = cell_file(root, model, locus, level, backend)
                 if not path.exists():
                     continue
                 data = json.loads(path.read_text())
-                key = (model, locus, BACKEND, level)
+                key = (model, locus, backend, level)
                 cells[key] = {t["trial_index"]: t
                               for t in data["conditions"][0]["trials"]}
                 metadata[key] = data["experiment_metadata"]
@@ -99,20 +109,20 @@ def cost_rows(cells: dict, prices: dict) -> List[dict]:
     return rows
 
 
-def gap_rows(cells: dict) -> List[dict]:
+def gap_rows(cells: dict, backend: str = BACKEND) -> List[dict]:
     rows = []
     for model in MODELS:
         for other in OTHERS:
             for dimension in pa.DIMENSIONS:
-                base = {"model": model, "vs": other, "scope": BACKEND,
+                base = {"model": model, "vs": other, "scope": backend,
                         "dimension": dimension}
                 for level in LEVELS:
                     rows.append({**base, "contrast": f"H{level}",
                                  **pa.gap(cells, model, other, level,
-                                          dimension, (BACKEND,))})
+                                          dimension, (backend,))})
                 rows.append({**base, "contrast": "H2-H0",
                              **pa.did(cells, model, other, 2, 0, dimension,
-                                      (BACKEND,))})
+                                      (backend,))})
     return rows
 
 
@@ -224,6 +234,8 @@ def markdown(problems, cell_table, costs, gaps, reads) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("root")
+    parser.add_argument("--backend", choices=sorted(PHASES),
+                        default=BACKEND)
     parser.add_argument("--schedule", default=str(PATH))
     parser.add_argument("--reference",
                         help="the pilot's gaps.csv (Subtask 11)")
@@ -231,7 +243,7 @@ def main(argv=None) -> int:
     parser.add_argument("--json")
     parser.add_argument("--csv-dir")
     args = parser.parse_args(argv)
-    cells, metadata = load(Path(args.root))
+    cells, metadata = load(Path(args.root), args.backend)
     problems = pa.check_pairing(cells, metadata, Schedule(args.schedule))
     expected = len(MODELS) * len(CELLS) * len(LEVELS)
     if len(cells) < expected:
@@ -239,7 +251,7 @@ def main(argv=None) -> int:
     prices = load_prices()
     cell_table = pa.cell_rows(cells, prices)
     costs = cost_rows(cells, prices)
-    gaps = gap_rows(cells)
+    gaps = gap_rows(cells, args.backend)
     reads = readings(gaps, read_reference(args.reference)
                      if args.reference else None)
     text = markdown(problems, cell_table, costs, gaps, reads)

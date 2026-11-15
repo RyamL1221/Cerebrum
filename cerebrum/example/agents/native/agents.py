@@ -3,7 +3,9 @@
 ``backend`` is ``"mem0"`` (the ``mem0`` SDK, used as its documentation
 shows), ``"inhouse"`` (Chroma, by the minimal convention in the spec) or
 ``"graphiti"`` (Graphiti on Neo4j, as its documentation shows; Subtask
-16, docs/NATIVE_USAGE.md "native_graphiti").
+16, docs/NATIVE_USAGE.md "native_graphiti") or ``"amem"`` (A-MEM's
+notes, as its README shows; Subtask 17, docs/NATIVE_USAGE.md
+"native_amem").
 The kernel serves the LLM calls only: no agent here makes a kernel memory
 call. Each agent holds its own backend client.
 
@@ -45,7 +47,7 @@ from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.llm.apis import llm_chat
 from cerebrum.utils import usage
 
-BACKENDS = ("mem0", "inhouse", "graphiti")
+BACKENDS = ("mem0", "inhouse", "graphiti", "amem")
 COSINE = {"hnsw": {"space": "cosine"}}
 
 
@@ -75,10 +77,15 @@ class NativeMemory:
             raise ValueError(f"unknown native backend {backend!r}")
         self.backend = backend
         self.settings = settings
-        # Mem0 (infer=True) and Graphiti extract facts from every write.
-        self.backend_extraction = backend in ("mem0", "graphiti")
+        # Mem0 (infer=True) and Graphiti extract facts from every write;
+        # A-MEM's LLM annotates and evolves every note.
+        self.backend_extraction = backend in ("mem0", "graphiti", "amem")
         if backend == "mem0":
             self.mem0 = backends.mem0_client(settings)
+        elif backend == "amem":
+            # The process's A-MEM stores, one per user, which the agents
+            # of the process share (docs/NATIVE_USAGE.md, "native_amem").
+            self.amem = backends.amem_stores(settings)
         elif backend == "graphiti":
             self.runner, self.graphiti = backends.graphiti_client(settings)
             # Episodes this handle deleted: a row of one went with it.
@@ -109,6 +116,8 @@ class NativeMemory:
             return self._write(messages, text, agent_name, metadata, user_id)
 
     def _write(self, messages, text, agent_name, metadata, user_id) -> list:
+        if self.backend == "amem":
+            return [self._amem_write(text, metadata, user_id)]
         if self.backend == "graphiti":
             return self.runner.run(
                 self._graphiti_write, messages, text, agent_name, metadata,
@@ -133,6 +142,73 @@ class NativeMemory:
                 metadatas=[metadata],
             )
             return [memory_id]
+
+    # -- A-MEM (docs/NATIVE_USAGE.md, "native_amem") ---------------------
+
+    def _amem_write(self, text, metadata, user_id) -> str:
+        """``add_note(content, category=<metadata JSON>, time=<now>)``:
+        A-MEM's notes have no metadata mapping, and evolution rewrites
+        ``tags`` and ``context``; nothing in A-MEM writes ``category``
+        afterwards. Returns the note's id (A-MEM stores every note)."""
+        from cerebrum.utils import amem
+
+        store = self.amem.store(user_id)
+        with self.amem.lock(user_id):
+            note_id, _ = amem.add_note(
+                store, text, category=json.dumps(metadata, default=str),
+                time=datetime.now().strftime("%Y%m%d%H%M"))
+        return note_id
+
+    def _amem_row(self, note: Any, score: Optional[float] = None) -> dict:
+        metadata = _amem_metadata(note.category)
+        metadata.update({"amem_context": note.context,
+                         "amem_tags": note.tags})
+        return {"memory_id": note.id, "content": note.content,
+                "metadata": metadata, "score": score}
+
+    def _amem_rows(self, user_id: str, agent_name: str) -> List[dict]:
+        """The writer's own notes: the user's store's notes whose
+        ``category`` names it as ``agent_id`` (V3 omits ``owner_agent``),
+        in write order."""
+        if not self.amem.has(user_id):
+            return []
+        store = self.amem.store(user_id)
+        with self.amem.lock(user_id):
+            rows = [self._amem_row(note)
+                    for note in list(store.memories.values())]
+        return [row for row in rows
+                if row["metadata"].get("agent_id") == agent_name
+                and row["metadata"].get("user_id") == user_id
+                ][:V2_LIST_LIMIT]
+
+    def _amem_delete(self, user_id: str, memory_id: str) -> bool:
+        """``delete(memory_id)`` on the user's store, for one of its
+        notes."""
+        if not self.amem.has(user_id):
+            return False
+        store = self.amem.store(user_id)
+        with self.amem.lock(user_id):
+            note = store.read(str(memory_id))
+            if note is None or _amem_metadata(note.category).get(
+                    "user_id") != user_id:
+                return False
+            return bool(store.delete(str(memory_id)))
+
+    def _amem_search(self, query: str, user_id: str, k: int) -> List[dict]:
+        """``search(query, k)`` on the user's store (the README's first
+        search example), in A-MEM's order, each row with A-MEM's
+        ``score`` (a distance) as it is."""
+        if not self.amem.has(user_id):
+            return []
+        store = self.amem.store(user_id)
+        with self.amem.lock(user_id):
+            rows = []
+            for result in store.search(query, k):
+                note = store.memories.get(result["id"])
+                if note is None:
+                    continue
+                rows.append(self._amem_row(note, result.get("score")))
+        return rows
 
     # -- Graphiti (docs/NATIVE_USAGE.md, "native_graphiti") -------------
 
@@ -276,6 +352,8 @@ class NativeMemory:
         ``agent_id`` as Mem0's do). A writer lists its own rows to delete
         a revoked fact's (benchmark v2)."""
         with usage.tagged(user_id):
+            if self.backend == "amem":
+                return self._amem_rows(user_id, agent_name)
             if self.backend == "graphiti":
                 return self.runner.run(self._graphiti_rows, user_id,
                                        agent_name)
@@ -319,6 +397,8 @@ class NativeMemory:
         ``delete(ids=...)`` on the user's collection, after ``get``
         found it (Chroma deletes a missing id silently)."""
         with usage.tagged(user_id):
+            if self.backend == "amem":
+                return self._amem_delete(user_id, memory_id)
             if self.backend == "graphiti":
                 return self.runner.run(self._graphiti_delete, user_id,
                                        memory_id)
@@ -341,6 +421,8 @@ class NativeMemory:
         Graphiti's rows are facts, each with the metadata of an episode
         ``agent_name`` may see when it has one."""
         with usage.tagged(user_id):
+            if self.backend == "amem":
+                return self._amem_search(query, user_id, k)
             if self.backend == "graphiti":
                 return self.runner.run(self._graphiti_search, query,
                                        user_id, k, agent_name)
@@ -393,6 +475,19 @@ def _episode_metadata(episode: Any) -> Dict[str, Any]:
     ``source_description``; ``{}`` when it holds none."""
     try:
         value = json.loads(episode.source_description or "")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _amem_metadata(category: Any) -> Dict[str, Any]:
+    """The agent's metadata kept in an A-MEM note's ``category``: a JSON
+    string in the note, already parsed in a hit (A-MEM converts metadata
+    strings); ``{}`` when it holds none."""
+    if isinstance(category, dict):
+        return dict(category)
+    try:
+        value = json.loads(category or "")
     except (TypeError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
@@ -497,7 +592,8 @@ class _NativeWriter:
         metadata.setdefault(
             "created_at", datetime.now(timezone.utc).isoformat()
         )
-        if getattr(self.memory, "backend", None) in ("inhouse", "graphiti"):
+        if getattr(self.memory, "backend", None) in (
+                "inhouse", "graphiti", "amem"):
             metadata["agent_id"] = self.agent_name
         return self.memory.write(
             [{"role": "user", "content": content}], content,
@@ -644,7 +740,8 @@ class NativeAssistantAgent:
             metadata["session"] = self.session
         if self.probe_id is not None:
             metadata["provenance_event"] = self.probe_id
-        if getattr(self.memory, "backend", None) in ("inhouse", "graphiti"):
+        if getattr(self.memory, "backend", None) in (
+                "inhouse", "graphiti", "amem"):
             metadata["agent_id"] = self.agent_name
         return metadata
 

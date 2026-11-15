@@ -113,6 +113,17 @@ def graphiti_client(settings: NativeSettings):
     return graphiti.shared_graphiti(settings.backend_llm, settings.embedding)
 
 
+def amem_stores(settings: NativeSettings):
+    """The process's A-MEM stores, one per user (docs/NATIVE_USAGE.md,
+    "native_amem"): the pinned backend LLM through LiteLLM and the pinned
+    embedder (``cerebrum.utils.amem``, which the kernel's provider uses
+    too)."""
+    from cerebrum.utils import amem
+
+    return amem.shared_stores(settings.backend_llm, settings.embedding,
+                              "native")
+
+
 def graphiti_group(user_id: str) -> str:
     """The user's Graphiti group: Graphiti accepts only letters, digits,
     ``_`` and ``-``, so the readable part of the id and a hash of it."""

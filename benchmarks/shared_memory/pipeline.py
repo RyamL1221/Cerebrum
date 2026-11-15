@@ -888,21 +888,25 @@ class MethodPipeline:
             return self._run_replicated(
                 trial_data, method_user_id, "graphiti"
             )
+        elif self.method == "native_amem":
+            return self._run_native(trial_data, method_user_id, "amem")
+        elif self.method == "replicated_amem":
+            return self._run_replicated(trial_data, method_user_id, "amem")
         else:
             raise ValueError(
                 f"Unknown method: {self.method!r}. "
                 "Valid methods are: kernel_shared, naive_concat, vanilla_rag, "
                 "kernel_private, native_mem0, native_inhouse, "
-                "native_graphiti, replicated_mem0, replicated_inhouse, "
-                "replicated_graphiti."
+                "native_graphiti, native_amem, replicated_mem0, "
+                "replicated_inhouse, replicated_graphiti, replicated_amem."
             )
 
     # -- benchmark v2 (AIOS docs/BENCHMARK_V2.md, "Harness") ---------------
 
     V2_METHODS = ("kernel_shared",) + tuple(
         m for m in ("replicated_mem0", "replicated_inhouse",
-                    "replicated_graphiti", "native_mem0", "native_inhouse",
-                    "native_graphiti"))
+                    "replicated_graphiti", "replicated_amem", "native_mem0",
+                    "native_inhouse", "native_graphiti", "native_amem"))
 
     def run_history_trial(
         self, user: "V2UserData",
@@ -928,7 +932,7 @@ class MethodPipeline:
         else:
             kind, backend = self.method.split("_", 1)
             if kind not in ("native", "replicated") or backend not in (
-                    "mem0", "inhouse", "graphiti"):
+                    "mem0", "inhouse", "graphiti", "amem"):
                 raise ValueError(f"no locus and backend in {self.method!r}")
             agents = self._v2_agents(kind, backend)
             locus = history.AgentManagedLocus(kind, agents,

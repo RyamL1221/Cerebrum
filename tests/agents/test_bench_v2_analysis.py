@@ -842,7 +842,7 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
             for name, title, _, keys in ba.READING_SECTIONS] == [
         ("forgets", "Revokes and the forget (Amendment 4)",
          ["revokes", "forget", "deleted", "fact_key", "value", "alias",
-          "entity", "other_agents", "same_writer", "no_values",
+          "entity", "derived", "other_agents", "same_writer", "no_values",
           "messages", "history", "swept", "suppressed"]),
         ("supersession", "Supersession (Amendment 4)",
          ["retired", "earlier_rows", "marked", "probes", "retired_in_block",

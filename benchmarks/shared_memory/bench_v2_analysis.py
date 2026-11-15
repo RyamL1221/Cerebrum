@@ -34,6 +34,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from benchmarks.shared_memory.models import EMPTY_WRITE_IS_LOSS
 from benchmarks.shared_memory.probes import (
     match_entry, mcnemar_exact, row_source, t_interval, wilson,
 )
@@ -52,12 +53,16 @@ CELLS = {
     "native_inhouse": ("native", "inhouse"),
     "replicated_graphiti": ("replicated", "graphiti"),
     "native_graphiti": ("native", "graphiti"),
+    "replicated_amem": ("replicated", "amem"),
+    "native_amem": ("native", "amem"),
 }
 # The driver's kernel phases; "_ns" runs the no_supersession control
-# in a kernel of its own (Amendment 4). "kgra" is Graphiti (Subtask 16).
+# in a kernel of its own (Amendment 4). "kgra" is Graphiti (Subtask 16),
+# "kamem" A-MEM (Subtask 17).
 PHASE_BACKEND = {"kmem0": "mem0", "kinh": "inhouse",
                  "kmem0_ns": "mem0", "kinh_ns": "inhouse",
-                 "kgra": "graphiti", "kgra_ns": "graphiti"}
+                 "kgra": "graphiti", "kgra_ns": "graphiti",
+                 "kamem": "amem", "kamem_ns": "amem"}
 # The loci that run the library's forget and supersession.
 LIBRARY_LOCI = ("kernel", "replicated")
 
@@ -479,7 +484,7 @@ def contrast_rows(cells: Dict[tuple, dict], model: str,
     """Kernel against replicated per backend and probe type, paired by
     user: exact McNemar on the discordant pairs."""
     rows = []
-    for backend in ("mem0", "inhouse", "graphiti"):
+    for backend in ("mem0", "inhouse", "graphiti", "amem"):
         k = cells.get((model, "kernel", backend, condition))
         r = cells.get((model, "replicated", backend, condition))
         if not k or not r:
@@ -887,7 +892,7 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
             continue
         row = {**_key(model, locus, backend, condition), "revokes": 0,
                "forget": 0, "deleted": 0, "fact_key": 0, "value": 0,
-               "alias": 0, "entity": 0, "other_agents": 0,
+               "alias": 0, "entity": 0, "derived": 0, "other_agents": 0,
                "same_writer": 0,
                "no_values": 0, "messages": 0, "history": 0, "swept": 0,
                "suppressed": 0}
@@ -903,7 +908,8 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 for entry in report.get("deleted") or []:
                     row["deleted"] += 1
                     reason = entry.get("reason")
-                    if reason in ("fact_key", "value", "alias", "entity"):
+                    if reason in ("fact_key", "value", "alias", "entity",
+                                  "derived"):
                         row[reason] += 1
                     other = entry.get("owner_agent") != event.get("writer")
                     row["other_agents"] += other
@@ -975,14 +981,14 @@ def backend_invalidation_rows(cells: Dict[tuple, dict]) -> List[dict]:
 
 
 def writes_without_fact_rows(cells: Dict[tuple, dict]) -> List[dict]:
-    """Per Graphiti cell (Amendment 5): the scored trials, those with a
-    write Graphiti stored no fact from (``writes_without_fact``: a lost
-    memory, not a failed trial), those writes, and the probes whose
-    target was one, with their passes. No rows for the other
-    backends."""
+    """Per Graphiti and A-MEM cell (Amendments 5 and 7): the scored
+    trials, those with a write the backend stored no row from
+    (``writes_without_fact``: a lost memory, not a failed trial), those
+    writes, and the probes whose target was one, with their passes. No
+    rows for the other backends."""
     rows = []
     for (model, locus, backend, condition), cell in sorted(cells.items()):
-        if backend != "graphiti":
+        if backend not in EMPTY_WRITE_IS_LOSS:
             continue
         row = {**_key(model, locus, backend, condition), "trials": 0,
                "with_one": 0, "writes_without_fact": 0,
@@ -1033,14 +1039,17 @@ READING_SECTIONS = [
      "Per kernel and replicated cell: revokes, those that went through "
      "the forget, the rows the forgets deleted (by reason: the slot's "
      "`fact_key`, a `value` or an `alias`, or an `entity`: a Graphiti "
-     "scrub deleted it with an entity a form names; `other_agents`: rows of "
+     "scrub deleted it with an entity a form names, or `derived`: an "
+     "A-MEM scrub deleted it because its derived text carried a form; "
+     "`other_agents`: rows of "
      "agents other than the revoking writer; `same_writer`: rows of the "
      "revoking writer deleted by a value or an alias, rows of its other "
      "facts, as a Mem0 fold is), forgets that found no value, the Mem0 "
      "history scrub (`messages` deleted, `history` records cleared), and "
      "rows later writes `swept` and writes `suppressed`.",
      ["revokes", "forget", "deleted", "fact_key", "value", "alias",
-      "entity", "other_agents", "same_writer", "no_values", "messages",
+      "entity", "derived", "other_agents", "same_writer", "no_values",
+      "messages",
       "history", "swept", "suppressed"]),
     ("supersession", "Supersession (Amendment 4)",
      "`retired`: rows writes marked retired; `earlier_rows`: the "
@@ -1059,7 +1068,8 @@ READING_SECTIONS = [
      "Graphiti writes that stored no fact (Amendment 5)",
      "Graphiti sometimes extracts a write's entities but no fact, and "
      "its search returns facts only: a write Graphiti stored no fact "
-     "from is a lost memory, not a failed trial. `trials`: scored "
+     "from is a lost memory, not a failed trial (and an A-MEM write "
+     "that stored no note, Amendment 7). `trials`: scored "
      "trials; `with_one`: scored trials with such a write; "
      "`writes_without_fact`: those writes; `probes_on_them`: probes "
      "whose target was one, and `passed_on_them`.",

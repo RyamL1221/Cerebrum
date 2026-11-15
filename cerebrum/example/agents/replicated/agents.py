@@ -48,7 +48,8 @@ from cerebrum.llm.apis import llm_chat
 from cerebrum.utils import usage
 
 # The harness's backend names and the kernel's provider types.
-BACKENDS = {"mem0": "mem0", "inhouse": "in-house", "graphiti": "graphiti"}
+BACKENDS = {"mem0": "mem0", "inhouse": "in-house", "graphiti": "graphiti",
+            "amem": "amem"}
 STORE_ROOT = os.environ.get(
     "CEREBRUM_REPLICATED_MEMORY_DIR", ".replicated_memory"
 )
@@ -116,11 +117,12 @@ class ReplicatedMemory:
 
         provider_type = BACKENDS[backend]
         self.backend = backend
-        if backend in ("mem0", "graphiti"):
-            # Mem0's and Graphiti's extraction calls go through LiteLLM;
-            # count them per trial, as the native agents and the kernel
-            # do. Graphiti's store is the shared Neo4j database, in the
-            # users' own groups (docs/GRAPHITI_BACKEND.md); its
+        if backend in ("mem0", "graphiti", "amem"):
+            # Mem0's, Graphiti's and A-MEM's LLM calls go through
+            # LiteLLM; count them per trial, as the native agents and
+            # the kernel do. Graphiti's store is the shared Neo4j
+            # database, in the users' own groups (docs/GRAPHITI_BACKEND.md);
+            # A-MEM's are in the process (docs/AMEM_BACKEND.md); their
             # tombstones are still the store root's file.
             usage.install_litellm_logger()
         self.provider = provider or ProviderFactory.create(

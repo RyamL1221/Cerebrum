@@ -21,8 +21,10 @@ from cerebrum.config.config_manager import config
 # after its retries), so a write that returned and stored no row found
 # no fact: it is recorded (``writes_without_fact``) and the trial is
 # scored. Mem0 logs and swallows its extraction errors, so its empty
-# write still fails the trial (Subtask 10).
-EMPTY_WRITE_IS_LOSS = frozenset({"graphiti"})
+# write still fails the trial (Subtask 10). A-MEM stores the note it is
+# given even when its LLM fails (Subtask 17, AIOS AMEM_BACKEND.md), so
+# a write that stored none is a lost memory too (Amendment 7).
+EMPTY_WRITE_IS_LOSS = frozenset({"graphiti", "amem"})
 
 
 def _error_text(value: Any) -> Optional[str]:
