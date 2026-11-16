@@ -129,11 +129,16 @@ def provenance(agent_name: str, user_id: str) -> Dict[str, str]:
 
 class VariantRunner:
     """Runs each agent of a trial under its scheduled variant and keeps
-    what was applied and what the locus could not apply."""
+    what was applied and what the locus could not apply. ``faults`` is
+    ``{agent: variant}``, a fault's variant for the faulty agent
+    (Subtask 18, ``variants.faults``), applied instead of the schedule's
+    for that agent and kept apart from ``codes``."""
 
-    def __init__(self, variants: Optional[Dict[str, str]], locus: str):
+    def __init__(self, variants: Optional[Dict[str, str]], locus: str,
+                 faults: Optional[Dict[str, Any]] = None):
         self.codes = dict(variants or {})
-        for agent in self.codes:
+        self.faults = dict(faults or {})
+        for agent in list(self.codes) + list(self.faults):
             variant_catalog.role_of(agent)  # unknown agents fail early
         self.locus = locus
         self.not_applied: Dict[str, str] = {}
@@ -144,6 +149,9 @@ class VariantRunner:
     def run(self, agent_name: str, agent: Any, task_input: str) -> dict:
         code = self.codes.get(agent_name)
         variant = variant_catalog.variant(code) if code else None
+        if agent_name in self.faults:
+            variant = self.faults[agent_name]
+            code = variant.code
         with apply_variant(variant, agent, agent_name, self.locus) as skipped:
             if skipped:
                 self.not_applied[agent_name] = f"{code}: {skipped}"
@@ -912,11 +920,19 @@ class MethodPipeline:
         self, user: "V2UserData",
         variants: Optional[Dict[str, str]] = None, *,
         control: Optional[str] = None, recency_session: bool = True,
+        concurrency: str = "sequential",
+        fault: str = "none", faulty_agent: Optional[str] = None,
+        victim_user_id: Optional[str] = None,
     ) -> tuple:
         """One benchmark v2 user through this method's locus
         (``history.run_history``), under the method-scoped user id.
         Returns ``(user, outcome, locus)`` with the outcome's
-        ``backend_extraction`` and ``pipeline_version`` filled."""
+        ``backend_extraction`` and ``pipeline_version`` filled.
+
+        Subtask 18: ``concurrency`` is ``run_history``'s; ``fault`` is
+        applied to ``faulty_agent`` (``variants.faults``); under
+        ``wrong_user`` it tags ``victim_user_id`` (a dataset user id,
+        scoped to this method here)."""
         from benchmarks.shared_memory import history
 
         if self.method not in self.V2_METHODS:
@@ -924,8 +940,19 @@ class MethodPipeline:
                              f"{self.method}")
         user = user.model_copy(
             update={"user_id": f"{user.user_id}__{self.method}"})
+        victim = (f"{victim_user_id}__{self.method}"
+                  if fault == "wrong_user" else None)
+        faults = {}
+        if fault != "none":
+            from cerebrum.example.agents.variants.faults import (
+                fault_variant,
+            )
+
+            faults = {faulty_agent: fault_variant(fault, victim)}
         if self.method == "kernel_shared":
-            locus = history.KernelLocus(self.assistant_llms)
+            # The kernel binds every request to the user's kernel session
+            # (Subtask 18, STRESS_DIMENSIONS.md, "wrong_user").
+            locus = history.KernelLocus(self.assistant_llms, sessions=True)
             extraction = AgentPipeline._kernel_backend_extraction()
             version = AgentPipeline._kernel_pipeline_version()
             memory_backend = AgentPipeline._kernel_memory_backend()
@@ -934,27 +961,38 @@ class MethodPipeline:
             if kind not in ("native", "replicated") or backend not in (
                     "mem0", "inhouse", "graphiti", "amem"):
                 raise ValueError(f"no locus and backend in {self.method!r}")
-            agents = self._v2_agents(kind, backend)
+            agents = self._v2_agents(kind, backend,
+                                     history.user_writers(user))
             locus = history.AgentManagedLocus(kind, agents,
                                               self.assistant_llms)
             memory = agents[history.CONSUMER].memory
             extraction = memory.backend_extraction
             version = getattr(memory, "version", None)
             memory_backend = backend
-        runner = VariantRunner(variants, locus.locus)
+        runner = VariantRunner(variants, locus.locus, faults=faults)
         outcome = history.run_history(user, locus, runner, control=control,
-                                      recency_session=recency_session)
+                                      recency_session=recency_session,
+                                      concurrency=concurrency,
+                                      victim_id=victim)
         outcome.backend_extraction = extraction
         outcome.pipeline_version = version
         outcome.memory_backend = memory_backend
         return user, outcome, locus.locus
 
-    def _v2_agents(self, kind: str, backend: str) -> Dict[str, Any]:
-        """The condition's four agents (three writers and the
+    def _v2_agents(self, kind: str, backend: str,
+                   writers: tuple = ("profile_agent", "task_agent",
+                                     "calendar_agent"),
+                   ) -> Dict[str, Any]:
+        """The condition's agents (the dataset's writers and the
         assistant), each with its own backend client, built once and
-        kept across users like deployed agents."""
+        kept across users like deployed agents. A writer beyond the
+        profile and task writers is a v2-only writer of the calendar
+        writer's class under its own name (an agent-count dataset's
+        event carries its own memory type)."""
         cached = getattr(self, "_v2_agents_cache", None)
         if cached is not None:
+            if set(writers) - set(cached):
+                raise ValueError(f"the cell's agents lack {writers}")
             return cached
         kernel_config = AgentPipeline._kernel_memory_config()
         if kind == "native":
@@ -984,11 +1022,14 @@ class MethodPipeline:
                 backend, kernel_config)
             classes = (ReplicatedProfileAgent, ReplicatedTaskAgent,
                        ReplicatedCalendarAgent, ReplicatedAssistantAgent)
-        names = ("profile_agent", "task_agent", "calendar_agent",
-                 "assistant_agent")
+        profile_cls, task_cls, writer_cls, assistant_cls = classes
+        known = {"profile_agent": profile_cls, "task_agent": task_cls}
         self._v2_agents_cache = {
-            name: cls(name, make()) for name, cls in zip(names, classes)
+            name: known.get(name, writer_cls)(name, make())
+            for name in writers
         }
+        self._v2_agents_cache["assistant_agent"] = assistant_cls(
+            "assistant_agent", make())
         return self._v2_agents_cache
 
     def _run_kernel_shared(

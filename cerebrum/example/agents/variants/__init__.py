@@ -9,13 +9,21 @@ which agents deviate per trial.
 from .base import (
     AGENTS,
     CONSUMER,
+    KNOWN_WRITERS,
     LOCI,
     WRITERS,
     Variant,
     apply_variant,
     role_of,
 )
-from .schedule import VARIANT_CODES, cycle, schedule
+from .schedule import (
+    VARIANT_CODES,
+    cycle,
+    cycle_for,
+    deviating,
+    schedule,
+    schedule_for,
+)
 from .v1_stale_version import VARIANT as V1
 from .v2_identity_convention import VARIANT as V2
 from .v3_missing_metadata import VARIANT as V3
@@ -37,7 +45,8 @@ def variant(code: str) -> Variant:
 
 
 __all__ = [
-    "AGENTS", "CATALOG", "CATALOG_VERSION", "CONSUMER", "LOCI",
-    "VARIANT_CODES", "WRITERS", "Variant", "apply_variant", "cycle",
-    "role_of", "schedule", "variant",
+    "AGENTS", "CATALOG", "CATALOG_VERSION", "CONSUMER", "KNOWN_WRITERS",
+    "LOCI", "VARIANT_CODES", "WRITERS", "Variant", "apply_variant",
+    "cycle", "cycle_for", "deviating", "role_of", "schedule",
+    "schedule_for", "variant",
 ]

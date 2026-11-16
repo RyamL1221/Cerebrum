@@ -27,6 +27,7 @@ Usage::
 """
 
 import argparse
+import time
 from typing import Optional
 import logging
 import os
@@ -67,11 +68,14 @@ from benchmarks.shared_memory.judge import (
     judge_prompt_sha256,
 )
 from benchmarks.shared_memory.dataset import (
+    AGENT_COUNTS,
     RANDOM,
     load as load_dataset,
     trial_input_sha256,
     v2_input_sha256,
+    with_agents,
 )
+from benchmarks.shared_memory import stress
 from benchmarks.shared_memory import history
 from benchmarks.shared_memory import judge_free as judge_free_measures
 from benchmarks.shared_memory.pipeline import (
@@ -84,6 +88,12 @@ from benchmarks.shared_memory.pipeline import (
 from cerebrum.example.agents.variants import (
     CATALOG_VERSION as VARIANT_CATALOG_VERSION,
     schedule as variant_schedule,
+    schedule_for as variant_schedule_for,
+)
+from cerebrum.example.agents.variants.faults import (
+    FAULTS,
+    WRITER_FAULTS,
+    faulty_agent as fault_agent_of,
 )
 from benchmarks.shared_memory.pilot_schedule import Schedule
 from benchmarks.shared_memory.results import ResultsWriter
@@ -104,6 +114,13 @@ DEFAULT_SEED = 20261105
 # schedule seed was fixed before any heterogeneity trial ran.
 HETEROGENEITY_LEVELS = (0, 1, 2)
 DEFAULT_VARIANT_SEED = 20261106
+# Subtask 18 (AIOS docs/STRESS_DIMENSIONS.md): the faulty agent's seed,
+# fixed before any faulty trial ran; the most write events a writer has
+# in one session (agents_v1.MAX_SESSION_EVENTS), which the flood levels'
+# write quota must admit.
+DEFAULT_FAULT_SEED = 20261116
+QUOTA_MIN_WRITES = 4
+LOAD_LEVELS = (1, 4, 16)
 
 
 class _Unjudged:
@@ -233,7 +250,8 @@ def expected_supersession(control: Optional[str]) -> str:
 
 def check_v2_settings(kernel_url: str, method: str,
                       recency: bool = True,
-                      control: Optional[str] = None) -> dict:
+                      control: Optional[str] = None,
+                      fault: str = "none") -> dict:
     """Fail unless the kernel's memory settings are benchmark v2's
     (AIOS docs/BENCHMARK_V2.md, "Pre-flight"); return what was checked,
     for the results file. A kernel method needs injection on and, since
@@ -287,6 +305,18 @@ def check_v2_settings(kernel_url: str, method: str,
             problems.append(f"supersession is "
                             f"{pipeline.get('supersession')!r}, not "
                             f"{want!r} (Amendment 4)")
+    # Subtask 18: the write quota is on under the flood levels and off
+    # otherwise, admitting every write a reference writer makes.
+    quota = pipeline.get("write_quota") or {}
+    if fault in ("flood10", "flood50"):
+        if quota.get("enabled") is not True or (
+                quota.get("max_writes") or 0) < QUOTA_MIN_WRITES:
+            problems.append(f"a flood level needs write_quota enabled with "
+                            f"max_writes >= {QUOTA_MIN_WRITES}, not "
+                            f"{quota!r}")
+    elif quota.get("enabled"):
+        problems.append(f"write_quota is on ({quota!r}); only the flood "
+                        "levels run with it")
     if problems:
         raise SystemExit("benchmark v2 pre-flight: " + "; ".join(problems))
     return {"pipeline": pipeline, "auto_inject": body.get("auto_inject"),
@@ -500,6 +530,56 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--agents",
+        type=int,
+        choices=list(AGENT_COUNTS),
+        default=4,
+        help=(
+            "Agent count N (AIOS docs/STRESS_DIMENSIONS.md): the v2 "
+            "dataset with its events split over N - 1 writers "
+            "(agents_nN); 4, the default, is the v2 dataset itself. "
+            "H then deviates round(H * N / 3) agents."
+        ),
+    )
+    parser.add_argument(
+        "--concurrency",
+        choices=history.CONCURRENCY,
+        default="sequential",
+        help=(
+            "concurrent: each write of a session its own task, the "
+            "probes issued at once after the last session's writes are "
+            "issued (STRESS_DIMENSIONS.md). H 0 and no fault only."
+        ),
+    )
+    parser.add_argument(
+        "--load",
+        type=int,
+        choices=list(LOAD_LEVELS),
+        default=1,
+        help=(
+            "Run M users at a time against one kernel (kernel_shared "
+            "only; H 0 and no fault)."
+        ),
+    )
+    parser.add_argument(
+        "--fault",
+        choices=FAULTS,
+        default="none",
+        help=(
+            "One faulty agent per user (STRESS_DIMENSIONS.md): "
+            "wrong_user, missing_metadata, flood10, flood50. H 0, "
+            "sequential."
+        ),
+    )
+    parser.add_argument(
+        "--fault-seed",
+        type=int,
+        default=DEFAULT_FAULT_SEED,
+        help=f"Seed of the faulty agent's choice (default "
+             f"{DEFAULT_FAULT_SEED}); the same in every cell keeps cells "
+             "paired.",
+    )
+    parser.add_argument(
         "--no-recency",
         action="store_true",
         help=(
@@ -556,6 +636,11 @@ class EvaluationOrchestrator:
         control: str | None = None,
         recency: bool = True,
         preflight: dict | None = None,
+        agents: int = 4,
+        concurrency: str = "sequential",
+        load: int = 1,
+        fault: str = "none",
+        fault_seed: int | None = None,
     ):
         if heterogeneity not in HETEROGENEITY_LEVELS:
             raise ValueError(
@@ -573,6 +658,37 @@ class EvaluationOrchestrator:
             DEFAULT_VARIANT_SEED if variant_seed is None else variant_seed
         )
         self.judged = judge
+        # Subtask 18 (AIOS docs/STRESS_DIMENSIONS.md): the stress levels.
+        self.agents, self.concurrency = agents, concurrency
+        self.load, self.fault = load, fault
+        self.fault_seed = (DEFAULT_FAULT_SEED if fault_seed is None
+                           else fault_seed)
+        stressed = (agents != 4 or concurrency != "sequential" or load != 1
+                    or fault != "none")
+        if concurrency not in history.CONCURRENCY:
+            raise ValueError(f"concurrency must be one of "
+                             f"{history.CONCURRENCY}")
+        if load not in LOAD_LEVELS or fault not in FAULTS:
+            raise ValueError(f"load must be one of {LOAD_LEVELS} and fault "
+                             f"one of {FAULTS}")
+        if stressed and judge:
+            raise ValueError("the stress dimensions run without the judge "
+                             "in Subtask 18: pass --no-judge")
+        if (concurrency != "sequential" or load != 1) and (
+                heterogeneity or fault != "none"):
+            raise ValueError(
+                "concurrency and the load mode run at H 0 without a fault "
+                "(a variant patches module functions that concurrent "
+                "runs would share)")
+        if fault != "none" and heterogeneity:
+            raise ValueError("a fault runs at H 0")
+        if load != 1 and canonical_condition(method) != "kernel_shared":
+            raise ValueError("the load mode runs kernel_shared only (the "
+                             "agent-managed loci keep one set of agents "
+                             "per cell)")
+        if agents != 4 and isinstance(dataset, str) and dataset in (
+                "users_v2", "pilot_v2"):
+            dataset = with_agents(dataset, agents)
         self.dataset = load_dataset(dataset)
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
         # Benchmark v2 (AIOS docs/BENCHMARK_V2.md): a scripted history
@@ -732,7 +848,41 @@ class EvaluationOrchestrator:
         level = getattr(self, "heterogeneity", 0)
         if getattr(self, "schedule", None):
             return self.schedule.variants(level, trial_index)
+        if getattr(self, "agents", 4) != 4:
+            # An agent-count dataset: H deviates round(H * N / 3) of its
+            # agents (STRESS_DIMENSIONS.md).
+            writers = self.dataset.header.get("writers") or []
+            return variant_schedule_for(
+                self.variant_seed, level, trial_index,
+                tuple(writers) + (history.CONSUMER,))
         return variant_schedule(self.variant_seed, level, trial_index)
+
+    def trial_fault(self, trial_index: int, user) -> tuple:
+        """``(faulty agent, victim's dataset user id)`` for user
+        ``trial_index`` (None, None without a fault). The faulty agent
+        is chosen among the agents the fault applies to that have a
+        write event in the user's history (the consumer too for
+        missing_metadata); the victim of wrong_user is the next user in
+        the cell's run order (STRESS_DIMENSIONS.md)."""
+        fault = getattr(self, "fault", "none")
+        if fault == "none":
+            return None, None
+        writing = []
+        for turn in user.sessions:
+            if (turn["writer"] not in writing and any(
+                    e["type"] in history.WRITE_EVENTS
+                    for e in turn["events"])):
+                writing.append(turn["writer"])
+        order = [w for w in history.user_writers(user) if w in writing]
+        if fault not in WRITER_FAULTS:
+            order.append(history.CONSUMER)
+        agent = fault_agent_of(self.fault_seed, fault, trial_index, order)
+        victim = None
+        if fault == "wrong_user":
+            victim = self.dataset.user_v2(
+                (trial_index + 1) % self.trials, self.generator.run_id
+            ).user_id
+        return agent, victim
 
     def run_single_trial(
         self,
@@ -992,7 +1142,32 @@ class EvaluationOrchestrator:
         if not getattr(self, "v2", False):
             return {}
         return {"benchmark": "v2", "control": self.control,
-                "recency": self.recency, "preflight": self.preflight}
+                "recency": self.recency, "preflight": self.preflight,
+                "stress": {
+                    "agents": getattr(self, "agents", 4),
+                    "concurrency": getattr(self, "concurrency",
+                                           "sequential"),
+                    "load": getattr(self, "load", 1),
+                    "fault": getattr(self, "fault", "none"),
+                    "fault_seed": getattr(self, "fault_seed",
+                                          DEFAULT_FAULT_SEED),
+                }}
+
+    def _run_loaded(self, pipeline, method_name: str) -> list:
+        """The load mode (STRESS_DIMENSIONS.md): the cell's users run
+        ``load`` at a time against one kernel, each in a copy of this
+        context; the results in user order."""
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=self.load) as pool:
+            futures = [
+                pool.submit(contextvars.copy_context().run,
+                            self.run_single_trial, i, method_name,
+                            pipeline, method=method_name)
+                for i in range(self.trials)
+            ]
+            return [future.result() for future in futures]
 
     def _embedder(self):
         """The pinned embedding model as ``embed(texts)`` for the probes'
@@ -1034,10 +1209,27 @@ class EvaluationOrchestrator:
             synthetic_task_context=user.task_context,
         )
         variants = self.trial_variants(trial_index)
+        faulty, victim = self.trial_fault(trial_index, user)
+        base.update(
+            agents=getattr(self, "agents", 4),
+            concurrency=getattr(self, "concurrency", "sequential"),
+            load=getattr(self, "load", 1),
+            fault=getattr(self, "fault", "none"),
+            faulty_agent=faulty,
+        )
+        started_at = time.time()
+        # The stress keywords only when a level is not the reference, so
+        # callers from before Subtask 18 run unchanged.
+        stress_kwargs = {}
+        if getattr(self, "concurrency", "sequential") != "sequential":
+            stress_kwargs["concurrency"] = self.concurrency
+        if getattr(self, "fault", "none") != "none":
+            stress_kwargs.update(fault=self.fault, faulty_agent=faulty,
+                                 victim_user_id=victim)
         try:
             user, outcome, locus = pipeline.run_history_trial(
                 user, variants or None, control=self.control,
-                recency_session=self.recency,
+                recency_session=self.recency, **stress_kwargs,
             )
         except Exception as e:
             logger.error("Trial %d: history failed: %s", trial_index, e)
@@ -1059,6 +1251,12 @@ class EvaluationOrchestrator:
         results = history.score_turns(user, outcome, locus,
                                       embed=self._embedder())
         common["probe_results"] = results
+        common["fault_victim"] = (f"{victim}__{pipeline.method}"
+                                  if victim else None)
+        common["stress"] = stress.measures(
+            user, outcome, results, faulty_agent=faulty,
+            started_at=started_at, finished_at=time.time(), locus=locus,
+        )
         if outcome.failure:
             logger.error("Trial %d: %s", trial_index, outcome.failure)
             return TrialResult(**base, **common, failed=True,
@@ -1267,6 +1465,8 @@ class EvaluationOrchestrator:
                         trial_data=cached_data,
                     )
                     trials.append(result)
+            elif getattr(self, "load", 1) > 1:
+                trials = self._run_loaded(pipeline, method_name)
             else:
                 # Single method — generate fresh data per trial
                 for i in tqdm(range(self.trials), desc=f"Method: {method_name}"):
@@ -1351,6 +1551,8 @@ def main():
 
     configured = config.get_kernel_url()
     kernel_url = args.kernel_url or configured
+    # The orchestrator takes --agents to the agent-count dataset; every
+    # one of them is v2, as its base is, for the pre-flight below.
     dataset_spec = (load_dataset(args.dataset)
                     if isinstance(args.dataset, str) else None)
     if (dataset_spec is not None and dataset_spec.version == 2
@@ -1370,7 +1572,8 @@ def main():
     if dataset_spec is not None and dataset_spec.version == 2:
         preflight = check_v2_settings(kernel_url, args.method,
                                       recency=not args.no_recency,
-                                      control=args.control)
+                                      control=args.control,
+                                      fault=args.fault)
 
     orchestrator = EvaluationOrchestrator(
         trials=args.trials,
@@ -1391,6 +1594,11 @@ def main():
         control=args.control,
         recency=not args.no_recency,
         preflight=preflight,
+        agents=args.agents,
+        concurrency=args.concurrency,
+        load=args.load,
+        fault=args.fault,
+        fault_seed=args.fault_seed,
     )
 
     experiment = orchestrator.run()

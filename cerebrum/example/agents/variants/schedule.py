@@ -13,7 +13,7 @@ gives user i position ``i % 15``; level 2 gives positions
 and 2 together apply every pair once.
 """
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from .base import AGENTS
 
@@ -51,4 +51,56 @@ def schedule(variant_seed: int, level: int, trial_index: int) -> Dict[str, str]:
     chosen = [pairs[(start + j) % CYCLE] for j in range(level)]
     out = dict(chosen)
     assert len(out) == level, chosen  # adjacent positions: distinct agents
+    return out
+
+
+# -- N agents (Subtask 18, AIOS docs/STRESS_DIMENSIONS.md, "Heterogeneity
+# scales with N") ----------------------------------------------------------
+
+def deviating(level: int, agents: int) -> int:
+    """How many of ``agents`` deviate at ``level``: round(level * N / 3)
+    (N = 3: 0, 1, 2; N = 6: 0, 2, 4; N = 12: 0, 4, 8)."""
+    if level not in LEVELS:
+        raise ValueError(f"heterogeneity level must be one of {LEVELS}")
+    return round(level * agents / 3)
+
+
+def cycle_for(variant_seed: int, agents: Sequence[str]) -> List[Tuple[str, str]]:
+    """``cycle``'s construction over ``agents``: 5N pairs, position k
+    belonging to ``order[k mod N]``. For the three agents of ``AGENTS``
+    it is ``cycle``."""
+    rng = random.Random(int(variant_seed))
+    order = list(agents)
+    rng.shuffle(order)
+    per_agent = {}
+    for agent in order:
+        per_agent[agent] = rng.sample(VARIANT_CODES, len(VARIANT_CODES))
+    n = len(order)
+    return [(order[k % n], per_agent[order[k % n]][k // n])
+            for k in range(n * len(VARIANT_CODES))]
+
+
+def schedule_for(variant_seed: int, level: int, trial_index: int,
+                 agents: Sequence[str]) -> Dict[str, str]:
+    """``{agent: variant}`` for trial ``trial_index`` at ``level`` among
+    ``agents`` (the dataset's writers, then the consumer): the d =
+    ``deviating(level, N)`` consecutive positions of ``cycle_for``
+    starting at ``offset + d * trial_index``, with offset 0 at level 1
+    and 5 * deviating(1, N) at level 2. For ``AGENTS`` it is
+    ``schedule``, pair for pair."""
+    agents = tuple(agents)
+    if agents == AGENTS:
+        return schedule(variant_seed, level, trial_index)
+    if trial_index < 0:
+        raise ValueError("trial_index must be >= 0")
+    d = deviating(level, len(agents))
+    if d == 0:
+        return {}
+    pairs = cycle_for(variant_seed, agents)
+    offset = 0 if level == 1 else len(VARIANT_CODES) * deviating(
+        1, len(agents))
+    start = offset + d * trial_index
+    chosen = [pairs[(start + j) % len(pairs)] for j in range(d)]
+    out = dict(chosen)
+    assert len(out) == d, chosen  # consecutive positions: distinct agents
     return out

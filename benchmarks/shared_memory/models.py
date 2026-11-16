@@ -129,6 +129,10 @@ class V2UserData(BaseModel):
     plausible_actions: List[str] = []
     sessions: List[Dict[str, Any]] = []
     probes: List[Dict[str, Any]] = []
+    # The dataset's writers: v2's three, or an agent-count dataset's
+    # (AIOS docs/STRESS_DIMENSIONS.md, "Agent count"), whose sessions
+    # are writer turns, several per session.
+    writers: List[str] = ["profile_agent", "task_agent", "calendar_agent"]
 
 
 class InjectedMemoryEntry(BaseModel):
@@ -205,6 +209,20 @@ class InjectionDiagnostics(BaseModel):
     after_tombstone: Optional[int] = None
     tombstoned_rows: Optional[List[str]] = None
     tombstoned_forms: Optional[int] = None
+    # Subtask 18 (AIOS docs/STRESS_DIMENSIONS.md): the barrier sequence
+    # the retrieval waited on, when its fetch began (wall clock), the
+    # claim a kernel session overrode, and the stage times (Subtask 7's
+    # cost split, kept for the load mode). None in older files.
+    barrier_snapshot: Optional[int] = None
+    fetch_started_at: Optional[float] = None
+    identity_overridden: Optional[Dict[str, Any]] = None
+    barrier_wait_ms: Optional[float] = None
+    search_ms: Optional[float] = None
+    select_ms: Optional[float] = None
+    format_ms: Optional[float] = None
+    schedule_wait_ms: Optional[float] = None
+    kernel_overhead_ms: Optional[float] = None
+    llm_ms: Optional[float] = None
 
     @field_validator("retrieval_error", "injection_error", mode="before")
     @classmethod
@@ -353,6 +371,10 @@ class SessionRecord(BaseModel):
     error: Optional[str] = None
     # Rows each agent owned for the user after the session.
     listing_counts: Dict[str, int] = {}
+    # Subtask 18: a flooding writer's flood rows after its events, each
+    # ``{k, kind, memory_ids, quota_rejected, issued_at, completed_at,
+    # committed_at, error}`` (AIOS docs/STRESS_DIMENSIONS.md).
+    flood: List[Dict[str, Any]] = []
 
 
 class ProbeResult(BaseModel):
@@ -512,6 +534,17 @@ class TrialResult(BaseModel):
     # Subtask 16: the rows after the history the backend itself marked
     # invalid (Graphiti), apart from the kernel's marks.
     backend_invalidated_rows: List[Dict[str, Any]] = []
+    # Subtask 18 (AIOS docs/STRESS_DIMENSIONS.md): the agent count, how
+    # the writes were issued, the users run at once against the kernel,
+    # the fault, its agent and (wrong_user) the victim's id, and the
+    # stress measures (``stress.measures``).
+    agents: int = 4
+    concurrency: str = "sequential"
+    load: int = 1
+    fault: str = "none"
+    faulty_agent: Optional[str] = None
+    fault_victim: Optional[str] = None
+    stress: Optional[Dict[str, Any]] = None
     failed: bool = False
     error_message: Optional[str] = None
 

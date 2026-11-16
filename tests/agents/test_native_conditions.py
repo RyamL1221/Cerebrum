@@ -190,7 +190,10 @@ def test_the_native_consumer_reports_whether_it_checked_visibility(
 # is unchanged by Amendment 4, so the record holds None for them.
 LIBRARY_ONLY_KEYS = {"after_supersession", "superseded_rows",
                      "after_tombstone", "tombstoned_rows",
-                     "tombstoned_forms"}
+                     "tombstoned_forms",
+                     # Subtask 18: the barrier sequence a library wait
+                     # covered, and the claim a kernel session overrode.
+                     "barrier_snapshot", "identity_overridden"}
 
 
 def test_native_diagnostics_have_the_kernel_keys(harness):

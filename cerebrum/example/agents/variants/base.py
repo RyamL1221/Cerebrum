@@ -10,7 +10,9 @@ A variant changes one or more aspects of an agent:
 - ``retrieval``: the agent's own retrieval config (k, threshold, token
   budget, block format);
 - ``access_control``: whether the consumer applies a visibility rule of
-  its own.
+  its own;
+- ``flood`` (a fault, Subtask 18, AIOS docs/STRESS_DIMENSIONS.md): how
+  many flood rows a writer stores after its events in each session.
 
 ``apply_variant`` applies the aspects a locus has a channel for, for one
 run of one agent, and restores the agent afterwards (the replicated and
@@ -25,6 +27,14 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 WRITERS = ("profile_agent", "task_agent")
 CONSUMER = "assistant_agent"
 AGENTS = WRITERS + (CONSUMER,)
+# Every writer a variant or a fault can reach: v2's calendar writer and
+# the agent-count datasets' writers (AIOS docs/STRESS_DIMENSIONS.md,
+# "Agent count"; benchmarks/shared_memory/agents_v1.py's ``WRITERS``).
+KNOWN_WRITERS = WRITERS + (
+    "calendar_agent", "people_agent", "standup_agent", "workstation_agent",
+    "docs_agent", "code_review_agent", "project_health_agent",
+    "travel_agent", "expenses_agent",
+)
 LOCI = ("kernel", "replicated", "native")
 
 # Retrieval overrides a variant may give, by the library's setting name.
@@ -57,7 +67,7 @@ NOT_APPLIED = {
 
 
 def role_of(agent_name: str) -> str:
-    if agent_name in WRITERS:
+    if agent_name in KNOWN_WRITERS:
         return "writer"
     if agent_name == CONSUMER:
         return "consumer"
@@ -90,6 +100,10 @@ class Variant:
 
     def access_control(self) -> bool:
         return True
+
+    def flood_rows(self) -> int:
+        """Flood rows per session after a writer's events (0: none)."""
+        return 0
 
     def has(self, aspect: str, role: str) -> bool:
         """Whether this variant changes ``aspect`` for an agent of
@@ -208,6 +222,26 @@ def _replicated_write(variant: Variant, pipeline: Any,
     restore.set(pipeline, "update", wrapped_update)
 
 
+def _replicated_unquoted(agent: Any, restore: _Restore) -> None:
+    """A flooding replicated writer's pipeline without the write quota:
+    it does not enforce one on itself (AIOS docs/STRESS_DIMENSIONS.md,
+    "flood10, flood50"). The same provider, barrier, resolver,
+    tombstones and usage tag; the settings as copied, the quota off."""
+    memory = agent.memory
+    pipeline = memory.pipeline
+    settings = dataclasses.replace(
+        pipeline.settings,
+        write_quota=dict(pipeline.settings.write_quota, enabled=False),
+    )
+    unquoted = memory.library.MemoryPipeline(
+        pipeline.provider, settings,
+        barrier=pipeline.barrier, resolver=pipeline.resolver,
+        tombstones=pipeline.tombstones, usage_tag=pipeline.usage_tag,
+        quota=None,
+    )
+    restore.set(memory, "pipeline", unquoted)
+
+
 def _native_write(variant: Variant, agent: Any, restore: _Restore) -> None:
     memory = agent.memory
     write = memory.write
@@ -290,6 +324,13 @@ def apply_variant(
                 )
             else:
                 skip("access_control")
+
+        if variant.has("flood", role):
+            if role != "writer":
+                raise ValueError("a flood applies to a writer")
+            restore.set(agent, "flood_rows", variant.flood_rows())
+            if locus == "replicated":
+                _replicated_unquoted(agent, restore)
 
         yield "; ".join(skipped) if skipped else None
     finally:

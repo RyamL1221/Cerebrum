@@ -129,6 +129,7 @@ def filter_shared_memories(
 # ``writer_failed``.
 
 import json as _json
+import time as _time
 from dataclasses import dataclass as _dataclass, field as _field
 
 WRITER_RETRIES = 2
@@ -444,6 +445,98 @@ def v2_write_metadata(
     return metadata
 
 
+# Flooding (AIOS docs/STRESS_DIMENSIONS.md, "flood10, flood50"): a
+# writer with ``flood_rows`` F > 0 stores F more rows after its own
+# events in every session where it writes. Odd-numbered rows are
+# near-duplicates of the session's writes: retries of the same write
+# (its metadata, event included), each with its text changed. The
+# changes that normalize to the original (re-cased, re-spaced, without
+# the closing period) alternate with ones that do not (a prefix).
+FLOOD_VARIANTS = (
+    lambda text: text.upper(),
+    lambda text: f"Again: {text}",
+    lambda text: text.lower().rstrip("."),
+    lambda text: f"Reminder: {text}",
+    lambda text: "  ".join(text.split(" ")),
+    lambda text: f"To repeat: {text}",
+)
+# Even-numbered rows are irrelevant notes, numbered so each is a text
+# of its own.
+FLOOD_NOTES = (
+    "the office plants were watered today.",
+    "the coffee machine on the third floor is fixed.",
+    "someone left an umbrella in the lobby.",
+    "the printer is low on toner again.",
+    "the fire drill is on the usual schedule.",
+    "the parking garage repaint is finished.",
+    "the kitchen fridge gets cleared on Fridays.",
+    "the elevator inspection passed.",
+)
+FIELD_FLOOD = "flood"
+
+
+def flood_writes(
+    agent: Any, memory_type: str, session: int,
+    events: List[Dict[str, Any]], count: int,
+) -> List[Dict[str, Any]]:
+    """The ``count`` flood rows of one session, in order, as
+    ``{k, kind, content, metadata}``: ``kind`` is ``"near_duplicate"``
+    (its source event's metadata, with ``flood`` k) or ``"irrelevant"``
+    (no fact fields; ``provenance_event`` ``flood:<session>:<k>``).
+    Without a write event in the session every row is irrelevant."""
+    sources = [e for e in events if e.get("type") in V2_WRITE_EVENTS
+               and e.get("type") != "private"]
+    out = []
+    for k in range(1, count + 1):
+        if k % 2 == 1 and sources:
+            j = (k - 1) // 2
+            source = sources[j % len(sources)]
+            change = FLOOD_VARIANTS[(j // len(sources))
+                                    % len(FLOOD_VARIANTS)]
+            metadata = v2_write_metadata(
+                agent, source.get("memory_type") or memory_type,
+                session, source,
+            )
+            metadata[FIELD_FLOOD] = k
+            out.append({"k": k, "kind": "near_duplicate",
+                        "content": change(source["utterance"]),
+                        "metadata": metadata})
+            continue
+        note = FLOOD_NOTES[(k // 2) % len(FLOOD_NOTES)]
+        metadata = build_memory_metadata(
+            owner_agent=agent.agent_name,
+            user_id=agent.user_id,
+            memory_type=(sources[0].get("memory_type") if sources
+                         else None) or memory_type,
+            sharing_policy=v2_sharing_policy(agent, {}),
+            **{FIELD_SESSION: session},
+        )
+        metadata.update(getattr(agent, "extra_metadata", None) or {})
+        metadata[FIELD_PROVENANCE_EVENT] = f"flood:{session}:{k}"
+        metadata[FIELD_FLOOD] = k
+        out.append({"k": k, "kind": "irrelevant",
+                    "content": f"Note {k}: {note[0].upper()}{note[1:]}",
+                    "metadata": metadata})
+    return out
+
+
+def _timed(record: Dict[str, Any], reply: Any) -> None:
+    """A write's or a forget's timing and binding into its record
+    (Subtask 18): the barrier sequence it held and when the store
+    committed it (the kernel's reply metadata, or the library's
+    outcome), whether the write quota rejected it, and the claim a
+    kernel session overrode."""
+    response = _unwrap(reply)
+    outcome = (response.get("metadata") if isinstance(response, dict)
+               else None) or {}
+    if isinstance(outcome, dict):
+        for key in ("barrier_seq", "committed_at", "quota_rejected"):
+            if outcome.get(key) is not None:
+                record[key] = outcome[key]
+    if isinstance(reply, dict) and reply.get("identity_overridden"):
+        record["identity_overridden"] = reply["identity_overridden"]
+
+
 def _unwrap(reply: Any) -> Any:
     """A reply without the kernel's ``{"response": ...}`` envelope; the
     library's and native calls return their value directly."""
@@ -720,10 +813,11 @@ def run_v2_session(
                 raise WriterError(
                     f"event {event.get('event_id')!r}: {problem}"
                 )
+            record["issued_at"] = _time.time()
             if event["type"] == V2_REVOKE and forgets:
-                report = forget_report(
-                    forget(user_id, event[FIELD_FACT_KEY])
-                )
+                reply = forget(user_id, event[FIELD_FACT_KEY])
+                _timed(record, reply)
+                report = forget_report(reply)
                 record["revoke_path"] = REVOKE_FORGET
                 record["forget"] = {
                     key: report.get(key) for key in (
@@ -738,14 +832,18 @@ def run_v2_session(
                 record["deleted_ids"] = [
                     entry["memory_id"] for entry in report["deleted"]
                 ]
-                # v2 runs one writer at a time, so a row the forget
-                # listed and then did not find was not deleted by
-                # another request: count it as a failed forget.
+                # Run one writer at a time, a row the forget listed and
+                # then did not find was not deleted by another request:
+                # count it as a failed forget. Under the concurrency
+                # dimension another writer's write may have swept it
+                # (AIOS docs/STRESS_DIMENSIONS.md): recorded, not failed.
                 if report.get("not_found"):
-                    raise WriterError(
-                        "forget: rows it listed were not deleted: "
-                        f"{report['not_found']}"
-                    )
+                    if not getattr(agent, "concurrent", False):
+                        raise WriterError(
+                            "forget: rows it listed were not deleted: "
+                            f"{report['not_found']}"
+                        )
+                    record["not_found"] = list(report["not_found"])
             elif event["type"] == V2_REVOKE:
                 record["revoke_path"] = REVOKE_OWNER
                 rows = listed_rows(list_rows(user_id))
@@ -764,10 +862,15 @@ def run_v2_session(
                         _checked("delete", delete(user_id, memory_id))
                         record["deleted_ids"].append(memory_id)
             else:
+                # A derived dataset's event carries its own memory type
+                # (agent count: a writer may write another v2 writer's
+                # facts; AIOS docs/STRESS_DIMENSIONS.md).
                 metadata = v2_write_metadata(
-                    agent, memory_type, session, event
+                    agent, event.get("memory_type") or memory_type,
+                    session, event,
                 )
                 reply = write(event["utterance"], metadata)
+                _timed(record, reply)
                 ids = reply_ids(reply)
                 # Only now, so a failed write is never recorded as
                 # written; by now a replicated or native locus has left
@@ -785,6 +888,8 @@ def run_v2_session(
                 record["retired_ids"] = list(outcome.get("retired") or [])
                 record["lifted"] = list(outcome.get("lifted") or [])
                 record["suppressed"] = bool(outcome.get("suppressed"))
+            # When the event's last call returned (Subtask 18).
+            record["completed_at"] = _time.time()
         except Exception as e:  # every failure fails the writer
             record["error"] = error = _describe(e)
             _logger.warning(
@@ -793,6 +898,23 @@ def run_v2_session(
                 event.get("event_id"), error,
             )
             break
+    flood: List[Dict[str, Any]] = []
+    count = getattr(agent, "flood_rows", 0) or 0
+    if error is None and count:
+        for row in flood_writes(agent, memory_type, session, events, count):
+            entry = {"k": row["k"], "kind": row["kind"],
+                     "memory_ids": [], "error": None,
+                     "issued_at": _time.time()}
+            flood.append(entry)
+            try:
+                reply = write(row["content"], row["metadata"])
+                entry["completed_at"] = _time.time()
+                _timed(entry, reply)
+                entry["memory_ids"] = reply_ids(reply)
+                written.append(row["metadata"])
+            except Exception as e:  # as any write's: fails the writer
+                entry["error"] = error = _describe(e)
+                break
     return {
         "agent_name": getattr(agent, "agent_name", ""),
         "result": f"v2 session {session}: {len(events)} events",
@@ -802,6 +924,7 @@ def run_v2_session(
         "stored_rows": sum(r["stored_rows"] for r in records),
         "deleted_ids": [i for r in records for i in r["deleted_ids"]],
         "written": written,
+        "flood": flood,
         "writer_failed": error is not None,
         "error": error,
         "token_usage": None,

@@ -46,7 +46,30 @@ NAMED = {
     # with a scripted history each; pilot_v2 is the first 30.
     "users_v2": ("users_v2.jsonl", None),
     "pilot_v2": ("users_v2.jsonl", 30),
+    # Subtask 18 (AIOS docs/STRESS_DIMENSIONS.md, "Agent count"): users_v2
+    # with its events split over N - 1 writers (``agents_v1``).
+    **{f"agents_n{n}": (f"agents_n{n}.jsonl", None) for n in (3, 6, 12)},
+    **{f"pilot_agents_n{n}": (f"agents_n{n}.jsonl", 30)
+       for n in (3, 6, 12)},
 }
+AGENT_COUNTS = (3, 4, 6, 12)
+
+
+def with_agents(spec: str, agents: int) -> str:
+    """The dataset ``spec`` at ``agents`` agents: a v2 dataset's
+    agent-count version (``users_v2`` -> ``agents_nN``, ``pilot_v2`` ->
+    ``pilot_agents_nN``); 4 is the v2 dataset itself."""
+    if agents not in AGENT_COUNTS:
+        raise ValueError(f"--agents must be one of {AGENT_COUNTS}")
+    if agents == 4:
+        return spec
+    named = {"users_v2": f"agents_n{agents}",
+             "pilot_v2": f"pilot_agents_n{agents}"}
+    if spec not in named:
+        raise ValueError(
+            f"--agents {agents} needs --dataset users_v2 or pilot_v2, "
+            f"not {spec!r}")
+    return named[spec]
 RANDOM = "random"
 PROFILE_RETRIES = 5
 QUERY_RETRIES = 3
@@ -106,6 +129,9 @@ class Dataset:
             plausible_actions=user["base"].get("plausible_actions", []),
             sessions=user["sessions"],
             probes=user["probes"],
+            writers=list(self.header.get("writers")
+                         or ["profile_agent", "task_agent",
+                             "calendar_agent"]),
         )
 
     def describe(self) -> dict:

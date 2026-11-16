@@ -28,13 +28,17 @@ and ids come from the listing after its session, by
 that session is not among them (the ids its reply named that the
 session removed are the event's ``forgotten_ids``).
 """
+import contextlib
+import contextvars
+import copy
 import json
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from unittest.mock import patch
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from benchmarks.shared_memory.models import (
     EMPTY_WRITE_IS_LOSS,
@@ -51,6 +55,10 @@ logger = logging.getLogger(__name__)
 WRITERS = ("profile_agent", "task_agent", "calendar_agent")
 CONSUMER = "assistant_agent"
 AGENTS = WRITERS + (CONSUMER,)
+# How a history's writes are issued (AIOS docs/STRESS_DIMENSIONS.md,
+# "Concurrency"): one at a time, or each write of a session its own
+# task, the probes issued at once after the last session's writes.
+CONCURRENCY = ("sequential", "concurrent")
 PROBE_SESSION = 7
 LIST_LIMIT = 10_000
 CONTROLS = ("no_memory", "no_delete", "no_visibility", "writer_scoped",
@@ -100,6 +108,9 @@ class ProbeTurn:
     error: Optional[str] = None
     latency_seconds: float = 0.0
     consumer_rows_before: int = 0
+    # Wall-clock times the probe was issued and answered (Subtask 18).
+    issued_at: Optional[float] = None
+    completed_at: Optional[float] = None
 
 
 @dataclass
@@ -125,6 +136,83 @@ class HistoryOutcome:
     # read from /memory/cost afterwards (None here).
     backend_llm_tokens: Optional[TokenUsage] = None
     embedding_tokens: Optional[TokenUsage] = None
+    # Subtask 18: how the writes were issued, and under ``wrong_user``
+    # the rows of this user's agents found in the victim's partition.
+    concurrency: str = "sequential"
+    misfiled_rows: Optional[List[dict]] = None
+
+
+def user_writers(user: V2UserData) -> Tuple[str, ...]:
+    """The writers of ``user``'s dataset: v2's three, or an agent-count
+    dataset's (AIOS docs/STRESS_DIMENSIONS.md, "Agent count")."""
+    return tuple(getattr(user, "writers", None) or WRITERS)
+
+
+# The kernel locus's create capture (``KernelLocus.capture``): one
+# wrapper per writer module, installed while any trial captures, each
+# appending to the list in its caller's context, so trials that run at
+# once (the load mode) each record their own creates.
+_CAPTURED: contextvars.ContextVar = contextvars.ContextVar(
+    "kernel_create_capture", default=None)
+_CAPTURE_LOCK = threading.Lock()
+_CAPTURE_STATE: Dict[str, Any] = {"depth": 0, "originals": {}}
+
+
+def _capture_modules():
+    from cerebrum.example.agents.calendar_agent import (
+        agent as calendar_module,
+    )
+    from cerebrum.example.agents.profile_agent import (
+        agent as profile_module,
+    )
+    from cerebrum.example.agents.task_agent import agent as task_module
+
+    return (profile_module, task_module, calendar_module)
+
+
+def _capturing(real):
+    from cerebrum.example.agents.shared_memory_utils import reply_error
+
+    def capturing(agent_name, content=None, metadata=None, base_url=None,
+                  **kwargs):
+        reply = real(agent_name, content=content, metadata=metadata,
+                     base_url=base_url, **kwargs)
+        written = _CAPTURED.get()
+        if (written is not None and metadata
+                and reply_error(reply) is None):
+            written.append(WrittenMemoryRecord(
+                agent_name=metadata.get("owner_agent", agent_name),
+                memory_type=metadata.get("memory_type", ""),
+                sharing_policy=metadata.get("sharing_policy", "private"),
+                user_id=metadata.get("user_id", ""),
+            ))
+        return reply
+    capturing.captures_creates = True
+    return capturing
+
+
+@contextlib.contextmanager
+def _capture_into(written: List[WrittenMemoryRecord]):
+    """Record every create the kernel accepts in this context into
+    ``written`` (see ``_CAPTURED``)."""
+    reset = _CAPTURED.set(written)
+    with _CAPTURE_LOCK:
+        if _CAPTURE_STATE["depth"] == 0:
+            for module in _capture_modules():
+                real = module.create_memory
+                _CAPTURE_STATE["originals"][module] = real
+                module.create_memory = _capturing(real)
+        _CAPTURE_STATE["depth"] += 1
+    try:
+        yield
+    finally:
+        with _CAPTURE_LOCK:
+            _CAPTURE_STATE["depth"] -= 1
+            if _CAPTURE_STATE["depth"] == 0:
+                for module, real in _CAPTURE_STATE["originals"].items():
+                    module.create_memory = real
+                _CAPTURE_STATE["originals"].clear()
+        _CAPTURED.reset(reset)
 
 
 class LocusFailure(RuntimeError):
@@ -145,11 +233,52 @@ class KernelLocus:
 
     def __init__(self, assistant_llms: Optional[list] = None,
                  kernel_config: Optional[dict] = None,
-                 kernel_url: Optional[str] = None):
+                 kernel_url: Optional[str] = None,
+                 sessions: bool = False):
         self.assistant_llms = assistant_llms
         self.kernel_config = kernel_config or {}
         self.kernel_url = kernel_url
+        # Each v2 session, and the probes, run in a kernel session the
+        # harness opens for the user (Subtask 18): the kernel binds
+        # every request to that user, whatever the agent claims. The
+        # benchmark's kernel locus turns it on (``MethodPipeline``).
+        self.sessions = sessions
         self._writers: Dict[str, Any] = {}
+        self._user_id: Optional[str] = None
+
+    def _url(self) -> str:
+        from cerebrum.config.config_manager import config
+
+        return (self.kernel_url or config.get_kernel_url()).rstrip("/")
+
+    def open_session(self, user_id: Optional[str] = None) -> Optional[str]:
+        """A new kernel session for the user; its token (None when
+        sessions are off)."""
+        if not self.sessions:
+            return None
+        from cerebrum.utils.communication import open_kernel_session
+
+        return open_kernel_session(user_id or self._user_id, self._url())
+
+    def close_session(self, token: Optional[str]) -> None:
+        if token:
+            from cerebrum.utils.communication import close_kernel_session
+
+            close_kernel_session(token, self._url())
+
+    @contextlib.contextmanager
+    def session_scope(self, user_id: Optional[str] = None):
+        """Run the block in a new kernel session for the user (opened
+        and closed around it), so every SDK request carries its token;
+        a plain block when sessions are off."""
+        from cerebrum.utils.communication import kernel_session
+
+        token = self.open_session(user_id)
+        try:
+            with kernel_session(token):
+                yield token
+        finally:
+            self.close_session(token)
 
     def audit_rows(self, user_id: str) -> List[dict]:
         """Every row the kernel's store holds for ``user_id``, of every
@@ -168,7 +297,8 @@ class KernelLocus:
             raise LocusFailure(f"listing_at_limit: audit of {user_id}")
         return _audit_rows(body.get("rows") or [])
 
-    def start_user(self, user_id: str, control: Optional[str]) -> None:
+    def start_user(self, user_id: str, control: Optional[str],
+                   writers: Tuple[str, ...] = WRITERS) -> None:
         if control == "no_visibility":
             raise ValueError("no_visibility applies to the native locus only:"
                              " the kernel enforces visibility itself")
@@ -178,10 +308,14 @@ class KernelLocus:
         from cerebrum.example.agents.profile_agent.agent import ProfileAgent
         from cerebrum.example.agents.task_agent.agent import TaskAgent
 
+        # The agent-count writers beyond v2's three are v2-only writers
+        # of the calendar writer's class, under their own names: a
+        # derived event carries its own memory type.
+        classes = {"profile_agent": ProfileAgent, "task_agent": TaskAgent}
         self._writers = {}
-        for name, cls in zip(WRITERS,
-                             (ProfileAgent, TaskAgent, CalendarAgent)):
-            agent = cls(name)
+        self._user_id = user_id
+        for name in writers:
+            agent = classes.get(name, CalendarAgent)(name)
             agent.share_memory = True
             agent.user_id = user_id
             agent.llms = self.assistant_llms
@@ -211,40 +345,12 @@ class KernelLocus:
         return self._writers[name]
 
     def capture(self, written: List[WrittenMemoryRecord]):
-        """Patch every kernel agent module's ``create_memory`` so each
-        create the kernel accepted is recorded with the metadata it was
-        sent with (after any variant). A refused or raising create is
-        not recorded, as in the agent-managed loci."""
-        from cerebrum.example.agents.calendar_agent import (
-            agent as calendar_module,
-        )
-        from cerebrum.example.agents.profile_agent import (
-            agent as profile_module,
-        )
-        from cerebrum.example.agents.shared_memory_utils import reply_error
-        from cerebrum.example.agents.task_agent import agent as task_module
-
-        stack = ExitStack()
-        for module in (profile_module, task_module, calendar_module):
-            real = module.create_memory
-
-            def capturing(agent_name, content=None, metadata=None,
-                          base_url=None, _real=real, **kwargs):
-                reply = _real(agent_name, content=content,
-                              metadata=metadata, base_url=base_url,
-                              **kwargs)
-                if metadata and reply_error(reply) is None:
-                    written.append(WrittenMemoryRecord(
-                        agent_name=metadata.get("owner_agent", agent_name),
-                        memory_type=metadata.get("memory_type", ""),
-                        sharing_policy=metadata.get("sharing_policy",
-                                                    "private"),
-                        user_id=metadata.get("user_id", ""),
-                    ))
-                return reply
-            stack.enter_context(patch.object(module, "create_memory",
-                                             capturing))
-        return stack
+        """Record each create the kernel accepted, with the metadata it
+        was sent with (after any variant), through every kernel writer
+        module's ``create_memory``. A refused or raising create is not
+        recorded, as in the agent-managed loci. Thread-safe: trials that
+        run at once each record their own (``_capture_into``)."""
+        return _capture_into(written)
 
     def backend_usage(self, turns: List[ProbeTurn],
                       user_ids: Iterable[str] = ()) -> tuple:
@@ -254,6 +360,12 @@ class KernelLocus:
 
     def finish_user(self) -> None:
         self._writers = {}
+        self._user_id = None
+
+    def concurrent_consumer(self, user_id: str, probe_id: str) -> Any:
+        """A consumer for one of several probes run at once: the
+        kernel's is fresh per probe anyway."""
+        return self.consumer(user_id, probe_id)
 
 
 class AgentManagedLocus:
@@ -273,7 +385,11 @@ class AgentManagedLocus:
         self.assistant_llms = assistant_llms
         self._saved_visibility = None
 
-    def start_user(self, user_id: str, control: Optional[str]) -> None:
+    def start_user(self, user_id: str, control: Optional[str],
+                   writers: Tuple[str, ...] = WRITERS) -> None:
+        missing = [name for name in writers if name not in self.agents]
+        if missing:
+            raise ValueError(f"no agents for writers {missing}")
         if control in LIBRARY_CONTROLS and self.locus == "native":
             raise ValueError(
                 f"{control} applies to the kernel and replicated loci "
@@ -282,7 +398,7 @@ class AgentManagedLocus:
             agent.user_id = user_id
             agent.llms = self.assistant_llms
             agent.extra_metadata = provenance(name, user_id)
-            if name in WRITERS:
+            if name != CONSUMER:
                 agent.share_memory = True
                 agent.delete_on_revoke = control != "no_delete"
                 agent.forget_scope = forget_scope(control)
@@ -310,6 +426,26 @@ class AgentManagedLocus:
 
     def lister(self, name: str) -> Any:
         return self.agents[name]
+
+    def open_session(self, user_id: Optional[str] = None) -> None:
+        """No kernel session: the agents manage memory themselves."""
+        return None
+
+    def close_session(self, token: Optional[str]) -> None:
+        return None
+
+    @contextlib.contextmanager
+    def session_scope(self, user_id: Optional[str] = None):
+        yield None
+
+    def concurrent_consumer(self, user_id: str, probe_id: str) -> Any:
+        """A consumer for one of several probes run at once: a copy of
+        the cell's consumer sharing its memory client, with this probe's
+        attributes and a message list of its own."""
+        agent = copy.copy(self.consumer(user_id, probe_id))
+        if isinstance(getattr(agent, "messages", None), list):
+            agent.messages = []
+        return agent
 
     def audit_rows(self, user_id: str) -> Optional[List[dict]]:
         """Replicated: every row the store holds for ``user_id``, of
@@ -384,6 +520,21 @@ def _audit_rows(rows: List[dict]) -> List[dict]:
             for row in rows]
 
 
+def _misfiled(locus, victim_id: str, user_id: str,
+              writers: Tuple[str, ...]) -> List[dict]:
+    """The rows written for ``user_id`` (``provenance_user``) that the
+    victim's partition holds: the kernel's and the replicated store's
+    raw audit of it, or each native writer's own rows there."""
+    if getattr(locus, "locus", None) in STORE_AUDIT_LOCI:
+        rows = locus.audit_rows(victim_id) or []
+    else:
+        rows = [row for name in writers
+                for row in locus.lister(name).list_own_rows(victim_id)]
+    return [row for row in rows
+            if (row.get("metadata") or {}).get("provenance_user")
+            == user_id]
+
+
 def _listing(locus, after: str, ids: Dict[str, set]) -> Dict[str, Any]:
     """The rows each agent owns, under every user id the agents used. A
     listing that reaches the limit fails the user (it may be cut).
@@ -397,7 +548,7 @@ def _listing(locus, after: str, ids: Dict[str, set]) -> Dict[str, Any]:
     guard hides from the agents, text included. Native lists each
     agent's own rows through its backend, which has no guard
     (``source``: ``"store"`` or ``"owner"``)."""
-    rows: Dict[str, List[dict]] = {name: [] for name in AGENTS}
+    rows: Dict[str, List[dict]] = {name: [] for name in ids}
     if getattr(locus, "locus", None) in STORE_AUDIT_LOCI:
         seen: set = set()
         for uid in sorted(set().union(*ids.values())):
@@ -409,7 +560,7 @@ def _listing(locus, after: str, ids: Dict[str, set]) -> Dict[str, Any]:
                 owner = (row.get("metadata") or {}).get("owner_agent", "")
                 rows.setdefault(owner, []).append(row)
         return {"after": after, "rows": rows, "source": "store"}
-    for name in AGENTS:
+    for name in ids:
         seen_rows: Dict[str, dict] = {}
         for uid in sorted(ids[name]):
             listed = locus.lister(name).list_own_rows(uid)
@@ -500,7 +651,9 @@ def _described(error: Exception) -> str:
 
 def run_history(user: V2UserData, locus, runner, *,
                 control: Optional[str] = None,
-                recency_session: bool = True) -> HistoryOutcome:
+                recency_session: bool = True,
+                concurrency: str = "sequential",
+                victim_id: Optional[str] = None) -> HistoryOutcome:
     """Run ``user``'s sessions and probes through ``locus``.
 
     ``runner`` is the trial's ``VariantRunner`` (``runner.run(name,
@@ -509,20 +662,56 @@ def run_history(user: V2UserData, locus, runner, *,
     raises), stops the history and sets ``failure`` (an exception's as
     ``"<ExceptionType>: <message>"``); the outcome keeps what ran: the
     sessions, the probe turns and the listings.
+
+    ``concurrency`` (AIOS docs/STRESS_DIMENSIONS.md, "Concurrency"):
+    ``"sequential"``, or ``"concurrent"``: each write of a session its
+    own task, the probes issued at once after the last session's writes
+    are issued. ``victim_id`` is the id a ``wrong_user`` writer tags
+    (never one of this user's ids): its partition is listed once at the
+    end, for this user's rows found in it (``misfiled_rows``).
     """
     if control is not None and control not in CONTROLS:
         raise ValueError(f"control must be one of {CONTROLS}")
-    outcome = HistoryOutcome()
+    if concurrency not in CONCURRENCY:
+        raise ValueError(f"concurrency must be one of {CONCURRENCY}")
+    outcome = HistoryOutcome(concurrency=concurrency)
     uid = user.user_id
-    ids = {name: {uid} for name in AGENTS}
-    locus.start_user(uid, control)
+    writers = user_writers(user)
+    ids = {name: {uid} for name in writers + (CONSUMER,)}
+    # The writers only when they are not v2's (a locus from before
+    # Subtask 18 takes the user and the control).
+    if writers == WRITERS:
+        locus.start_user(uid, control)
+    else:
+        locus.start_user(uid, control, writers)
+    concurrent = concurrency == "concurrent"
+    if concurrent:
+        for name in writers:
+            # A writer run with others at once records, not fails on, a
+            # forget's row another write swept (run_v2_session).
+            locus.writer(name).concurrent = True
     try:
         with locus.capture(outcome.written):
+            pending: List[Any] = []
             if control != "no_memory":
-                _sessions(user, locus, runner, outcome, ids)
+                _sessions(user, locus, runner, outcome, ids,
+                          concurrent=concurrency == "concurrent",
+                          victim_id=victim_id,
+                          on_last_issued=lambda: pending.extend(
+                              _issue_probes(user, locus, runner)))
             outcome.listings.append(_listing(locus, "history", ids))
-            _probes(user, locus, runner, outcome, ids, recency_session)
+            if pending:
+                _finish_probes(user, outcome, ids, recency_session,
+                               pending)
+            elif concurrency == "concurrent":
+                _finish_probes(user, outcome, ids, recency_session,
+                               _issue_probes(user, locus, runner))
+            else:
+                _probes(user, locus, runner, outcome, ids, recency_session)
             outcome.listings.append(_listing(locus, "probes", ids))
+            if victim_id:
+                outcome.misfiled_rows = _misfiled(locus, victim_id, uid,
+                                                  writers)
             stored = _probe_writes(*outcome.listings[-2:])
             if stored:
                 agents = ", ".join(f"{n} {name}"
@@ -538,6 +727,9 @@ def run_history(user: V2UserData, locus, runner, *,
     finally:
         outcome.variants_applied = dict(runner.codes)
         outcome.variants_not_applied = dict(runner.not_applied)
+        if concurrent:
+            for name in writers:
+                locus.writer(name).concurrent = False
         locus.finish_user()
     if outcome.failure is None:
         used = set().union(*ids.values())  # every id, every agent
@@ -599,7 +791,10 @@ def _listed_rows(record: SessionRecord, rows: List[dict]) -> None:
     is the listed rows' sum. A revoke's record is left as it is."""
     by_event: Dict[str, List[str]] = {}
     for row in rows:
-        event = (row.get("metadata") or {}).get("provenance_event")
+        metadata = row.get("metadata") or {}
+        if metadata.get("flood") is not None:
+            continue  # a flood row is no write of its source event's
+        event = metadata.get("provenance_event")
         if event is not None:
             by_event.setdefault(str(event), []).append(
                 str(row.get("memory_id")))
@@ -616,42 +811,164 @@ def _listed_rows(record: SessionRecord, rows: List[dict]) -> None:
     record.stored_rows = stored
 
 
-def _sessions(user, locus, runner, outcome, ids) -> None:
-    for session in user.sessions:
-        name = session["writer"]
-        payload = json.dumps({"v2_session": {
-            "session": session["session"],
-            "events": _with_base_fields(user, session["events"])}})
-        try:
-            result = runner.run(name, locus.writer(name), payload)
-        except Exception as error:
-            # A writer that raised: its session is recorded as failed,
-            # then run_history fails the user with the exception.
-            outcome.sessions.append(SessionRecord(
-                session=session["session"], writer=name,
-                writer_failed=True, error=_described(error)))
-            raise
-        if result.get("user_id"):
-            ids[name].add(result["user_id"])
-        if locus.writes_from_results:
-            _writes_of(result, outcome.written)
-        record = SessionRecord(
-            session=session["session"], writer=name,
-            user_id=result.get("user_id"),
-            events=_reported(result.get("events") or [],
-                             session["events"]),
-            deleted_ids=[str(i) for i in result.get("deleted_ids") or []],
-            writer_failed=bool(result.get("writer_failed")),
-            error=result.get("error"),
-        )
-        outcome.sessions.append(record)
-        if record.writer_failed:
+def session_groups(user: V2UserData) -> List[Tuple[int, List[dict]]]:
+    """The user's sessions in order, each with its writer turns: one in
+    v2, one per writer active in it in an agent-count dataset."""
+    groups: List[Tuple[int, List[dict]]] = []
+    for turn in user.sessions:
+        if groups and groups[-1][0] == turn["session"]:
+            groups[-1][1].append(turn)
+        else:
+            groups.append((turn["session"], [turn]))
+    return groups
+
+
+def _scope(locus, user_id: str):
+    """The locus's kernel session for a session's or the probes' turns
+    (a locus without one runs them as they are)."""
+    scope = getattr(locus, "session_scope", None)
+    return scope(user_id) if scope else contextlib.nullcontext()
+
+
+def _payload(user: V2UserData, number: int, events: List[dict]) -> str:
+    return json.dumps({"v2_session": {
+        "session": number, "events": _with_base_fields(user, events)}})
+
+
+def _record(user: V2UserData, name: str, number: int, events: List[dict],
+            result: dict, ids, outcome, locus,
+            victim_id: Optional[str]) -> SessionRecord:
+    """One writer turn's ``SessionRecord`` from the writer's result."""
+    used = result.get("user_id")
+    # A wrong-user writer's claimed id is the victim's: listed apart at
+    # the end (``_misfiled``), never as one of this user's partitions.
+    if used and used != victim_id:
+        ids[name].add(used)
+    if locus.writes_from_results:
+        _writes_of(result, outcome.written)
+    record = SessionRecord(
+        session=number, writer=name, user_id=used,
+        events=_reported(result.get("events") or [], events),
+        deleted_ids=[str(i) for i in result.get("deleted_ids") or []],
+        writer_failed=bool(result.get("writer_failed")),
+        error=result.get("error"),
+        flood=list(result.get("flood") or []),
+    )
+    outcome.sessions.append(record)
+    return record
+
+
+def _run_turn(user, locus, runner, outcome, ids, number: int, turn: dict,
+              victim_id: Optional[str]) -> SessionRecord:
+    name = turn["writer"]
+    try:
+        result = runner.run(name, locus.writer(name),
+                            _payload(user, number, turn["events"]))
+    except Exception as error:
+        # A writer that raised: its session is recorded as failed,
+        # then run_history fails the user with the exception.
+        outcome.sessions.append(SessionRecord(
+            session=number, writer=name,
+            writer_failed=True, error=_described(error)))
+        raise
+    return _record(user, name, number, turn["events"], result, ids,
+                   outcome, locus, victim_id)
+
+
+def _in_context(call: Callable, *args):
+    """``call(*args)`` in a copy of the caller's context (the kernel
+    session, the usage tag), for a worker thread."""
+    context = contextvars.copy_context()
+    return lambda: context.run(call, *args)
+
+
+def _run_concurrently(user, locus, runner, outcome, ids, number: int,
+                      turns: List[dict], victim_id: Optional[str],
+                      on_issued: Optional[Callable[[], None]]):
+    """One session with every event its own task (AIOS
+    docs/STRESS_DIMENSIONS.md, "Concurrency"): each event runs as a
+    one-event writer turn on a thread; ``on_issued`` is called once
+    every task has begun, before any is awaited. The records merge each
+    writer's events back into one ``SessionRecord`` per turn."""
+    jobs = []
+    tasks = [(turn["writer"], event) for turn in turns
+             for event in turn["events"]]
+    started = threading.Semaphore(0)
+
+    def one(name: str, event: dict) -> dict:
+        agent = locus.writer(name)
+        started.release()
+        return runner.run(name, agent, _payload(user, number, [event]))
+
+    with ThreadPoolExecutor(max_workers=max(1, len(tasks))) as pool:
+        for name, event in tasks:
+            jobs.append(pool.submit(_in_context(one, name, event)))
+        for _ in tasks:
+            started.acquire()
+        if on_issued is not None:
+            on_issued()
+        results = []
+        for (name, event), job in zip(tasks, jobs):
+            try:
+                results.append((name, event, job.result()))
+            except Exception as error:
+                results.append((name, event, {
+                    "user_id": None, "events": [], "deleted_ids": [],
+                    "writer_failed": True, "error": _described(error),
+                }))
+    records = []
+    for turn in turns:
+        name = turn["writer"]
+        mine = [(event, result) for n, event, result in results
+                if n == name and event in turn["events"]]
+        merged = {
+            "user_id": next((r.get("user_id") for _, r in mine
+                             if r.get("user_id")), None),
+            "events": [e for _, r in mine for e in r.get("events") or []],
+            "deleted_ids": [i for _, r in mine
+                            for i in r.get("deleted_ids") or []],
+            "written": [w for _, r in mine for w in r.get("written") or []],
+            "writer_failed": any(r.get("writer_failed") for _, r in mine),
+            "error": "; ".join(r["error"] for _, r in mine
+                               if r.get("error")) or None,
+            "flood": [f for _, r in mine for f in r.get("flood") or []],
+        }
+        records.append(_record(user, name, number, turn["events"], merged,
+                               ids, outcome, locus, victim_id))
+    return records
+
+
+def _sessions(user, locus, runner, outcome, ids, *, concurrent=False,
+              victim_id: Optional[str] = None,
+              on_last_issued: Optional[Callable[[], None]] = None) -> None:
+    """Each session in order, in a kernel session of its own (the
+    kernel locus), then the listing after it. Under ``concurrent`` the
+    last session calls ``on_last_issued`` once its writes are issued."""
+    groups = session_groups(user)
+    for position, (number, turns) in enumerate(groups):
+        last = position == len(groups) - 1
+        with _scope(locus, user.user_id):
+            if concurrent:
+                records = _run_concurrently(
+                    user, locus, runner, outcome, ids, number, turns,
+                    victim_id, on_last_issued if last else None)
+            else:
+                records = []
+                for turn in turns:
+                    record = _run_turn(user, locus, runner, outcome, ids,
+                                       number, turn, victim_id)
+                    records.append(record)
+                    if record.writer_failed:
+                        break
+        failed = next((r for r in records if r.writer_failed), None)
+        if failed is not None:
             raise LocusFailure(
-                f"writer_failed: {name} in session {record.session}: "
-                f"{record.error}")
-        listing = _listing(locus, f"session {record.session}", ids)
-        record.listing_counts = _counts(listing)
-        _listed_rows(record, listing["rows"].get(name, []))
+                f"writer_failed: {failed.writer} in session "
+                f"{failed.session}: {failed.error}")
+        listing = _listing(locus, f"session {number}", ids)
+        for record in records:
+            record.listing_counts = _counts(listing)
+            _listed_rows(record, listing["rows"].get(record.writer, []))
         outcome.listings.append(listing)
 
 
@@ -662,41 +979,111 @@ def _answer_text(answer: Any) -> str:
     return answer if isinstance(answer, str) else str(answer)
 
 
+def _finish_turn(turn: ProbeTurn, result: Any, ids, recency_session,
+                 started: float) -> None:
+    turn.latency_seconds = time.perf_counter() - started
+    turn.completed_at = time.time()
+    if isinstance(result, dict):
+        turn.result = result
+        turn.answer = _answer_text(result.get("result"))
+        diagnostics = result.get("injection_diagnostics")
+        turn.diagnostics = (diagnostics if isinstance(diagnostics, dict)
+                            else None)
+    turn.error = _answer_error(result)
+    if not turn.error:
+        resolved = (turn.diagnostics or {}).get("resolved_user_id")
+        if resolved:
+            ids[CONSUMER].add(resolved)
+        if recency_session:
+            # Its block's ages are wrong, so it is not scored either.
+            turn.error = _session_problem(turn.diagnostics)
+
+
 def _probes(user, locus, runner, outcome, ids, recency_session) -> None:
-    for probe in user.probes:
-        before = len(outcome.listings[-1]["rows"][CONSUMER])
-        if outcome.turns:  # the consumer's rows as this probe starts
-            before = len(_consumer_rows(locus, ids))
-        agent = locus.consumer(user.user_id, probe["probe_id"])
-        turn = ProbeTurn(probe=probe, consumer_rows_before=before)
-        started = time.perf_counter()
-        try:
-            result = runner.run(CONSUMER, agent, probe["question"])
-        except Exception as error:
-            # A consumer that raised: the turn is recorded (unscored),
-            # then run_history fails the user with the exception.
-            turn.latency_seconds = time.perf_counter() - started
-            turn.error = f"consumer raised {_described(error)}"
+    with _scope(locus, user.user_id):
+        for probe in user.probes:
+            before = len(outcome.listings[-1]["rows"][CONSUMER])
+            if outcome.turns:  # the consumer's rows as this probe starts
+                before = len(_consumer_rows(locus, ids))
+            agent = locus.consumer(user.user_id, probe["probe_id"])
+            turn = ProbeTurn(probe=probe, consumer_rows_before=before)
+            started = time.perf_counter()
+            turn.issued_at = time.time()
+            try:
+                result = runner.run(CONSUMER, agent, probe["question"])
+            except Exception as error:
+                # A consumer that raised: the turn is recorded
+                # (unscored), then run_history fails the user.
+                turn.latency_seconds = time.perf_counter() - started
+                turn.error = f"consumer raised {_described(error)}"
+                outcome.turns.append(turn)
+                raise
+            _finish_turn(turn, result, ids, recency_session, started)
             outcome.turns.append(turn)
-            raise
-        turn.latency_seconds = time.perf_counter() - started
-        if isinstance(result, dict):
-            turn.result = result
-            turn.answer = _answer_text(result.get("result"))
-            diagnostics = result.get("injection_diagnostics")
-            turn.diagnostics = (diagnostics if isinstance(diagnostics, dict)
-                                else None)
-        turn.error = _answer_error(result)
-        if not turn.error:
-            resolved = (turn.diagnostics or {}).get("resolved_user_id")
-            if resolved:
-                ids[CONSUMER].add(resolved)
-            if recency_session:
-                # Its block's ages are wrong, so it is not scored either.
-                turn.error = _session_problem(turn.diagnostics)
-        outcome.turns.append(turn)
-        if turn.error:
-            raise LocusFailure(f"{probe['probe_id']}: {turn.error}")
+            if turn.error:
+                raise LocusFailure(f"{probe['probe_id']}: {turn.error}")
+
+
+def _in_session(token: Optional[str], call: Callable, *args):
+    """``call(*args)`` inside the kernel session ``token`` (None: none),
+    set in the calling thread's own context."""
+    from cerebrum.utils.communication import kernel_session
+
+    with kernel_session(token):
+        return call(*args)
+
+
+def _issue_probes(user, locus, runner) -> List[Any]:
+    """Issue every probe at once (``concurrent``), each its own turn on
+    a thread, in a kernel session of their own; returns the issued
+    probes for ``_finish_probes``. The consumers are made here, one per
+    probe, before any runs."""
+    token = locus.open_session(user.user_id)
+    pool = ThreadPoolExecutor(max_workers=max(1, len(user.probes)))
+    issued: Dict[str, Any] = {"token": token, "pool": pool, "locus": locus,
+                              "probes": []}
+    try:
+        agents = [locus.concurrent_consumer(user.user_id, p["probe_id"])
+                  for p in user.probes]
+        for probe, agent in zip(user.probes, agents):
+            turn = ProbeTurn(probe=probe)
+            started = time.perf_counter()
+            turn.issued_at = time.time()
+            future = pool.submit(_in_context(
+                _in_session, token, runner.run, CONSUMER, agent,
+                probe["question"]))
+            issued["probes"].append((probe, turn, future, started))
+    except BaseException:
+        pool.shutdown(wait=True)
+        locus.close_session(token)
+        raise
+    return [issued]
+
+
+def _finish_probes(user, outcome, ids, recency_session,
+                   issued: List[Any]) -> None:
+    """Wait for the probes ``_issue_probes`` issued and record them in
+    the dataset's order; the first error fails the user."""
+    (batch,) = issued
+    try:
+        first_error = None
+        for probe, turn, future, started in batch["probes"]:
+            try:
+                result = future.result()
+            except Exception as error:
+                turn.latency_seconds = time.perf_counter() - started
+                turn.completed_at = time.time()
+                turn.error = f"consumer raised {_described(error)}"
+            else:
+                _finish_turn(turn, result, ids, recency_session, started)
+            outcome.turns.append(turn)
+            if turn.error and first_error is None:
+                first_error = f"{probe['probe_id']}: {turn.error}"
+        if first_error:
+            raise LocusFailure(first_error)
+    finally:
+        batch["pool"].shutdown(wait=True)
+        batch["locus"].close_session(batch["token"])
 
 
 def _session_problem(diagnostics: Optional[dict]) -> Optional[str]:
@@ -975,8 +1362,10 @@ def visible_rows(user: V2UserData, outcome: HistoryOutcome,
     checks_visibility = diagnostics.get("visibility_checked") is not False
     history = next(l for l in outcome.listings if l["after"] == "history")
     writers = 0
-    for name in WRITERS:
-        for row in history["rows"].get(name, []):
+    for name, rows in history["rows"].items():
+        if name == CONSUMER:
+            continue
+        for row in rows:
             metadata = row.get("metadata") or {}
             if metadata.get("user_id") != partition:
                 continue

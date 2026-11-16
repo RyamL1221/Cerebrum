@@ -358,7 +358,10 @@ def test_written_records_what_the_write_left_in_the_metadata():
 
 
 EVENT_KEYS = {"event_id", "type", "fact_key", "memory_ids", "stored_rows",
-              "deleted_ids", "found_ids", "error"}
+              "deleted_ids", "found_ids", "error",
+              # Subtask 18: when the event was issued and its last call
+              # returned (the concurrency measures).
+              "issued_at", "completed_at"}
 
 
 def test_result_shape():
@@ -370,7 +373,7 @@ def test_result_shape():
     assert set(result) == {
         "agent_name", "result", "session", "user_id", "events",
         "stored_rows", "deleted_ids", "written", "writer_failed", "error",
-        "token_usage",
+        "token_usage", "flood",
     }
     assert result["result"] == "v2 session 3: 2 events"
     assert (result["agent_name"], result["session"], result["user_id"]) == (
@@ -378,7 +381,9 @@ def test_result_shape():
     assert result["token_usage"] is None and result["error"] is None
     assert set(result["events"][0]) == EVENT_KEYS | {
         "swept_ids", "retired_ids", "lifted", "suppressed"}
-    assert result["events"][1] == {
+    second = dict(result["events"][1])
+    assert second.pop("issued_at") <= second.pop("completed_at")
+    assert second == {
         "event_id": "e1", "type": "add", "fact_key": "pet",
         "memory_ids": ["m1"], "stored_rows": 1, "deleted_ids": [],
         "found_ids": [], "error": None, "swept_ids": [], "retired_ids": [],

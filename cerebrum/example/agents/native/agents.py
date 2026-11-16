@@ -798,6 +798,9 @@ class NativeAssistantAgent:
         user_id = self.user_id
         k = self.k if self.k is not None else self.memory.settings.k
         started = time.perf_counter()
+        # Wall clock, so a write's completion can be set against it
+        # (AIOS docs/STRESS_DIMENSIONS.md, "late_writes").
+        fetch_started_at = time.time()
         rows = self.memory.search(task_input, user_id, k,
                                   agent_name=self.agent_name)
         searched = time.perf_counter()
@@ -862,6 +865,7 @@ class NativeAssistantAgent:
             visibility_checked=self.check_visibility,
         )
         diagnostics.update(latency)
+        diagnostics["fetch_started_at"] = fetch_started_at
         return {
             "agent_name": self.agent_name,
             "result": answer,

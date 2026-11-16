@@ -677,7 +677,7 @@ def test_run_history_trial_records_each_locus_memory_backend():
                          side_effect=lambda kind, *a: SimpleNamespace(
                              locus=kind)), \
             patch.object(history, "KernelLocus",
-                         side_effect=lambda *a: SimpleNamespace(
+                         side_effect=lambda *a, **k: SimpleNamespace(
                              locus="kernel")), \
             patch.object(pl.AgentPipeline, "_kernel_memory_config",
                          return_value={"provider": "graphiti",
