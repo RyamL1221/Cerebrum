@@ -204,6 +204,9 @@ def concurrency_rows(cells: Dict[tuple, dict]) -> List[dict]:
                                          if p["writes_in_flight"]),
             "with_late_writes": sum(1 for p in probes if p["late_writes"]),
             "late_writes": sum(len(p["late_writes"]) for p in probes),
+            # The late writes the probe's barrier covered: none in the
+            # kernel (STRESS_DIMENSIONS.md, the checks that must hold).
+            "late_covered": sum(len(p["late_covered"]) for p in probes),
             "late_rows": sum(p["late_rows"] for p in probes),
             "uncovered_writes": sum(len(p["uncovered_writes"])
                                     for p in probes),
@@ -301,6 +304,14 @@ def fault_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 _judge_free(t, "private_rows_from_others") or 0 for t in ok),
             "flood_rows_stored": sum(s.get("flood_rows_stored") or 0
                                      for s in stress),
+            "flood_writes_accepted": sum(s.get("flood_writes_accepted") or 0
+                                         for s in stress),
+            # Flooding turns whose accepted flood writes exceed the
+            # quota's bound (None when a trial ran without the quota).
+            "flood_sessions_over_bound": (
+                None if any(s.get("flood_sessions_over_bound") is None
+                            for s in stress)
+                else sum(s["flood_sessions_over_bound"] for s in stress)),
             "flood_rows_in_block_per_probe": (
                 statistics.mean(p.get("flood_rows_in_block") or 0
                                 for p in probes) if probes else None),

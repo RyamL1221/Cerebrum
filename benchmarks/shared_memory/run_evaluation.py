@@ -686,9 +686,16 @@ class EvaluationOrchestrator:
             raise ValueError("the load mode runs kernel_shared only (the "
                              "agent-managed loci keep one set of agents "
                              "per cell)")
-        if agents != 4 and isinstance(dataset, str) and dataset in (
-                "users_v2", "pilot_v2"):
-            dataset = with_agents(dataset, agents)
+        if agents != 4:
+            # Only a v2 dataset has agent-count versions (its own, or
+            # one named already); any other is refused, never run as if
+            # it had N agents.
+            if not isinstance(dataset, str):
+                raise ValueError(f"--agents {agents} needs --dataset "
+                                 "users_v2 or pilot_v2")
+            if dataset not in (f"agents_n{agents}",
+                               f"pilot_agents_n{agents}"):
+                dataset = with_agents(dataset, agents)
         self.dataset = load_dataset(dataset)
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
         # Benchmark v2 (AIOS docs/BENCHMARK_V2.md): a scripted history
@@ -1253,9 +1260,12 @@ class EvaluationOrchestrator:
         common["probe_results"] = results
         common["fault_victim"] = (f"{victim}__{pipeline.method}"
                                   if victim else None)
+        pipeline_settings = (getattr(self, "preflight", None) or {}).get(
+            "pipeline") or {}
         common["stress"] = stress.measures(
             user, outcome, results, faulty_agent=faulty,
             started_at=started_at, finished_at=time.time(), locus=locus,
+            quota=pipeline_settings.get("write_quota"),
         )
         if outcome.failure:
             logger.error("Trial %d: %s", trial_index, outcome.failure)

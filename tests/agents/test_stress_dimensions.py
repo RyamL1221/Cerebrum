@@ -11,7 +11,7 @@ import threading
 import time
 from collections import Counter
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -62,6 +62,27 @@ def test_each_level_keeps_users_v2s_facts_over_its_writers(n):
     writing = Counter(turn["writer"] for user in users
                       for turn in user["sessions"])
     assert set(writing) == set(header["writers"])  # every writer writes
+
+
+@pytest.mark.parametrize("n", [6, 12])
+def test_the_check_finds_a_private_fact_its_writer_writes_after(n):
+    """At N = 6 and 12 a private fact is its writer's last; the check
+    reads that from the file's own writer turns, not from its flag."""
+    records = [json.loads(line) for line in
+               agents_v1.output_path(n).read_text().splitlines()]
+    _, source_users, _ = agents_v1.load_source()
+    assert agents_v1.problems(records, source_users) == []
+    for user in records[1:]:
+        session, writer = next((s["session"], s["writer"])
+                               for s in user["sessions"]
+                               for e in s["events"]
+                               if e["type"] == "private")
+        later = [s for s in user["sessions"] if s["session"] > session]
+        if later:
+            later[0]["writer"] = writer  # the writer writes again
+            break
+    found = agents_v1.problems(records, source_users)
+    assert any("private fact not its writer's last" in f for f in found)
 
 
 def test_each_finer_writer_lies_inside_one_v2_writer():
@@ -284,6 +305,24 @@ def test_a_forget_that_missed_a_row_fails_unless_writes_run_at_once():
     assert concurrent["events"][0]["not_found"] == ["r1"]
 
 
+def test_a_forget_records_its_commit_from_either_reply():
+    report = {"deleted": [], "values_count": 1, "forms_count": 1,
+              "scrubbed": {}, "listed": 0, "not_found": [],
+              "barrier_seq": 7, "committed_at": 123.0}
+    session = events(("revoke", "airline", ""))
+    session[0].update(value=None, utterance="Forget my airline.")
+    kernel_reply = {"response": {"success": True,
+                                 "metadata": dict(report)}}
+    for reply in (dict(report), kernel_reply):  # library, kernel
+        result = smu.run_v2_session(
+            writer_agent(), {"session": 6, "events": session}, "profile",
+            write=None, list_rows=None, delete=None,
+            forget=lambda user, key, reply=reply: reply)
+        record = result["events"][0]
+        assert result["writer_failed"] is False
+        assert (record["barrier_seq"], record["committed_at"]) == (7, 123.0)
+
+
 # -- the history ---------------------------------------------------------
 
 class TurnLocus(FakeLocus):
@@ -390,6 +429,78 @@ def test_concurrent_sessions_issue_the_probes_before_the_last_writes_end():
                    for writer in locus.writers.values())
 
 
+class SlowProbeLocus(TurnLocus):
+    """``TurnLocus`` whose concurrent consumer for ``slow`` probes takes
+    ``delay`` seconds, counting the probe calls that returned."""
+
+    delay = 0.3
+
+    def __init__(self, writers, slow=(), **consumer):
+        super().__init__(writers, **consumer)
+        self.slow, self.returned = set(slow), []
+
+    def concurrent_consumer(self, user_id, probe_id):
+        agent = super().concurrent_consumer(user_id, probe_id)
+        run = agent.run
+
+        def timed(question):
+            if probe_id in self.slow:
+                time.sleep(self.delay)
+            try:
+                return run(question)
+            finally:
+                self.returned.append(probe_id)
+        agent.run = timed
+        return agent
+
+
+def test_a_concurrent_probes_latency_is_its_own():
+    """Concurrent probes are awaited in the dataset's order; each
+    probe's latency and completion are when its own call returned."""
+    user = derived_user(6)
+    first = user.probes[0]["probe_id"]
+    locus = SlowProbeLocus(user.writers, slow=[first])
+    outcome = history.run_history(user, locus,
+                                  VariantRunner(None, locus.locus),
+                                  concurrency="concurrent")
+    assert outcome.failure is None
+    slow, *fast = outcome.turns
+    assert slow.probe["probe_id"] == first
+    assert slow.latency_seconds >= SlowProbeLocus.delay
+    assert all(t.latency_seconds < SlowProbeLocus.delay for t in fast)
+    assert all(t.completed_at < slow.completed_at for t in fast)
+
+
+def test_probes_issued_before_a_writer_failed_finish_before_the_history():
+    """A writer of the last session that fails after the probes were
+    issued fails the user; the probes still finish, and their kernel
+    session is closed, before ``run_history`` returns."""
+    user = derived_user(6)
+    locus = SlowProbeLocus(user.writers,
+                           slow=[p["probe_id"] for p in user.probes])
+    last = max(t["session"] for t in user.sessions)
+    turn = next(t for t in user.sessions if t["session"] == last
+                and any(e["type"] in history.WRITE_EVENTS
+                        for e in t["events"]))
+    calls = []
+    for name in user.writers:
+        writer = SlowWriter(name, locus.store, locus.log)
+        writer.calls = calls
+        locus.writers[name] = writer
+    locus.writers[turn["writer"]].fail_on = next(
+        e["event_id"] for e in turn["events"]
+        if e["type"] in history.WRITE_EVENTS)
+    outcome = history.run_history(user, locus,
+                                  VariantRunner(None, locus.locus),
+                                  concurrency="concurrent")
+    assert outcome.failure.startswith("writer_failed")
+    assert sorted(locus.returned) == sorted(p["probe_id"]
+                                            for p in user.probes)
+    probe_sessions = [s for s in locus.scopes if s == ("open", user.user_id)]
+    assert locus.scopes.count(("close", "token")) == 1
+    assert probe_sessions  # the probes' own session was opened
+
+
 def test_the_kernel_locus_runs_a_session_in_a_kernel_session():
     """The SDK requests of a kernel writer carry the session's token,
     which the harness opened for the user and closes after."""
@@ -454,6 +565,61 @@ def test_the_create_capture_keeps_concurrent_trials_apart():
     assert [r.user_id for r in lists["b"]] == ["b"] * 20
 
 
+def test_the_create_capture_skips_a_create_the_quota_turned_away():
+    """A create the write quota rejected stored nothing: the capture
+    does not record it as written."""
+    from cerebrum.example.agents.task_agent import agent as task_module
+
+    replies = iter([
+        {"response": {"success": True, "memory_id": "m",
+                      "metadata": {"suppressed": False}}},
+        {"response": {"success": True, "memory_id": "",
+                      "metadata": {"suppressed": False,
+                                   "quota_rejected": "quota"}}},
+        {"response": {"success": True, "memory_id": "",
+                      "metadata": {"suppressed": False,
+                                   "quota_rejected": "duplicate"}}},
+    ])
+
+    def fake_create(agent_name, content=None, metadata=None, base_url=None,
+                    **kwargs):
+        return next(replies)
+
+    written = []
+    with patch.object(task_module, "create_memory", fake_create):
+        with history._capture_into(written):
+            for _ in range(3):
+                task_module.create_memory(
+                    "task_agent", content="x",
+                    metadata={"user_id": "u", "owner_agent": "task_agent"})
+    assert len(written) == 1
+
+
+def test_the_flood_bound_counts_accepted_writes_against_write_events():
+    """Per flooding turn: the quota admits ``max_writes`` writes, its
+    own write events (not its revokes) first; accepted flood writes are
+    those it admitted, whatever rows they left."""
+    record = SessionRecord(session=3, writer="w", events=[
+        {"event_id": "e1", "type": "add"},
+        {"event_id": "e2", "type": "revoke"},
+        {"event_id": "e3", "type": "update"},
+    ], flood=[{"k": 1, "memory_ids": []},           # accepted, no row
+              {"k": 2, "memory_ids": ["a", "b"]},   # accepted, two rows
+              {"k": 3, "memory_ids": ["c"]},
+              {"k": 4, "memory_ids": [], "quota_rejected": "quota"},
+              {"k": 5, "memory_ids": [], "quota_rejected": "duplicate"}])
+    outcome = SimpleNamespace(sessions=[record])
+    quota = {"enabled": True, "max_writes": 4, "dedupe": True}
+    (turn,) = stress.flood_sessions(outcome, quota)
+    assert (turn["write_events"], turn["flood_accepted"], turn["bound"]) \
+        == (2, 3, 2)
+    assert turn["over"] is True
+    record.flood = record.flood[:2]
+    assert stress.flood_sessions(outcome, quota)[0]["over"] is False
+    (off,) = stress.flood_sessions(outcome, {"enabled": False})
+    assert off["bound"] is None and off["over"] is None
+
+
 def test_misfiled_rows_are_the_users_rows_in_the_victims_partition():
     locus = FakeLocus()
     store = locus.store
@@ -465,6 +631,55 @@ def test_misfiled_rows_are_the_users_rows_in_the_victims_partition():
     assert [row["content"] for row in rows] == ["mine"]
 
 
+class Stamped:
+    """The store, each row added through it stamped with ``fields``."""
+
+    def __init__(self, store, **fields):
+        self.store, self.fields, self.rows = store, fields, store.rows
+
+    def add(self, owner, content, metadata):
+        return self.store.add(owner, content, dict(metadata, **self.fields))
+
+    def own(self, owner, uid):
+        return self.store.own(owner, uid)
+
+
+class MisfilingWriter(FakeWriter):
+    """A writer that writes under the victim's id, as a ``wrong_user``
+    writer outside the kernel does, its rows carrying the harness's
+    provenance of the trial's user."""
+
+    def run(self, task_input):
+        user_id, self.user_id = self.user_id, "victim"
+        self.store = Stamped(self.base, provenance_user=user_id)
+        try:
+            return super().run(task_input)
+        finally:
+            self.user_id = user_id
+
+
+def test_a_wrong_user_writers_rows_are_credited_to_its_writes():
+    """The faulty writer's rows are in the victim's partition: listed
+    with each session's listing (``misfiled``), they are its writes'
+    rows, so a backend that extracts does not read its writes as ones
+    that stored nothing."""
+    locus = FakeLocus()
+    writer = MisfilingWriter("task_agent", locus.store, locus.log)
+    writer.base = locus.store
+    locus.writers["task_agent"] = writer
+    user = v2_user()
+    outcome = history.run_history(user, locus,
+                                  VariantRunner(None, locus.locus),
+                                  victim_id="victim")
+    assert outcome.failure is None and outcome.misfiled_rows
+    sessions = [s for s in outcome.sessions if s.writer == "task_agent"]
+    assert sum(s.stored_rows for s in sessions) > 0
+    first = next(listing for listing in outcome.listings
+                 if listing["after"].startswith("session "))
+    assert first["rows"].get("task_agent", []) == []  # not this user's
+    assert history.extraction_failure(user, outcome, True) is None
+
+
 def test_flood_rows_are_no_rows_of_their_source_event():
     record = SessionRecord(session=1, writer="w", events=[
         {"event_id": "e1", "type": "add", "reported_ids": ["a"]}])
@@ -473,6 +688,19 @@ def test_flood_rows_are_no_rows_of_their_source_event():
                                             "flood": 1}}]
     history._listed_rows(record, rows)
     assert record.events[0]["memory_ids"] == ["a"]
+
+
+def test_a_deleted_row_reappearing_is_found_whichever_writer_deleted_it():
+    """An agent-count session has one record per writer turn; a row any
+    of them deleted that a later listing shows has reappeared."""
+    outcome = history.HistoryOutcome()
+    outcome.sessions = [
+        SessionRecord(session=2, writer="w1", deleted_ids=["a"]),
+        SessionRecord(session=2, writer="w2", deleted_ids=["b"]),
+    ]
+    outcome.listings = [{"after": "session 2", "rows": {"w1": [
+        {"memory_id": "a"}, {"memory_id": "b"}]}}]
+    assert history.reappeared_ids(outcome) == ["a", "b"]
 
 
 # -- the stress measures --------------------------------------------------
@@ -527,6 +755,83 @@ def test_late_writes_are_those_committed_after_the_fetch_began():
     assert replicated["probes"]["p4"]["uncovered_writes"] == []
 
 
+def test_a_write_accepted_after_the_probe_is_uncovered_not_missed():
+    """A late write whose barrier sequence is above the probe's
+    snapshot was accepted after the probe: in the kernel it is
+    uncovered, not a miss; outside the kernel every late write is."""
+    t0 = 1000.0
+    sessions = [SessionRecord(session=6, writer="w", events=[
+        {"event_id": "e1", "type": "update", "issued_at": t0,
+         "completed_at": t0 + 0.5, "committed_at": t0 + 0.4,
+         "barrier_seq": 8, "stored_rows": 1}])]
+    outcome = SimpleNamespace(
+        sessions=sessions, misfiled_rows=None, listings=[],
+        turns=[SimpleNamespace(probe={"probe_id": "p4"},
+                               issued_at=t0 + 0.001, completed_at=t0 + 3,
+                               latency_seconds=3),
+               SimpleNamespace(probe={"probe_id": "p9"},
+                               issued_at=t0 + 0.001, completed_at=t0 + 3,
+                               latency_seconds=3)])
+    user = SimpleNamespace(sessions=[{"session": 6, "writer": "w",
+                                      "events": [{"event_id": "e1",
+                                                  "sharing": "shared"}]}])
+    diagnostics = {"fetch_started_at": t0 + 0.03, "barrier_snapshot": 6,
+                   "injected_memories": []}
+    results = [probe("p4", "recency", "e1", diagnostics,
+                     stale_in_block=True, expected_in_block=False),
+               probe("p9", "integration", None, diagnostics)]
+    kernel = stress.measures(user, outcome, results, locus="kernel")
+    p = kernel["probes"]["p4"]
+    assert p["late_writes"] == ["e1"] and p["uncovered_writes"] == ["e1"]
+    assert p["late_covered"] == [] and p["late_rows"] == 0
+    assert p["timing_miss"] is False and p["stale_read"] is False
+    assert kernel["memories_missing_timing"] == []
+    replicated = stress.measures(user, outcome, results, locus="replicated")
+    p = replicated["probes"]["p4"]
+    assert p["late_covered"] == ["e1"] and p["late_rows"] == 1
+    assert p["timing_miss"] is True and p["stale_read"] is True
+    assert replicated["memories_missing_timing"] == ["w"]
+
+
+def test_a_trials_flood_bound_is_the_kernels_quota(tmp_path):
+    """The trial's stress measures take the write quota the pre-flight
+    read from the kernel, so the flood bound is the run's own."""
+    from benchmarks.shared_memory import synth_v2
+    from tests.agents.test_history_v2 import USER_ID, orchestrator
+
+    path = tmp_path / "v2.jsonl"
+    synth_v2.generate(path, n=1)
+    o = orchestrator(dataset=str(path))
+    o.generator.run_id = "r1"
+    o._embed = False
+    o.judged = False
+    quota = {"enabled": True, "max_writes": 5, "dedupe": True}
+    o.preflight = {"pipeline": {"write_quota": quota}}
+    locus = FakeLocus()
+
+    def run_history_trial(user, variants=None, *, control=None,
+                          recency_session=True, **stress_kwargs):
+        user = user.model_copy(update={"user_id": USER_ID})
+        return user, history.run_history(
+            user, locus, VariantRunner(None, "kernel"),
+            control=control), "kernel"
+
+    seen = {}
+    real = stress.measures
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    no_usage = {"backend_llm_tokens": None, "embedding_tokens": None}
+    with patch.object(run_evaluation.stress, "measures", spy), \
+            patch.object(run_evaluation, "read_backend_usage",
+                         return_value=no_usage):
+        o.run_single_trial(0, "kernel_shared", SimpleNamespace(
+            run_history_trial=run_history_trial), method="kernel_shared")
+    assert seen["quota"] == quota
+
+
 # -- the orchestrator and the pre-flight ---------------------------------
 
 def stressed(**kwargs):
@@ -537,6 +842,19 @@ def stressed(**kwargs):
             write_csv=False, condition=None,
             method=kwargs.pop("method", "kernel_shared"),
             dataset=kwargs.pop("dataset", "pilot_v2"), **kwargs)
+
+
+def test_an_agent_count_needs_a_v2_dataset():
+    """``--agents N`` derives the v2 dataset's agent-count version; with
+    any other dataset (or none) it refuses, instead of running that
+    dataset recorded as N agents."""
+    assert stressed(agents=6, judge=False).dataset.name == "pilot_agents_n6"
+    assert stressed(agents=6, judge=False,
+                    dataset="pilot_agents_n6").dataset.name \
+        == "pilot_agents_n6"
+    for dataset in ("pilot_v1", None, "pilot_agents_n12"):
+        with pytest.raises(ValueError, match="--agents 6 needs"):
+            stressed(agents=6, judge=False, dataset=dataset)
 
 
 def test_the_stress_levels_run_judge_free_and_uncrossed():

@@ -55,13 +55,15 @@ def test_the_across_n_identity_compares_outcomes_and_blocks():
 
 def test_the_concurrency_and_fault_tables_count_their_measures():
     probe = {"writes_in_flight": ["e1"], "late_writes": ["e1"],
+             "late_covered": ["e1"],
              "late_rows": 1, "uncovered_writes": [], "timing_miss": True,
              "stale_read": False, "late_forget": None,
              "barrier_wait_ms": 5.0, "flood_rows_in_block": 2}
     stressed = {"probes": {"p1": probe}, "barrier_timeouts": 0,
                 "memories_missing_timing": ["w"], "misfiled_rows": 3,
                 "identity_overridden_requests": 0,
-                "flood_rows_stored": 4, "quota_rejected": {"quota": 2}}
+                "flood_rows_stored": 4, "quota_rejected": {"quota": 2},
+                "flood_writes_accepted": 3, "flood_sessions_over_bound": 1}
     cells = {
         ("qwen", "replicated", "inhouse", "n6h0"): [trial(0)],
         ("qwen", "replicated", "inhouse", "n6conc"): [
@@ -71,13 +73,16 @@ def test_the_concurrency_and_fault_tables_count_their_measures():
                   judge_free={"profile_facts_in_block": 0.5})],
     }
     (conc,) = report.concurrency_rows(cells)
-    assert (conc["with_late_writes"], conc["timing_misses"],
-            conc["memories_missing_timing"]) == (1, 1, 1)
+    assert (conc["with_late_writes"], conc["late_covered"],
+            conc["timing_misses"], conc["memories_missing_timing"]) \
+        == (1, 1, 1, 1)
     assert conc["recency"]["lost"] == 1
     (flood,) = report.fault_rows(cells)
     assert (flood["misfiled_rows"], flood["flood_rows_stored"],
             flood["flood_rows_in_block_per_probe"]) == (3, 4, 2)
     assert flood["quota_rejected"] == {"quota": 2}
+    assert (flood["flood_writes_accepted"],
+            flood["flood_sessions_over_bound"]) == (3, 1)
 
 
 def test_the_report_reads_a_run_tree(tmp_path):

@@ -232,10 +232,18 @@ def n3_writers(user: dict) -> Tuple[Dict[str, str], bool]:
     for session, writer, _, event in events:
         out[event["event_id"]] = (N3_OF_V2[writer] if writer != C
                                   else chosen[_unit(event, owner)])
-    private_writer = out[private["event_id"]]
-    not_last = any(s > private_session and out[e["event_id"]]
-                   == private_writer for s, _, _, e in events)
-    return out, not_last
+    return out, private_not_last(
+        [(s, out[e["event_id"]], e) for s, _, _, e in events])
+
+
+def private_not_last(events: List[Tuple[int, str, dict]]) -> bool:
+    """Whether the writer of the private fact writes again in a later
+    session, over ``(session, writer, event)``: at any N, from the
+    writers the events were given."""
+    private = [(s, w) for s, w, e in events if e["type"] == "private"]
+    return any(later > session and other == writer
+               for session, writer in private
+               for later, other, _ in events)
 
 
 def writers_of(user: dict, n: int) -> Tuple[Dict[str, str], bool]:
@@ -245,10 +253,12 @@ def writers_of(user: dict, n: int) -> Tuple[Dict[str, str], bool]:
     if n not in (6, 12):
         raise ValueError(f"agent count must be one of {LEVELS}")
     out = {}
-    for _, writer, _, event in _events(user):
+    events = []
+    for session, writer, _, event in _events(user):
         w12 = n12_writer(writer, event)
         out[event["event_id"]] = w12 if n == 12 else N6[w12]
-    return out, False
+        events.append((session, out[event["event_id"]], event))
+    return out, private_not_last(events)
 
 
 def derive_user(user: dict, n: int) -> dict:
@@ -403,7 +413,16 @@ def problems(records: List[dict], source_users: List[dict]) -> List[str]:
                             "base_task": "task_agent"}[e["fact_key"]]
                 if writer_of[e["event_id"]] != expected:
                     found.append(f"user {i}: {e['fact_key']} moved")
-        if n in (6, 12) and user["agents"]["private_not_last"]:
+        # Recomputed from the file's own writer turns, not read from
+        # its flag.
+        not_last = private_not_last([(s["session"], s["writer"], e)
+                                     for s in user["sessions"]
+                                     for e in s["events"]])
+        if not_last != user["agents"]["private_not_last"]:
+            found.append(f"user {i}: private_not_last flag is "
+                         f"{user['agents']['private_not_last']}, not "
+                         f"{not_last}")
+        if n in (6, 12) and not_last:
             found.append(f"user {i}: private fact not its writer's last")
         del owner
     return found

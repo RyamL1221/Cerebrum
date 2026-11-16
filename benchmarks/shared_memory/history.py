@@ -171,15 +171,20 @@ def _capture_modules():
 
 
 def _capturing(real):
-    from cerebrum.example.agents.shared_memory_utils import reply_error
+    from cerebrum.example.agents.shared_memory_utils import (
+        quota_rejection,
+        reply_error,
+    )
 
     def capturing(agent_name, content=None, metadata=None, base_url=None,
                   **kwargs):
         reply = real(agent_name, content=content, metadata=metadata,
                      base_url=base_url, **kwargs)
         written = _CAPTURED.get()
+        # A create the write quota turned away stored nothing.
         if (written is not None and metadata
-                and reply_error(reply) is None):
+                and reply_error(reply) is None
+                and quota_rejection(reply) is None):
             written.append(WrittenMemoryRecord(
                 agent_name=metadata.get("owner_agent", agent_name),
                 memory_type=metadata.get("memory_type", ""),
@@ -520,19 +525,44 @@ def _audit_rows(rows: List[dict]) -> List[dict]:
             for row in rows]
 
 
+def _misfiled_by_writer(locus, victim_id: str, user_id: str,
+                        writers: Tuple[str, ...]) -> Dict[str, List[dict]]:
+    """The rows written for ``user_id`` (``provenance_user``) that the
+    victim's partition holds, by writer: the kernel's and the
+    replicated store's raw audit of it (by ``owner_agent``), or each
+    native writer's own rows there."""
+    def mine(row: dict) -> bool:
+        return (row.get("metadata") or {}).get("provenance_user") == user_id
+
+    out: Dict[str, List[dict]] = {}
+    if getattr(locus, "locus", None) in STORE_AUDIT_LOCI:
+        for row in locus.audit_rows(victim_id) or []:
+            if mine(row):
+                owner = (row.get("metadata") or {}).get("owner_agent", "")
+                out.setdefault(owner, []).append(row)
+        return out
+    for name in writers:
+        rows = [row for row in locus.lister(name).list_own_rows(victim_id)
+                if mine(row)]
+        if rows:
+            out[name] = rows
+    return out
+
+
 def _misfiled(locus, victim_id: str, user_id: str,
               writers: Tuple[str, ...]) -> List[dict]:
-    """The rows written for ``user_id`` (``provenance_user``) that the
-    victim's partition holds: the kernel's and the replicated store's
-    raw audit of it, or each native writer's own rows there."""
-    if getattr(locus, "locus", None) in STORE_AUDIT_LOCI:
-        rows = locus.audit_rows(victim_id) or []
-    else:
-        rows = [row for name in writers
-                for row in locus.lister(name).list_own_rows(victim_id)]
-    return [row for row in rows
-            if (row.get("metadata") or {}).get("provenance_user")
-            == user_id]
+    """``_misfiled_by_writer``'s rows, in one list."""
+    return [row for rows in _misfiled_by_writer(
+        locus, victim_id, user_id, writers).values() for row in rows]
+
+
+def _writer_rows(listing: Dict[str, Any], writer: str) -> List[dict]:
+    """A writer's rows in a session's listing: those of this user's
+    partitions, and, under a ``wrong_user`` fault, those it filed in the
+    victim's (``misfiled``, listed with the session's listing so its
+    writes are credited with the rows they stored)."""
+    return (listing["rows"].get(writer, [])
+            + (listing.get("misfiled") or {}).get(writer, []))
 
 
 def _listing(locus, after: str, ids: Dict[str, set]) -> Dict[str, Any]:
@@ -690,9 +720,9 @@ def run_history(user: V2UserData, locus, runner, *,
             # A writer run with others at once records, not fails on, a
             # forget's row another write swept (run_v2_session).
             locus.writer(name).concurrent = True
+    pending: List[Any] = []  # the probes issued during the last session
     try:
         with locus.capture(outcome.written):
-            pending: List[Any] = []
             if control != "no_memory":
                 _sessions(user, locus, runner, outcome, ids,
                           concurrent=concurrency == "concurrent",
@@ -725,6 +755,7 @@ def run_history(user: V2UserData, locus, runner, *,
         logger.warning("History of %s failed", uid, exc_info=True)
         outcome.failure = _described(error)
     finally:
+        _drain_probes(pending)
         outcome.variants_applied = dict(runner.codes)
         outcome.variants_not_applied = dict(runner.not_applied)
         if concurrent:
@@ -942,8 +973,10 @@ def _sessions(user, locus, runner, outcome, ids, *, concurrent=False,
               victim_id: Optional[str] = None,
               on_last_issued: Optional[Callable[[], None]] = None) -> None:
     """Each session in order, in a kernel session of its own (the
-    kernel locus), then the listing after it. Under ``concurrent`` the
-    last session calls ``on_last_issued`` once its writes are issued."""
+    kernel locus), then the listing after it (with ``victim_id``, the
+    user's rows in the victim's partition too: ``misfiled``). Under
+    ``concurrent`` the last session calls ``on_last_issued`` once its
+    writes are issued."""
     groups = session_groups(user)
     for position, (number, turns) in enumerate(groups):
         last = position == len(groups) - 1
@@ -966,9 +999,12 @@ def _sessions(user, locus, runner, outcome, ids, *, concurrent=False,
                 f"writer_failed: {failed.writer} in session "
                 f"{failed.session}: {failed.error}")
         listing = _listing(locus, f"session {number}", ids)
+        if victim_id:
+            listing["misfiled"] = _misfiled_by_writer(
+                locus, victim_id, user.user_id, user_writers(user))
         for record in records:
             record.listing_counts = _counts(listing)
-            _listed_rows(record, listing["rows"].get(record.writer, []))
+            _listed_rows(record, _writer_rows(listing, record.writer))
         outcome.listings.append(listing)
 
 
@@ -980,9 +1016,14 @@ def _answer_text(answer: Any) -> str:
 
 
 def _finish_turn(turn: ProbeTurn, result: Any, ids, recency_session,
-                 started: float) -> None:
-    turn.latency_seconds = time.perf_counter() - started
-    turn.completed_at = time.time()
+                 started: float, ended: Optional[Tuple[float, float]] = None
+                 ) -> None:
+    """Record a probe's reply. ``ended`` is ``(perf_counter, time)``
+    when the probe's call returned, as its own thread recorded it (a
+    concurrent probe); without it, now."""
+    ended = ended or (time.perf_counter(), time.time())
+    turn.latency_seconds = ended[0] - started
+    turn.completed_at = ended[1]
     if isinstance(result, dict):
         turn.result = result
         turn.answer = _answer_text(result.get("result"))
@@ -1033,6 +1074,19 @@ def _in_session(token: Optional[str], call: Callable, *args):
         return call(*args)
 
 
+def _timed_call(call: Callable, *args) -> Dict[str, Any]:
+    """``call(*args)`` with when it returned (``ended``:
+    ``(perf_counter, time)``), taken in the probe's own thread, so a
+    probe's latency is its own whichever probe is awaited first: its
+    reply as ``result``, or what it raised as ``error``."""
+    try:
+        result, error = call(*args), None
+    except Exception as raised:
+        result, error = None, raised
+    return {"result": result, "error": error,
+            "ended": (time.perf_counter(), time.time())}
+
+
 def _issue_probes(user, locus, runner) -> List[Any]:
     """Issue every probe at once (``concurrent``), each its own turn on
     a thread, in a kernel session of their own; returns the issued
@@ -1050,8 +1104,8 @@ def _issue_probes(user, locus, runner) -> List[Any]:
             started = time.perf_counter()
             turn.issued_at = time.time()
             future = pool.submit(_in_context(
-                _in_session, token, runner.run, CONSUMER, agent,
-                probe["question"]))
+                _timed_call, _in_session, token, runner.run, CONSUMER,
+                agent, probe["question"]))
             issued["probes"].append((probe, turn, future, started))
     except BaseException:
         pool.shutdown(wait=True)
@@ -1068,22 +1122,37 @@ def _finish_probes(user, outcome, ids, recency_session,
     try:
         first_error = None
         for probe, turn, future, started in batch["probes"]:
-            try:
-                result = future.result()
-            except Exception as error:
-                turn.latency_seconds = time.perf_counter() - started
-                turn.completed_at = time.time()
-                turn.error = f"consumer raised {_described(error)}"
+            reply = future.result()
+            if reply["error"] is not None:
+                turn.latency_seconds = reply["ended"][0] - started
+                turn.completed_at = reply["ended"][1]
+                turn.error = f"consumer raised {_described(reply['error'])}"
             else:
-                _finish_turn(turn, result, ids, recency_session, started)
+                _finish_turn(turn, reply["result"], ids, recency_session,
+                             started, reply["ended"])
             outcome.turns.append(turn)
             if turn.error and first_error is None:
                 first_error = f"{probe['probe_id']}: {turn.error}"
         if first_error:
             raise LocusFailure(first_error)
     finally:
-        batch["pool"].shutdown(wait=True)
-        batch["locus"].close_session(batch["token"])
+        _drain_probes(issued)
+
+
+def _drain_probes(issued: List[Any]) -> None:
+    """Wait for the issued probes (their pool shut down) and close
+    their kernel session, once: after ``_finish_probes``, or when the
+    history stopped before it (a writer of the last session failed
+    after the probes were issued), so no probe runs on into the next
+    trial."""
+    for batch in issued:
+        if batch.get("drained"):
+            continue
+        batch["drained"] = True
+        try:
+            batch["pool"].shutdown(wait=True)
+        finally:
+            batch["locus"].close_session(batch["token"])
 
 
 def _session_problem(diagnostics: Optional[dict]) -> Optional[str]:
@@ -1129,7 +1198,7 @@ def _empty_writes(user: V2UserData,
         listing = after.get(f"session {event['session']}")
         if listing is None:
             continue
-        rows = listing["rows"].get(event["writer"], [])
+        rows = _writer_rows(listing, event["writer"])
         if any((r.get("metadata") or {}).get("provenance_event")
                == event["event_id"] for r in rows):
             continue
@@ -1194,7 +1263,11 @@ def reappeared_ids(outcome: HistoryOutcome) -> List[str]:
     """Deleted ids seen again in any later listing or in any probe's
     injected rows."""
     deleted, seen = [], []
-    by_session = {s.session: s.deleted_ids for s in outcome.sessions}
+    # Every writer turn of the session (one per writer in an agent-count
+    # dataset), not only the last.
+    by_session: Dict[int, List[str]] = {}
+    for record in outcome.sessions:
+        by_session.setdefault(record.session, []).extend(record.deleted_ids)
     for listing in outcome.listings:
         after = listing["after"]
         if after.startswith("session "):

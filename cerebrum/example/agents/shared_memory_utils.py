@@ -527,14 +527,30 @@ def _timed(record: Dict[str, Any], reply: Any) -> None:
     outcome), whether the write quota rejected it, and the claim a
     kernel session overrode."""
     response = _unwrap(reply)
-    outcome = (response.get("metadata") if isinstance(response, dict)
-               else None) or {}
+    outcome = {}
+    if isinstance(response, dict):
+        # The library's forget report is the reply itself; the kernel's
+        # is its reply's metadata, as a write's outcome is.
+        outcome = (response if isinstance(response.get("deleted"), list)
+                   else response.get("metadata")) or {}
     if isinstance(outcome, dict):
         for key in ("barrier_seq", "committed_at", "quota_rejected"):
             if outcome.get(key) is not None:
                 record[key] = outcome[key]
     if isinstance(reply, dict) and reply.get("identity_overridden"):
         record["identity_overridden"] = reply["identity_overridden"]
+
+
+def quota_rejection(reply: Any) -> Optional[str]:
+    """Why the write quota turned a write away (``"quota"`` or
+    ``"duplicate"``, from the kernel's reply metadata or the library's
+    outcome); None for a write it admitted, or without a quota."""
+    response = _unwrap(reply)
+    outcome = response.get("metadata") if isinstance(response, dict) \
+        else None
+    if isinstance(outcome, dict):
+        return outcome.get("quota_rejected") or None
+    return None
 
 
 def _unwrap(reply: Any) -> Any:

@@ -49,7 +49,11 @@ def probe_timing(result, turn, events: List[Dict[str, Any]],
     """One probe's timing measures (STRESS_DIMENSIONS.md, Concurrency,
     "What is measured"). ``uncovered_writes`` is the kernel's only: its
     writes and reads share one barrier, whose sequences compare; a
-    replicated agent's sequence is its own barrier's."""
+    replicated agent's sequence is its own barrier's. ``late_writes``
+    are every write issued before the probe that committed after its
+    fetch began; ``late_covered`` are those that were not uncovered,
+    the ones the misses (``timing_miss``, ``stale_read``,
+    ``late_forget``, ``late_rows``) count."""
     diagnostics = _diag(result)
     issued = getattr(turn, "issued_at", None)
     fetch = diagnostics.get("fetch_started_at")
@@ -63,15 +67,20 @@ def probe_timing(result, turn, events: List[Dict[str, Any]],
     if fetch is not None:
         late = [e for e in before
                 if (_committed(e) or float("inf")) > fetch]
-    late_ids = [e["event_id"] for e in late]
-    shared_late = [e for e in late
-                   if (user_events.get(e["event_id"]) or {}).get("sharing")
-                   != "private"]
     uncovered = []
     if snapshot is not None and locus == "kernel":
         uncovered = [e["event_id"] for e in before
                      if e.get("barrier_seq")
                      and e["barrier_seq"] > snapshot]
+    # A write the kernel accepted after the probe is outside its
+    # guarantee: counted as uncovered, never as a miss. The misses are
+    # the late writes the probe's barrier covered (all of them outside
+    # the kernel).
+    covered = [e for e in late if e["event_id"] not in uncovered]
+    late_ids = [e["event_id"] for e in covered]
+    shared_late = [e for e in covered
+                   if (user_events.get(e["event_id"]) or {}).get("sharing")
+                   != "private"]
     target = getattr(result, "target_event", None)
     kind = getattr(result, "type", None)
     stale_read = None
@@ -85,7 +94,8 @@ def probe_timing(result, turn, events: List[Dict[str, Any]],
                        and not getattr(result, "expected_in_block", None))
     if kind == "deletion" and target:
         fact_key = (user_events.get(target) or {}).get("fact_key")
-        revokes = [e["event_id"] for e in late if e.get("type") == REVOKE
+        revokes = [e["event_id"] for e in covered
+                   if e.get("type") == REVOKE
                    and e.get("fact_key") == fact_key]
         late_forget = bool(revokes) and bool(
             getattr(result, "forbidden_in_block", False))
@@ -98,7 +108,8 @@ def probe_timing(result, turn, events: List[Dict[str, Any]],
         "barrier_snapshot": snapshot,
         "barrier_outcomes": [w.get("outcome") for w in waits],
         "writes_in_flight": in_flight,
-        "late_writes": late_ids,
+        "late_writes": [e["event_id"] for e in late],
+        "late_covered": late_ids,
         "late_rows": sum(e.get("stored_rows") or 0 for e in shared_late),
         "uncovered_writes": uncovered,
         "timing_miss": timing_miss,
@@ -127,12 +138,44 @@ def _injected_ids(result) -> List[str]:
             if m.get("memory_id")]
 
 
+def flood_sessions(outcome, quota: Optional[dict] = None
+                   ) -> List[Dict[str, Any]]:
+    """Each flooding writer turn's flood writes against the write
+    quota's bound (STRESS_DIMENSIONS.md, the checks that must hold):
+    ``write_events``, the turn's write events the quota admitted (a
+    revoke is no write); ``flood_accepted``, its flood writes the quota
+    admitted (a write, not the rows it left: a Mem0 write may leave
+    none or several); ``bound``, ``max_writes`` less ``write_events``
+    (None without an enabled quota); ``over``, ``flood_accepted`` above
+    ``bound``."""
+    quota = quota or {}
+    max_writes = quota.get("max_writes") if quota.get("enabled") else None
+    out = []
+    for record in outcome.sessions:
+        if not record.flood:
+            continue
+        own = sum(1 for e in record.events or []
+                  if e.get("type") in WRITE_EVENTS
+                  and not e.get("quota_rejected"))
+        accepted = sum(1 for f in record.flood
+                       if not f.get("quota_rejected") and not f.get("error"))
+        bound = None if max_writes is None else max(0, max_writes - own)
+        out.append({"session": record.session, "writer": record.writer,
+                    "write_events": own, "flood_accepted": accepted,
+                    "bound": bound,
+                    "over": None if bound is None else accepted > bound})
+    return out
+
+
 def measures(user, outcome, results: Iterable, *,
              faulty_agent: Optional[str] = None,
              started_at: Optional[float] = None,
              finished_at: Optional[float] = None,
-             locus: Optional[str] = None) -> Dict[str, Any]:
-    """The trial's stress measures (``TrialResult.stress``)."""
+             locus: Optional[str] = None,
+             quota: Optional[dict] = None) -> Dict[str, Any]:
+    """The trial's stress measures (``TrialResult.stress``). ``quota``
+    is the kernel's ``write_quota`` setting (the pre-flight's), for the
+    flood bound."""
     results = list(results)
     events = write_records(outcome)
     user_events = {e["event_id"]: e for turn in user.sessions
@@ -165,7 +208,7 @@ def measures(user, outcome, results: Iterable, *,
                        None)
     timing_missing = None
     if integration is not None:
-        late = set(probes[integration.probe_id]["late_writes"])
+        late = set(probes[integration.probe_id]["late_covered"])
         injected_events = {
             m.get("provenance_event") for m in
             _diag(integration).get("injected_memories") or []}
@@ -177,6 +220,7 @@ def measures(user, outcome, results: Iterable, *,
             if not any(e["writer"] == w and e["event_id"] in injected_events
                        for e in events))
     outcomes = [o for p in probes.values() for o in p["barrier_outcomes"]]
+    floods_bound = flood_sessions(outcome, quota)
     return {
         "started_at": started_at,
         "finished_at": finished_at,
@@ -192,6 +236,12 @@ def measures(user, outcome, results: Iterable, *,
         "flood_rows_written": sum(1 for f in floods if f.get("memory_ids")),
         "flood_rows_sent": len(floods),
         "flood_rows_stored": len(stored_flood),
+        "flood_writes_accepted": sum(f["flood_accepted"]
+                                     for f in floods_bound),
+        "flood_sessions": floods_bound,
+        "flood_sessions_over_bound": (
+            None if any(f["over"] is None for f in floods_bound)
+            else sum(1 for f in floods_bound if f["over"])),
         "quota_rejected": dict(rejected),
         "quota_rejected_by_writer": dict(rejected_by_writer),
     }
