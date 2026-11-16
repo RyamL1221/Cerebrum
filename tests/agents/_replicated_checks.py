@@ -287,6 +287,24 @@ def test_replicated_mem0_follows_the_kernels_extraction_and_counts_it():
         ).backend_extraction
 
 
+def test_replicated_amem_runs_on_the_amem_provider():
+    """``replicated_amem`` builds the kernel's A-MEM provider (Amendment
+    8): on the in-house one its cells would run, with in-house's numbers
+    and no backend call, and nothing would fail."""
+    seen = {}
+
+    def create(cls, kind, provider_config):
+        seen["kind"] = kind
+        store = InHouseProvider()
+        store.initialize({})
+        return store
+
+    with patch.object(factory.ProviderFactory, "create",
+                      classmethod(create)):
+        replicated.ReplicatedMemory("amem", KERNEL_CONFIG)
+    assert seen["kind"] == "amem"
+
+
 def test_replicated_follows_the_kernels_block_format(harness):
     """A replicated agent formats its block as the kernel reports it at
     /memory/config: here the legacy format behind memory.block_format."""

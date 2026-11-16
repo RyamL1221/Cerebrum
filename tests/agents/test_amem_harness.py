@@ -67,8 +67,10 @@ def test_the_analysis_reads_the_amem_phases(tmp_path):
 
 def test_a_derived_deletion_is_counted_apart(tmp_path):
     """A row an A-MEM scrub deleted because its derived text carried a
-    form counts as ``derived``, not as a fold of the revoking writer's."""
-    revoke = {"type": "revoke", "writer": "profile_agent",
+    form counts as ``derived``, not as a fold of the revoking writer's,
+    even when the row is that writer's own (an event's writer is its
+    session's)."""
+    revoke = {"type": "revoke",
               "revoke_path": "forget", "forget": {
                   "values_count": 1, "scrubbed": {"messages": 0,
                                                   "history": 1},
@@ -78,11 +80,13 @@ def test_a_derived_deletion_is_counted_apart(tmp_path):
                       {"memory_id": "b", "owner_agent": "profile_agent",
                        "reason": "derived"}]}}
     trial = {"trial_index": 0, "failed": False,
-             "sessions": [{"events": [revoke]}], "probe_results": []}
+             "sessions": [{"writer": "profile_agent", "events": [revoke]}],
+             "probe_results": []}
     write(tmp_path, "kamem", "h0_kernel_shared", "kernel_shared", [trial])
     (row,) = ba.forget_rows(ba.load(tmp_path))
     assert (row["deleted"], row["fact_key"], row["derived"],
-            row["same_writer"], row["history"]) == (2, 1, 1, 0, 1)
+            row["other_agents"], row["same_writer"],
+            row["history"]) == (2, 1, 1, 0, 0, 1)
 
 
 def test_amem_cells_have_a_writes_without_a_row_reading(tmp_path):

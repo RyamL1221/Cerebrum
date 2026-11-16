@@ -234,6 +234,54 @@ def test_every_table_reports_the_mean_block_per_locus(tmp_path):
                          "replicated_block_rows |") for line in headers)
 
 
+def test_each_table_averages_the_probes_its_note_names(tmp_path):
+    """The note's sets (Amendment 7): a deletion row split by echo, its
+    split's probes; ``identical blocks``, all of the cell's probes; the
+    integration readings, the integration probes; and the contrast
+    table prints its block columns per locus."""
+    def cell(echo_tokens, plain_tokens, integration_tokens):
+        trials = [trial(0, ALL_PASS), trial(1, ALL_PASS, echo=True)]
+        for t, tokens, rows in ((trials[0], plain_tokens, 1),
+                                (trials[1], echo_tokens, 3)):
+            diagnostics = probe_of(t, "deletion")["diagnostics"]
+            diagnostics["tokens_estimated"] = tokens
+            diagnostics["injected_memories"] = [{}] * rows
+        return sized(trials, "integration", integration_tokens, 5)
+
+    write(tmp_path, "qwen", "kinh", "h0_kernel_shared", cell(400, 100, 500))
+    write(tmp_path, "qwen", "agent", "h0_replicated_inhouse",
+          cell(200, 50, 60))
+    cells = ba.load(tmp_path)
+    matrix = {(r["locus"], r["probe"]): r for r in ba.cell_rows(cells)}
+    for split, size in (("deletion (echo)", (400.0, 3.0)),
+                        ("deletion (no echo)", (100.0, 1.0))):
+        row = matrix[("kernel", split)]
+        assert (row["block_tokens"], row["block_rows"]) == size
+    # Each cell's 12 probes: 8 at 300 tokens and no row, the two
+    # deletion probes and the two integration probes.
+    contrasts = ba.contrast_rows(cells, "qwen")
+    (same,) = [r for r in contrasts if r["probe"] == "identical blocks"]
+    assert same["kernel_block_tokens"] == pytest.approx(
+        (8 * 300 + 400 + 100 + 2 * 500) / 12)
+    assert same["kernel_block_rows"] == pytest.approx((3 + 1 + 10) / 12)
+    reads = ba.readings(cells)
+    for name in ("integration_blocks", "integration_base_rows"):
+        kernel = [r for r in reads[name] if r["locus"] == "kernel"]
+        assert kernel and all(
+            (r["block_tokens"], r["block_rows"]) == (500.0, 5.0)
+            for r in kernel), name
+    text = ba.markdown(cells, ba.cell_rows(cells), ba.binding_rows(cells),
+                       [], contrasts, ba.integration_rows(cells), reads)
+    assert ("in the integration table and the integration readings, the "
+            "cell's integration probes;") in text
+    section = text.split("## Kernel against replicated")[1].split("\n## ")[0]
+    header = next(line for line in section.splitlines()
+                  if line.startswith("| model |"))
+    assert header.endswith("| p_mcnemar | kernel_block_tokens | "
+                           "kernel_block_rows | replicated_block_tokens | "
+                           "replicated_block_rows |")
+
+
 def test_markdown_lists_every_section(tmp_path):
     build(tmp_path)
     cells = ba.load(tmp_path)
@@ -1461,6 +1509,20 @@ def test_the_graphiti_scrub_criterion_joins_only_with_graphiti(tmp_path):
     assert found["evidence"] == "1 of 2 forgets (2 episodes)"
 
 
+def test_the_amem_cells_join_no_scrub_criterion(tmp_path):
+    """A-MEM keeps no messages and has no episodes (Amendment 8): with
+    its cells in the run, the Mem0 scrub criterion still counts Mem0's
+    forgets alone, and no Graphiti criterion is added."""
+    build_library(tmp_path)
+    for phase, cell in (("kamem", "h0_kernel_shared"),
+                        ("agent_amem", "h0_replicated_amem")):
+        write(tmp_path, "qwen", phase, cell,
+              [lib_trial(0, "amem"), lib_trial(1, "amem", echo=True)])
+    checks = library_checks(ba.load(tmp_path))  # five criteria, once each
+    assert checks["scrub"]["holds"] is True
+    assert checks["scrub"]["evidence"] == "4 of 4 forgets (8 messages)"
+
+
 def test_load_reads_the_graphiti_phases(tmp_path):
     """The driver's Graphiti phases (AIOS ``scripts/run_bench_v2.sh``,
     Subtask 16): ``kgra`` and its no_supersession kernel ``kgra_ns``
@@ -1483,17 +1545,23 @@ def test_load_reads_the_graphiti_phases(tmp_path):
         ("qwen", "replicated", "graphiti", "no_supersession")}
 
 
-def test_the_contrast_pairs_the_graphiti_cells(tmp_path):
-    """Kernel against replicated on Graphiti, paired by user as on the
-    other backends (DEV_STATUS.md, Subtask 16: in the v2 smoke kernel
-    and replicated "agree on all 150 pairs", this table's reading)."""
-    write(tmp_path, "qwen", "kgra", "h0_kernel_shared",
+@pytest.mark.parametrize("backend, kernel_phase, agent_phase", [
+    ("graphiti", "kgra", "agent_gra"),
+    # Amendment 8; DEV_STATUS.md, Subtask 17: "agree on every pair".
+    ("amem", "kamem", "agent_amem")])
+def test_the_contrast_pairs_the_graphiti_and_amem_cells(
+        tmp_path, backend, kernel_phase, agent_phase):
+    """Kernel against replicated on Graphiti, and on A-MEM, paired by
+    user as on the other backends (DEV_STATUS.md, Subtask 16: in the v2
+    smoke kernel and replicated "agree on all 150 pairs", this table's
+    reading)."""
+    write(tmp_path, "qwen", kernel_phase, "h0_kernel_shared",
           [trial(0, ALL_PASS), trial(1, ALL_PASS)])
-    write(tmp_path, "qwen", "agent_gra", "h0_replicated_graphiti",
+    write(tmp_path, "qwen", agent_phase, f"h0_replicated_{backend}",
           [trial(0, ALL_PASS), trial(1, {**ALL_PASS, "recall": False})])
     rows = {r["probe"]: r
             for r in ba.contrast_rows(ba.load(tmp_path), "qwen")
-            if r["backend"] == "graphiti"}
+            if r["backend"] == backend}
     assert set(rows) == set(ba.JUDGE_FREE)
     assert (rows["recall"]["pairs"], rows["recall"]["kernel_only"],
             rows["recall"]["replicated_only"]) == (2, 1, 0)

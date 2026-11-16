@@ -10,9 +10,9 @@ from benchmarks.shared_memory.pilot_schedule import PATH, Schedule
 SCHEDULE = Schedule(str(PATH))
 
 
-def write_cells(root, scores, skip=()):
+def write_cells(root, scores, skip=(), backend=gs.BACKEND):
     """``scores(locus, H, i) -> (profile, integration)``; the loci in
-    ``skip`` get no cell."""
+    ``skip`` get no cell; the cells of ``backend``."""
     for locus in gs.CELLS:
         if locus in skip:
             continue
@@ -34,7 +34,7 @@ def write_cells(root, scores, skip=()):
                                            "total_tokens": 1100,
                                            "models": ["azure/gpt-4o"]},
                 })
-            path = gs.cell_file(root, "qwen", locus, level)
+            path = gs.cell_file(root, "qwen", locus, level, backend)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({
                 "experiment_metadata": {
@@ -127,6 +127,27 @@ def test_main_reports_a_missing_cell_and_writes_its_files(tmp_path):
     assert "### qwen: kernel − replicated" in text
     assert {p.name for p in out.iterdir()} >= {"cells.csv", "cost.csv",
                                                "gaps.csv"}
+
+
+def test_main_reports_the_backend_it_is_given(tmp_path):
+    """``--backend amem`` (Subtask 17; results/pilot_v1_amem): main
+    loads the A-MEM cells, and the gaps, the H2 - H0 differences and
+    the readings are theirs."""
+    root = tmp_path / "root"
+    write_cells(root, grows, backend="amem")
+    out = tmp_path / "analysis.json"
+    assert gs.main([str(root), "--backend", "amem", "--reference",
+                    reference(tmp_path), "--json", str(out)]) == 0
+    data = json.loads(out.read_text())
+    assert data["problems"] == []
+    assert {r["scope"] for r in data["gaps"]} == {"amem"}
+    gaps = {(r["vs"], r["dimension"], r["contrast"]): r
+            for r in data["gaps"]}
+    assert gaps[("replicated", "profile", "H0")]["mean"] == 0
+    assert gaps[("native", "integration", "H2")]["mean"] == 1.0
+    assert gaps[("replicated", "profile", "H2-H0")]["mean"] == 1.0
+    assert all(r["h0_tie"] and r["same_direction"]
+               for r in data["readings"])
 
 
 def test_agent_cells_report_their_v2_trials(tmp_path):

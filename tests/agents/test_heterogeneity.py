@@ -487,6 +487,8 @@ def test_native_v4_consumer_thresholds_away_the_rows(native_run):
     run, rows, chat = native_run
     result = run({"assistant_agent": "V4"})
     diagnostics = result.injection_diagnostics
+    # The consumer searches with its own k, not the kernel's 10.
+    assert diagnostics.top_k_used == {"own": 5, "shared": 0}
     assert diagnostics.threshold_used == 0.5
     assert diagnostics.after_visibility == 2
     assert diagnostics.after_threshold == 0
