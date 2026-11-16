@@ -2,7 +2,7 @@
 
 7 cells, 210 user-trials, 0 failed.
 
-Every table ends with `block_tokens` and `block_rows`: the mean block, in tokens and in rows, of the row's probe type in its cell where the row names one (per locus in the kernel-against-replicated table), else of the cell's probes (its integration probes in the integration readings): a row that splits a cell's probes further (a slot, a carrier, a count of base rows) shows its cell's mean.
+Every table but the criteria ends with `block_tokens` and `block_rows`: the mean block, in tokens and in rows, of a set of the row's cell's probes. In the pass matrix, the row's own probes (a deletion row split by echo, its split's); in the kernel-against-replicated table, the row's probe type, per locus (all probes for `identical blocks`); in the integration table and the integration readings, the cell's integration probes; elsewhere, the row's probe type where the row names one, else all of the cell's probes. A reading's row that splits a cell's probes further (a slot, a carrier, a count of base rows) shows its set's mean, not its own.
 
 ## Per-probe pass matrix
 

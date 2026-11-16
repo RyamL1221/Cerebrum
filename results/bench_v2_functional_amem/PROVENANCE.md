@@ -10,8 +10,12 @@ Result: AIOS `docs/DEV_STATUS.md`, Subtask 17.
 `analysis.md` and `analysis.json` are
 `benchmarks.shared_memory.bench_v2_analysis`'s output on the 14 cells,
 with the functional check's criteria, generated after the run with
-Cerebrum `1d7d99f` (the review's fixes: the block columns' note);
-it reads the same files.
+Cerebrum `1d7d99f` (the review's fixes: the block columns' note) and
+regenerated with `a83cf8e`, whose note says per table which of the
+cell's probes the block columns average (the earlier note was wrong for
+the pass matrix's echo rows and the integration table): only the note
+changed, and `analysis.json` is byte-identical. It reads the same
+files.
 
 - **Code**: every results file records Cerebrum
   `56f05739e0b2934d1f5df8566f82292f83a5527a` and AIOS

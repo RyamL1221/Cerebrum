@@ -19,7 +19,11 @@ generated after the run with Cerebrum `f74b1b9`, which adds the block
 columns, and regenerated with `1d7d99f`, which says what they are (the
 mean of the row's probe type in its cell, else of the cell's probes);
 the A-MEM harness's `derived` column is 0 in every row and no other
-number changed. It reads the same files.
+number changed. Regenerated again with `a83cf8e`, whose note says per
+table which of the cell's probes the block columns average (the earlier
+note was wrong for the pass matrix's echo rows and the integration
+table): only the note changed, and `analysis.json` is byte-identical.
+It reads the same files.
 
 - **Code**: every results file records Cerebrum
   `2b9a776239b708d0c8658bc31c9c09673ba915a3` and AIOS
