@@ -48,9 +48,12 @@ def test_the_across_n_identity_compares_outcomes_and_blocks():
             trial(0), trial(1, {"recency": False}, block="C")],
     }
     (row,) = report.agent_count_rows(cells)
-    assert row["users"] == 2 and row["probes"] == 2 * len(KINDS)
-    assert row["same_outcomes"] == 2 * len(KINDS) - 1
-    assert row["same_blocks"] == len(KINDS)
+    # Outcomes of the judge-free probes only; every probe's block.
+    assert row["users"] == 2
+    assert row["outcomes"] == 2 * len(report.JUDGE_FREE)
+    assert row["same_outcomes"] == 2 * len(report.JUDGE_FREE) - 1
+    assert (row["blocks"], row["same_blocks"]) == (2 * len(KINDS),
+                                                   len(KINDS))
 
 
 def test_the_concurrency_and_fault_tables_count_their_measures():
@@ -182,6 +185,12 @@ def test_the_checks_hold_and_each_fails_when_its_rule_breaks():
     assert not held["every failed trial is a write the backend stored "
                     "nothing for"]
     assert not held["N = 12 runs end to end"]
+    # A backend that made no LLM call is no write that stored nothing.
+    other[("qwen", "replicated", "mem0", "n12h0")] = [kernel_trial(
+        0, failed=True,
+        error="backend_extraction_failed: no backend LLM calls recorded")]
+    assert not checks_of(other)["every failed trial is a write the "
+                                "backend stored nothing for"]
 
 
 def agent_check(cells):

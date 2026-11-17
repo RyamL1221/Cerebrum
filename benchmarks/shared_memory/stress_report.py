@@ -26,7 +26,9 @@ PHASE_BACKEND = {"kinh": "inhouse", "kinh_q": "inhouse",
                  "kmem0": "mem0", "kmem0_q": "mem0"}
 FAULTS = ("wrong_user", "missing_metadata", "flood10", "flood50")
 WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
-EMPTY_WRITE = "backend_extraction_failed"
+# The extraction check's failure for a write that left no row (not its
+# "no backend LLM calls recorded", a failed backend).
+EMPTY_WRITE = "backend_extraction_failed: stored no rows"
 STAGES = ("barrier_wait_ms", "search_ms", "select_ms", "format_ms",
           "schedule_wait_ms", "llm_ms")
 
@@ -175,20 +177,27 @@ def agent_count_rows(cells: Dict[tuple, dict]) -> List[dict]:
         if all(h0.values()):
             users = set.intersection(*(set(_by_user(t)) for t in
                                        h0.values()))
-            same_outcomes = same_blocks = probes = 0
+            outcomes = same_outcomes = blocks = same_blocks = 0
             for user in users:
                 for kind in JUDGE_FREE + ("integration",):
                     found = [_probe(_by_user(h0[n])[user], kind)
                              for n in (3, 6, 12)]
-                    probes += 1
-                    if len({(p or {}).get("passed") for p in found}) == 1:
-                        same_outcomes += 1
+                    # Every probe's block; the outcomes of the
+                    # judge-free probes only (the integration probe is
+                    # unscored without the judge).
+                    blocks += 1
                     if len({_block(p) for p in found}) == 1:
                         same_blocks += 1
+                    if kind in JUDGE_FREE:
+                        outcomes += 1
+                        if len({(p or {}).get("passed")
+                                for p in found}) == 1:
+                            same_outcomes += 1
             rows.append({"model": model, "locus": locus, "backend": backend,
                          "level": "H0 across N", "users": len(users),
-                         "probes": probes, "same_outcomes": same_outcomes,
-                         "same_blocks": same_blocks})
+                         "outcomes": outcomes,
+                         "same_outcomes": same_outcomes,
+                         "blocks": blocks, "same_blocks": same_blocks})
         for n in (3, 6, 12):
             here = cells.get((model, locus, backend, f"n{n}h2"))
             there = cells.get((model, locus, backend, f"n{n}h0"))
@@ -392,12 +401,12 @@ def checks(cells: Dict[tuple, dict]) -> List[dict]:
         if row["level"] != "H0 across N" or row["backend"] != "inhouse":
             continue
         blocks = row["locus"] != "native"
-        holds = row["same_outcomes"] == row["probes"] and (
-            not blocks or row["same_blocks"] == row["probes"])
+        holds = row["same_outcomes"] == row["outcomes"] and (
+            not blocks or row["same_blocks"] == row["blocks"])
         add(f"in-house H = 0, {row['locus']}: the same outcomes at N = 3, "
             "6 and 12" + (", byte-equal blocks" if blocks else ""), holds,
-            f"{row['same_outcomes']}/{row['probes']} outcomes, "
-            f"{row['same_blocks']}/{row['probes']} blocks")
+            f"{row['same_outcomes']}/{row['outcomes']} outcomes, "
+            f"{row['same_blocks']}/{row['blocks']} blocks")
     for (model, locus, backend, condition), trials in sorted(cells.items()):
         if locus != "kernel":
             continue

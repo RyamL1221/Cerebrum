@@ -2,12 +2,13 @@
  "agent_count": [
   {
    "backend": "inhouse",
+   "blocks": 30,
    "level": "H0 across N",
    "locus": "kernel",
    "model": "qwen",
-   "probes": 30,
+   "outcomes": 25,
    "same_blocks": 30,
-   "same_outcomes": 30,
+   "same_outcomes": 25,
    "users": 5
   },
   {
@@ -147,12 +148,13 @@
   },
   {
    "backend": "mem0",
+   "blocks": 30,
    "level": "H0 across N",
    "locus": "kernel",
    "model": "qwen",
-   "probes": 30,
+   "outcomes": 25,
    "same_blocks": 0,
-   "same_outcomes": 29,
+   "same_outcomes": 24,
    "users": 5
   },
   {
@@ -292,12 +294,13 @@
   },
   {
    "backend": "inhouse",
+   "blocks": 30,
    "level": "H0 across N",
    "locus": "native",
    "model": "qwen",
-   "probes": 30,
+   "outcomes": 25,
    "same_blocks": 30,
-   "same_outcomes": 30,
+   "same_outcomes": 25,
    "users": 5
   },
   {
@@ -437,12 +440,13 @@
   },
   {
    "backend": "mem0",
+   "blocks": 18,
    "level": "H0 across N",
    "locus": "native",
    "model": "qwen",
-   "probes": 18,
+   "outcomes": 15,
    "same_blocks": 0,
-   "same_outcomes": 18,
+   "same_outcomes": 15,
    "users": 3
   },
   {
@@ -582,12 +586,13 @@
   },
   {
    "backend": "inhouse",
+   "blocks": 30,
    "level": "H0 across N",
    "locus": "replicated",
    "model": "qwen",
-   "probes": 30,
+   "outcomes": 25,
    "same_blocks": 30,
-   "same_outcomes": 30,
+   "same_outcomes": 25,
    "users": 5
   },
   {
@@ -727,12 +732,13 @@
   },
   {
    "backend": "mem0",
+   "blocks": 24,
    "level": "H0 across N",
    "locus": "replicated",
    "model": "qwen",
-   "probes": 24,
+   "outcomes": 20,
    "same_blocks": 0,
-   "same_outcomes": 21,
+   "same_outcomes": 17,
    "users": 4
   },
   {
@@ -884,17 +890,17 @@
   },
   {
    "check": "in-house H = 0, kernel: the same outcomes at N = 3, 6 and 12, byte-equal blocks",
-   "detail": "30/30 outcomes, 30/30 blocks",
+   "detail": "25/25 outcomes, 30/30 blocks",
    "holds": true
   },
   {
    "check": "in-house H = 0, native: the same outcomes at N = 3, 6 and 12",
-   "detail": "30/30 outcomes, 30/30 blocks",
+   "detail": "25/25 outcomes, 30/30 blocks",
    "holds": true
   },
   {
    "check": "in-house H = 0, replicated: the same outcomes at N = 3, 6 and 12, byte-equal blocks",
-   "detail": "30/30 outcomes, 30/30 blocks",
+   "detail": "25/25 outcomes, 30/30 blocks",
    "holds": true
   },
   {

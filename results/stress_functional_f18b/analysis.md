@@ -6,9 +6,9 @@
 |---|---|---|
 | every failed trial is a write the backend stored nothing for | True | 6 such trials |
 | N = 12 runs end to end | True | 12 cells, 60 trials |
-| in-house H = 0, kernel: the same outcomes at N = 3, 6 and 12, byte-equal blocks | True | 30/30 outcomes, 30/30 blocks |
-| in-house H = 0, native: the same outcomes at N = 3, 6 and 12 | True | 30/30 outcomes, 30/30 blocks |
-| in-house H = 0, replicated: the same outcomes at N = 3, 6 and 12, byte-equal blocks | True | 30/30 outcomes, 30/30 blocks |
+| in-house H = 0, kernel: the same outcomes at N = 3, 6 and 12, byte-equal blocks | True | 25/25 outcomes, 30/30 blocks |
+| in-house H = 0, native: the same outcomes at N = 3, 6 and 12 | True | 25/25 outcomes, 30/30 blocks |
+| in-house H = 0, replicated: the same outcomes at N = 3, 6 and 12, byte-equal blocks | True | 25/25 outcomes, 30/30 blocks |
 | kernel inhouse n6conc: no probe reads a late write the kernel accepted before it, and no barrier wait times out | True | 0 covered late writes, 0 timeouts |
 | kernel inhouse n6flood10: at most max_writes less its write events accepted per flooding turn, and no reference writer's write rejected | True | turns over the bound per user [0, 0, 0, 0, 0] |
 | kernel inhouse n6flood50: at most max_writes less its write events accepted per flooding turn, and no reference writer's write rejected | True | turns over the bound per user [0, 0, 0, 0, 0] |
@@ -97,14 +97,14 @@
 
 ## Agent count: H = 0 across N
 
-| model | locus | backend | level | users | probes | same_outcomes | same_blocks |
-|---|---|---|---|---|---|---|---|
-| qwen | kernel | inhouse | H0 across N | 5 | 30 | 30 | 30 |
-| qwen | kernel | mem0 | H0 across N | 5 | 30 | 29 | 0 |
-| qwen | native | inhouse | H0 across N | 5 | 30 | 30 | 30 |
-| qwen | native | mem0 | H0 across N | 3 | 18 | 18 | 0 |
-| qwen | replicated | inhouse | H0 across N | 5 | 30 | 30 | 30 |
-| qwen | replicated | mem0 | H0 across N | 4 | 24 | 21 | 0 |
+| model | locus | backend | level | users | outcomes | same_outcomes | blocks | same_blocks |
+|---|---|---|---|---|---|---|---|---|
+| qwen | kernel | inhouse | H0 across N | 5 | 25 | 25 | 30 | 30 |
+| qwen | kernel | mem0 | H0 across N | 5 | 25 | 24 | 30 | 0 |
+| qwen | native | inhouse | H0 across N | 5 | 25 | 25 | 30 | 30 |
+| qwen | native | mem0 | H0 across N | 3 | 15 | 15 | 18 | 0 |
+| qwen | replicated | inhouse | H0 across N | 5 | 25 | 25 | 30 | 30 |
+| qwen | replicated | mem0 | H0 across N | 4 | 20 | 17 | 24 | 0 |
 
 ## Agent count: H = 2 against H = 0
 

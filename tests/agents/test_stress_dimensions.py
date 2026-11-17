@@ -855,6 +855,9 @@ def test_an_agent_count_needs_a_v2_dataset():
     for dataset in ("pilot_v1", None, "pilot_agents_n12"):
         with pytest.raises(ValueError, match="--agents 6 needs"):
             stressed(agents=6, judge=False, dataset=dataset)
+    # An agent-count dataset runs only at its own N.
+    with pytest.raises(ValueError, match="written by 6 agents"):
+        stressed(agents=4, judge=False, dataset="pilot_agents_n6")
 
 
 def test_the_stress_levels_run_judge_free_and_uncrossed():

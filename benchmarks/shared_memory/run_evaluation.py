@@ -697,6 +697,13 @@ class EvaluationOrchestrator:
                                f"pilot_agents_n{agents}"):
                 dataset = with_agents(dataset, agents)
         self.dataset = load_dataset(dataset)
+        # An agent-count dataset runs only at the N it was written for
+        # (--agents 4 with agents_n6 would record 4 agents).
+        written_by = ((self.dataset.header or {}).get("agents")
+                      if self.dataset else None)
+        if isinstance(written_by, int) and written_by != agents:
+            raise ValueError(f"{self.dataset.name} is written by "
+                             f"{written_by} agents, not --agents {agents}")
         self.dataset_name = self.dataset.name if self.dataset else RANDOM
         # Benchmark v2 (AIOS docs/BENCHMARK_V2.md): a scripted history
         # per user, then the probes.
