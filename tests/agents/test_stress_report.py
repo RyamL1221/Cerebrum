@@ -65,9 +65,11 @@ def test_the_concurrency_and_fault_tables_count_their_measures():
                 "flood_rows_stored": 4, "quota_rejected": {"quota": 2},
                 "flood_writes_accepted": 3, "flood_sessions_over_bound": 1}
     cells = {
-        ("qwen", "replicated", "inhouse", "n6h0"): [trial(0)],
+        ("qwen", "replicated", "inhouse", "n6h0"): [
+            trial(0, judge_free={"memories_missing": 1})],
         ("qwen", "replicated", "inhouse", "n6conc"): [
-            trial(0, {"recency": False}, stress=stressed)],
+            trial(0, {"recency": False}, stress=stressed,
+                  judge_free={"memories_missing": 3})],
         ("qwen", "replicated", "inhouse", "n6flood10"): [
             trial(0, stress=stressed,
                   judge_free={"profile_facts_in_block": 0.5})],
@@ -77,6 +79,7 @@ def test_the_concurrency_and_fault_tables_count_their_measures():
             conc["timing_misses"], conc["memories_missing_timing"]) \
         == (1, 1, 1, 1)
     assert conc["recency"]["lost"] == 1
+    assert conc["memories_missing"]["mean"] == 2  # paired: 3 - 1
     (flood,) = report.fault_rows(cells)
     assert (flood["misfiled_rows"], flood["flood_rows_stored"],
             flood["flood_rows_in_block_per_probe"]) == (3, 4, 2)
@@ -96,3 +99,130 @@ def test_the_report_reads_a_run_tree(tmp_path):
     assert set(cells) == {("qwen", "kernel", "inhouse", "n6h0"),
                           ("qwen", "native", "inhouse", "n6conc")}
     assert "## Concurrency" in report.markdown(report.report(tmp_path))
+
+
+def test_writes_without_row_are_writes_whose_reply_named_none():
+    """A write whose reply named no row counts; a suppressed one, one
+    the quota turned away, a revoke and a stored write do not."""
+    t = trial(0)
+    t["sessions"] = [{"writer": "w", "events": [
+        {"event_id": "e1", "type": "add", "reported_ids": []},
+        {"event_id": "e2", "type": "update", "reported_ids": [],
+         "suppressed": True},
+        {"event_id": "e3", "type": "add", "reported_ids": [],
+         "quota_rejected": "quota"},
+        {"event_id": "e4", "type": "revoke"},
+        {"event_id": "e5", "type": "add", "reported_ids": ["m"]},
+    ]}]
+    assert report.writes_without_row(t) == ["e1"]
+    cells = {("qwen", "kernel", "mem0", "n6h0"): [t]}
+    (row,) = report.probe_rows(cells)
+    assert row["writes_without_row"] == 1
+
+
+def kernel_trial(index, *, stress=None, failed=False, error=None,
+                 sessions=None, faulty=None):
+    t = trial(index, stress=stress, failed=failed)
+    t["error_message"] = error
+    t["sessions"] = sessions or []
+    t["faulty_agent"] = faulty
+    return t
+
+
+def checks_of(cells):
+    return {row["check"]: row["holds"] for row in report.checks(cells)}
+
+
+def test_the_checks_hold_and_each_fails_when_its_rule_breaks():
+    conc = {"probes": {"p": {"late_covered": []}}, "barrier_timeouts": 0}
+    faulty_sessions = [{"writer": "w", "events": [{}, {}],
+                        "flood": [{}]}]
+    wrong = {"misfiled_rows": 0, "identity_overridden_requests": 3}
+    flood = {"flood_sessions_over_bound": 0,
+             "quota_rejected_by_writer": {"w": 4}}
+    good = {
+        ("qwen", "kernel", "inhouse", "n6conc"): [
+            kernel_trial(0, stress=conc)],
+        ("qwen", "kernel", "inhouse", "n6wrong_user"): [
+            kernel_trial(0, stress=wrong, sessions=faulty_sessions,
+                         faulty="w")],
+        ("qwen", "kernel", "inhouse", "n6flood10"): [
+            kernel_trial(0, stress=flood, faulty="w")],
+        ("qwen", "replicated", "mem0", "n12h0"): [
+            kernel_trial(0, failed=True,
+                         error="backend_extraction_failed: stored no rows")],
+    }
+    held = checks_of(good)
+    assert held and all(held.values())
+
+    def broken(key, **stress):
+        cells = {k: [dict(t, stress=dict(t["stress"], **stress))
+                     for t in v] for k, v in good.items()}
+        return checks_of({**good, key: cells[key]})
+
+    late = {"p": {"late_covered": ["e1"]}}
+    assert not all(broken(("qwen", "kernel", "inhouse", "n6conc"),
+                          probes=late).values())
+    assert not all(broken(("qwen", "kernel", "inhouse", "n6conc"),
+                          barrier_timeouts=1).values())
+    assert not all(broken(("qwen", "kernel", "inhouse", "n6wrong_user"),
+                          misfiled_rows=1).values())
+    assert not all(broken(("qwen", "kernel", "inhouse", "n6wrong_user"),
+                          identity_overridden_requests=2).values())
+    assert not all(broken(("qwen", "kernel", "inhouse", "n6flood10"),
+                          flood_sessions_over_bound=1).values())
+    assert not all(broken(("qwen", "kernel", "inhouse", "n6flood10"),
+                          quota_rejected_by_writer={"x": 1}).values())
+    # A failed trial for any other reason fails the first check, and an
+    # N = 12 one the N = 12 check.
+    other = dict(good)
+    other[("qwen", "replicated", "mem0", "n12h0")] = [
+        kernel_trial(0, failed=True, error="writer_failed: boom")]
+    held = checks_of(other)
+    assert not held["every failed trial is a write the backend stored "
+                    "nothing for"]
+    assert not held["N = 12 runs end to end"]
+
+
+def agent_check(cells):
+    (row,) = [r for r in report.checks(cells)
+              if r["check"].startswith("in-house H = 0")]
+    return row["holds"]
+
+
+def test_the_in_house_agent_count_check_reads_outcomes_and_blocks():
+    cells = {("qwen", "replicated", "inhouse", f"n{n}h0"): [trial(0)]
+             for n in (3, 6, 12)}
+    assert agent_check(cells) is True
+    cells[("qwen", "replicated", "inhouse", "n12h0")] = [trial(0, block="C")]
+    assert agent_check(cells) is False
+    cells[("qwen", "replicated", "inhouse", "n12h0")] = [
+        trial(0, {"recall": False})]
+    assert agent_check(cells) is False
+    # Native blocks need not be byte-equal; its outcomes must agree.
+    native = {("qwen", "native", "inhouse", f"n{n}h0"):
+              [trial(0, block=str(n))] for n in (3, 6, 12)}
+    assert agent_check(native) is True
+    native[("qwen", "native", "inhouse", "n6h0")] = [
+        trial(0, {"recall": False})]
+    assert agent_check(native) is False
+
+
+def test_the_markdown_shows_both_agent_count_tables():
+    cells = {("qwen", "kernel", "inhouse", c): [trial(0)]
+             for c in ("n3h0", "n6h0", "n12h0", "n3h2")}
+    cells[("qwen", "kernel", "inhouse", "n3h2")] = [
+        trial(0, {"recall": False})]
+    text = report.markdown(report.report_cells(cells))
+    assert "## Agent count: H = 0 across N" in text
+    h2 = text.split("## Agent count: H = 2 against H = 0")[1]
+    assert "-1/+0" in h2.split("##")[0]
+    assert "## Checks that must hold" in text
+
+
+def test_a_pass_rate_prints_with_its_wilson_interval():
+    rate = report._rate([True, True, True, False])
+    assert report._fmt(rate) == (
+        f"3/4 [{rate['ci'][0]:.2f}, {rate['ci'][1]:.2f}]")
+    assert 0 < rate["ci"][0] < 0.75 < rate["ci"][1] <= 1
+    assert report._fmt(report._rate([])) == "-"

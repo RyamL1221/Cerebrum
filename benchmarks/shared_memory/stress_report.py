@@ -25,6 +25,8 @@ JUDGE_FREE = ("deletion", "privacy", "recall", "recency", "contradiction")
 PHASE_BACKEND = {"kinh": "inhouse", "kinh_q": "inhouse",
                  "kmem0": "mem0", "kmem0_q": "mem0"}
 FAULTS = ("wrong_user", "missing_metadata", "flood10", "flood50")
+WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
+EMPTY_WRITE = "backend_extraction_failed"
 STAGES = ("barrier_wait_ms", "search_ms", "select_ms", "format_ms",
           "schedule_wait_ms", "llm_ms")
 
@@ -118,6 +120,23 @@ def cross_user_rows(trial: dict) -> int:
     return count
 
 
+def writes_without_row(trial: dict) -> List[str]:
+    """The trial's write events whose reply named no row: neither
+    suppressed (a forgotten value) nor turned away by the write quota.
+    On a backend that extracts, a write it stored nothing for (Mem0:
+    "extracted no facts", known issue 32)."""
+    out = []
+    for record in trial.get("sessions") or []:
+        for event in record.get("events") or []:
+            if (event.get("type") in WRITE_EVENTS
+                    and "reported_ids" in event
+                    and not event.get("reported_ids")
+                    and not event.get("suppressed")
+                    and not event.get("quota_rejected")):
+                out.append(event.get("event_id"))
+    return out
+
+
 def _judge_free(trial: dict, key: str):
     return (trial.get("judge_free") or {}).get(key)
 
@@ -137,6 +156,9 @@ def probe_rows(cells: Dict[tuple, dict]) -> List[dict]:
         for kind in JUDGE_FREE:
             rate = _rate((_probe(t, kind) or {}).get("passed") for t in ok)
             row[kind] = rate
+        # Over every trial, the failed included.
+        row["writes_without_row"] = sum(len(writes_without_row(t))
+                                        for t in trials)
         rows.append(row)
     return rows
 
@@ -221,6 +243,11 @@ def concurrency_rows(cells: Dict[tuple, dict]) -> List[dict]:
             "memories_missing_timing": sum(
                 len(_stress(t).get("memories_missing_timing") or [])
                 for t in trials if not t.get("failed")),
+            # Every missing memory, paired with the same user's
+            # sequential trial; the timing part is the count above.
+            "memories_missing": _paired_mean(
+                trials, reference,
+                lambda t: _judge_free(t, "memories_missing")),
         }
         for kind in JUDGE_FREE:
             row[kind] = paired_outcomes(trials, reference, kind)
@@ -328,9 +355,94 @@ def fault_rows(cells: Dict[tuple, dict]) -> List[dict]:
     return rows
 
 
+def _faulty_requests(trial: dict) -> int:
+    """The requests the faulty writer made: one per event (a write or a
+    forget) and per flood write."""
+    faulty = trial.get("faulty_agent")
+    return sum(len(s.get("events") or []) + len(s.get("flood") or [])
+               for s in trial.get("sessions") or []
+               if s.get("writer") == faulty)
+
+
+def checks(cells: Dict[tuple, dict]) -> List[dict]:
+    """STRESS_DIMENSIONS.md's checks that must hold ("Functional check
+    and smoke"), each with whether it held over the cells that bear on
+    it and what it saw. A check no cell bears on is not reported."""
+    rows: List[dict] = []
+
+    def add(check: str, holds: bool, detail: str) -> None:
+        rows.append({"check": check, "holds": holds, "detail": detail})
+
+    failed = [(key, t) for key, trials in sorted(cells.items())
+              for t in trials if t.get("failed")]
+    other = [f"{key[1]} {key[2]} {key[3]} user {t['trial_index']}"
+             for key, t in failed
+             if not (t.get("error_message") or "").startswith(EMPTY_WRITE)]
+    add("every failed trial is a write the backend stored nothing for",
+        not other, f"{len(failed) - len(other)} such trials"
+        + (f"; other failures: {', '.join(other)}" if other else ""))
+    n12 = [key for key in cells if key[3].startswith("n12")]
+    if n12:
+        add("N = 12 runs end to end", not any(
+            key[3].startswith("n12") for key, t in failed
+            if not (t.get("error_message") or "").startswith(EMPTY_WRITE)),
+            f"{len(n12)} cells, "
+            f"{sum(len(cells[key]) for key in n12)} trials")
+    for row in agent_count_rows(cells):
+        if row["level"] != "H0 across N" or row["backend"] != "inhouse":
+            continue
+        blocks = row["locus"] != "native"
+        holds = row["same_outcomes"] == row["probes"] and (
+            not blocks or row["same_blocks"] == row["probes"])
+        add(f"in-house H = 0, {row['locus']}: the same outcomes at N = 3, "
+            "6 and 12" + (", byte-equal blocks" if blocks else ""), holds,
+            f"{row['same_outcomes']}/{row['probes']} outcomes, "
+            f"{row['same_blocks']}/{row['probes']} blocks")
+    for (model, locus, backend, condition), trials in sorted(cells.items()):
+        if locus != "kernel":
+            continue
+        ok = [t for t in trials if not t.get("failed")]
+        name = f"{backend} {condition}"
+        if condition == "n6conc":
+            covered = sum(len(p.get("late_covered") or [])
+                          for p in _probe_stress(ok))
+            timeouts = sum(_stress(t).get("barrier_timeouts") or 0
+                           for t in ok)
+            add(f"kernel {name}: no probe reads a late write the kernel "
+                "accepted before it, and no barrier wait times out",
+                covered == 0 and timeouts == 0,
+                f"{covered} covered late writes, {timeouts} timeouts")
+        elif condition == "n6wrong_user":
+            misfiled = [_stress(t).get("misfiled_rows") for t in ok]
+            short = [t["trial_index"] for t in ok
+                     if _stress(t).get("identity_overridden_requests")
+                     != _faulty_requests(t)]
+            add(f"kernel {name}: no row misfiled, and every faulty request "
+                "records identity_overridden",
+                all(m == 0 for m in misfiled) and not short,
+                f"misfiled {misfiled}"
+                + (f"; overrides short for users {short}" if short else ""))
+        elif condition in ("n6flood10", "n6flood50"):
+            over = [_stress(t).get("flood_sessions_over_bound") for t in ok]
+            rejected = sorted({w for t in ok for w in (_stress(t).get(
+                "quota_rejected_by_writer") or {})
+                if w != t.get("faulty_agent")})
+            add(f"kernel {name}: at most max_writes less its write events "
+                "accepted per flooding turn, and no reference writer's "
+                "write rejected",
+                all(o == 0 for o in over) and not rejected,
+                f"turns over the bound per user {over}"
+                + (f"; rejected writers {rejected}" if rejected else ""))
+    return rows
+
+
 def report(root: Path) -> Dict[str, Any]:
-    cells = load(root)
-    return {"probes": probe_rows(cells),
+    return report_cells(load(root))
+
+
+def report_cells(cells: Dict[tuple, dict]) -> Dict[str, Any]:
+    return {"checks": checks(cells),
+            "probes": probe_rows(cells),
             "agent_count": agent_count_rows(cells),
             "concurrency": concurrency_rows(cells),
             "load": load_rows(cells),
@@ -345,7 +457,8 @@ def _fmt(value) -> str:
     if isinstance(value, dict) and "rate" in value:
         if value["rate"] is None:
             return "-"
-        return f"{value['k']}/{value['n']}"
+        low, high = value["ci"]  # Wilson, 95%
+        return f"{value['k']}/{value['n']} [{low:.2f}, {high:.2f}]"
     if isinstance(value, dict) and "lost" in value:
         return f"-{value['lost']}/+{value['gained']} (p {value['p']:.2g})"
     if isinstance(value, dict) and "mean" in value:
@@ -372,12 +485,21 @@ def table(rows: List[dict]) -> str:
 
 def markdown(data: Dict[str, Any]) -> str:
     parts = ["# Stress dimensions: judge-free report\n"]
-    for title, key in (("Pass rates per cell", "probes"),
-                       ("Agent count", "agent_count"),
-                       ("Concurrency (n6conc against n6h0)", "concurrency"),
-                       ("Load", "load"),
-                       ("Faults (against n6h0)", "faults")):
-        parts.append(f"\n## {title}\n\n" + table(data[key]))
+    across = [r for r in data["agent_count"]
+              if r["level"] == "H0 across N"]
+    mixed = [r for r in data["agent_count"]
+             if r["level"] != "H0 across N"]
+    # Each table takes its columns from its first row, so rows of
+    # another shape get a table of their own.
+    for title, rows in (("Checks that must hold", data.get("checks", [])),
+                        ("Pass rates per cell", data["probes"]),
+                        ("Agent count: H = 0 across N", across),
+                        ("Agent count: H = 2 against H = 0", mixed),
+                        ("Concurrency (n6conc against n6h0)",
+                         data["concurrency"]),
+                        ("Load", data["load"]),
+                        ("Faults (against n6h0)", data["faults"])):
+        parts.append(f"\n## {title}\n\n" + table(rows))
     return "".join(parts)
 
 
