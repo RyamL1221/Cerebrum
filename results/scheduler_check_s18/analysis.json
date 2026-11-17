@@ -1,0 +1,43 @@
+{
+ "identical_answers": 10,
+ "identical_blocks": 10,
+ "identical_writes": 10,
+ "judged_in_one_pass": {
+  "integration_score": {
+   "identical": 6,
+   "mean_after": 3.1,
+   "mean_before": 2.7
+  },
+  "profile_usage_score": {
+   "identical": 5,
+   "mean_after": 2.9,
+   "mean_before": 2.8
+  },
+  "task_usage_score": {
+   "identical": 10,
+   "mean_after": 5,
+   "mean_before": 5
+  }
+ },
+ "kernel_overhead_ms_median": {
+  "after": 76.54475589515641,
+  "before": 905.8722963673063
+ },
+ "llm_ms_median": {
+  "after": 19691.605104497285,
+  "before": 19284.061874990584
+ },
+ "schedule_wait_ms": {
+  "after": {
+   "max": 3.3791065216064453,
+   "median": 1.0170936584472656,
+   "min": 0.6608963012695312
+  },
+  "before": {
+   "max": 925.0202178955078,
+   "median": 845.1385498046875,
+   "min": 409.3890190124512
+  }
+ },
+ "users": 10
+}

@@ -1,0 +1,6997 @@
+{
+ "agent_count": [
+  {
+   "backend": "inhouse",
+   "level": "H0 across N",
+   "locus": "kernel",
+   "model": "qwen",
+   "probes": 30,
+   "same_blocks": 30,
+   "same_outcomes": 30,
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N3 H2 vs H0",
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.7105780420791171,
+     1.5105780420791173
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   }
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N6 H2 vs H0",
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.23885063368356763,
+     1.8388506336835677
+    ],
+    "mean": 0.8,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   }
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N12 H2 vs H0",
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.815714776982272,
+     2.015714776982272
+    ],
+    "mean": 0.6,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   }
+  },
+  {
+   "backend": "mem0",
+   "level": "H0 across N",
+   "locus": "kernel",
+   "model": "qwen",
+   "probes": 30,
+   "same_blocks": 0,
+   "same_outcomes": 29,
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N3 H2 vs H0",
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.7105780420791171,
+     1.5105780420791173
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   }
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N6 H2 vs H0",
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.23885063368356763,
+     1.8388506336835677
+    ],
+    "mean": 0.8,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 2,
+    "p": 1.0,
+    "same": 2
+   }
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N12 H2 vs H0",
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     0.48942195792088294,
+     2.710578042079117
+    ],
+    "mean": 1.6,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   }
+  },
+  {
+   "backend": "inhouse",
+   "level": "H0 across N",
+   "locus": "native",
+   "model": "qwen",
+   "probes": 30,
+   "same_blocks": 30,
+   "same_outcomes": 30,
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 1,
+    "lost": 3,
+    "p": 0.625,
+    "same": 1
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 2,
+    "lost": 0,
+    "p": 0.5,
+    "same": 3
+   },
+   "level": "N3 H2 vs H0",
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.28942195792088277,
+     2.510578042079117
+    ],
+    "mean": 1.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   }
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 1,
+    "lost": 2,
+    "p": 1.0,
+    "same": 2
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N6 H2 vs H0",
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.5169233116515617,
+     4.283076688348438
+    ],
+    "mean": 2.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   }
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N12 H2 vs H0",
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -0.015714776982272083,
+     2.815714776982272
+    ],
+    "mean": 1.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   }
+  },
+  {
+   "backend": "mem0",
+   "level": "H0 across N",
+   "locus": "native",
+   "model": "qwen",
+   "probes": 18,
+   "same_blocks": 0,
+   "same_outcomes": 18,
+   "users": 3
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "level": "N3 H2 vs H0",
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.16114936631643229,
+     2.2388506336835676
+    ],
+    "mean": 1.2,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   }
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N6 H2 vs H0",
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.4792783862083647,
+     3.5207216137916353
+    ],
+    "mean": 2,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   }
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 3
+   },
+   "level": "N12 H2 vs H0",
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -0.1008842432498207,
+     2.767550909916487
+    ],
+    "mean": 1.3333333333333333,
+    "n": 3
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 3
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 3
+   }
+  },
+  {
+   "backend": "inhouse",
+   "level": "H0 across N",
+   "locus": "replicated",
+   "model": "qwen",
+   "probes": 30,
+   "same_blocks": 30,
+   "same_outcomes": 30,
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N3 H2 vs H0",
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.28942195792088277,
+     2.510578042079117
+    ],
+    "mean": 1.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 3,
+    "p": 0.25,
+    "same": 2
+   }
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N6 H2 vs H0",
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.5169233116515617,
+     4.283076688348438
+    ],
+    "mean": 2.4,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 3,
+    "p": 0.25,
+    "same": 2
+   }
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N12 H2 vs H0",
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.4189317847087033,
+     2.8189317847087034
+    ],
+    "mean": 1.2,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   }
+  },
+  {
+   "backend": "mem0",
+   "level": "H0 across N",
+   "locus": "replicated",
+   "model": "qwen",
+   "probes": 24,
+   "same_blocks": 0,
+   "same_outcomes": 21,
+   "users": 4
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N3 H2 vs H0",
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.16114936631643229,
+     2.2388506336835676
+    ],
+    "mean": 1.2,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 2,
+    "p": 1.0,
+    "same": 2
+   }
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 1,
+    "lost": 2,
+    "p": 1.0,
+    "same": 2
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "level": "N6 H2 vs H0",
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.5810682152912969,
+     3.8189317847087034
+    ],
+    "mean": 2.2,
+    "n": 5
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 3,
+    "p": 0.625,
+    "same": 1
+   }
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 2
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "level": "N12 H2 vs H0",
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.5542602567605206,
+     3.5542602567605206
+    ],
+    "mean": 1.5,
+    "n": 4
+   },
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   }
+  }
+ ],
+ "checks": [
+  {
+   "check": "every failed trial is a write the backend stored nothing for",
+   "detail": "6 such trials",
+   "holds": true
+  },
+  {
+   "check": "N = 12 runs end to end",
+   "detail": "12 cells, 60 trials",
+   "holds": true
+  },
+  {
+   "check": "in-house H = 0, kernel: the same outcomes at N = 3, 6 and 12, byte-equal blocks",
+   "detail": "30/30 outcomes, 30/30 blocks",
+   "holds": true
+  },
+  {
+   "check": "in-house H = 0, native: the same outcomes at N = 3, 6 and 12",
+   "detail": "30/30 outcomes, 30/30 blocks",
+   "holds": true
+  },
+  {
+   "check": "in-house H = 0, replicated: the same outcomes at N = 3, 6 and 12, byte-equal blocks",
+   "detail": "30/30 outcomes, 30/30 blocks",
+   "holds": true
+  },
+  {
+   "check": "kernel inhouse n6conc: no probe reads a late write the kernel accepted before it, and no barrier wait times out",
+   "detail": "0 covered late writes, 0 timeouts",
+   "holds": true
+  },
+  {
+   "check": "kernel inhouse n6flood10: at most max_writes less its write events accepted per flooding turn, and no reference writer's write rejected",
+   "detail": "turns over the bound per user [0, 0, 0, 0, 0]",
+   "holds": true
+  },
+  {
+   "check": "kernel inhouse n6flood50: at most max_writes less its write events accepted per flooding turn, and no reference writer's write rejected",
+   "detail": "turns over the bound per user [0, 0, 0, 0, 0]",
+   "holds": true
+  },
+  {
+   "check": "kernel inhouse n6wrong_user: no row misfiled, and every faulty request records identity_overridden",
+   "detail": "misfiled [0, 0, 0, 0, 0]",
+   "holds": true
+  },
+  {
+   "check": "kernel mem0 n6conc: no probe reads a late write the kernel accepted before it, and no barrier wait times out",
+   "detail": "0 covered late writes, 0 timeouts",
+   "holds": true
+  },
+  {
+   "check": "kernel mem0 n6flood10: at most max_writes less its write events accepted per flooding turn, and no reference writer's write rejected",
+   "detail": "turns over the bound per user [0, 0, 0, 0, 0]",
+   "holds": true
+  },
+  {
+   "check": "kernel mem0 n6flood50: at most max_writes less its write events accepted per flooding turn, and no reference writer's write rejected",
+   "detail": "turns over the bound per user [0, 0, 0, 0, 0]",
+   "holds": true
+  },
+  {
+   "check": "kernel mem0 n6wrong_user: no row misfiled, and every faulty request records identity_overridden",
+   "detail": "misfiled [0, 0, 0, 0, 0]",
+   "holds": true
+  }
+ ],
+ "concurrency": [
+  {
+   "backend": "inhouse",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_max": 127.68791601411067,
+   "barrier_wait_ms_median": 99.35468749608845,
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "late_covered": 0,
+   "late_forgets": 0,
+   "late_rows": 0,
+   "late_writes": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "memories_missing_timing": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "probes": 30,
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "stale_reads": 0,
+   "timing_misses": 0,
+   "uncovered_writes": 0,
+   "with_late_writes": 0,
+   "with_writes_in_flight": 30
+  },
+  {
+   "backend": "mem0",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_max": 3980.971499986481,
+   "barrier_wait_ms_median": 3669.177416493767,
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "deletion": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "late_covered": 0,
+   "late_forgets": 0,
+   "late_rows": 0,
+   "late_writes": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "memories_missing_timing": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "probes": 30,
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 2,
+    "p": 1.0,
+    "same": 2
+   },
+   "stale_reads": 0,
+   "timing_misses": 0,
+   "uncovered_writes": 0,
+   "with_late_writes": 0,
+   "with_writes_in_flight": 30
+  },
+  {
+   "backend": "inhouse",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_max": 0.0,
+   "barrier_wait_ms_median": 0.0,
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "late_covered": 77,
+   "late_forgets": 1,
+   "late_rows": 72,
+   "late_writes": 77,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "memories_missing_timing": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "probes": 30,
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "stale_reads": 0,
+   "timing_misses": 0,
+   "uncovered_writes": 0,
+   "with_late_writes": 30,
+   "with_writes_in_flight": 30
+  },
+  {
+   "backend": "mem0",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_max": 0.0,
+   "barrier_wait_ms_median": 0.0,
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "late_covered": 72,
+   "late_forgets": 0,
+   "late_rows": 60,
+   "late_writes": 72,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -1.045611576320927,
+     0.5456115763209269
+    ],
+    "mean": -0.25,
+    "n": 4
+   },
+   "memories_missing_timing": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "probes": 24,
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "stale_reads": 0,
+   "timing_misses": 0,
+   "uncovered_writes": 0,
+   "with_late_writes": 24,
+   "with_writes_in_flight": 24
+  },
+  {
+   "backend": "inhouse",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_max": 1.0667079768609256,
+   "barrier_wait_ms_median": 0.24316649069078267,
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "late_covered": 90,
+   "late_forgets": 0,
+   "late_rows": 72,
+   "late_writes": 90,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "memories_missing_timing": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "probes": 30,
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "stale_reads": 0,
+   "timing_misses": 0,
+   "uncovered_writes": 0,
+   "with_late_writes": 30,
+   "with_writes_in_flight": 30
+  },
+  {
+   "backend": "mem0",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_max": 0.9102500043809414,
+   "barrier_wait_ms_median": 0.28570799622684717,
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "deletion": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "late_covered": 90,
+   "late_forgets": 1,
+   "late_rows": 72,
+   "late_writes": 90,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "memories_missing_timing": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "probes": 30,
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "stale_reads": 0,
+   "timing_misses": 0,
+   "uncovered_writes": 0,
+   "with_late_writes": 30,
+   "with_writes_in_flight": 30
+  }
+ ],
+ "faults": [
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood10",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 1.3,
+   "flood_rows_stored": 9,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 9,
+   "identity_overridden": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.35528902103955856,
+     0.7552890210395586
+    ],
+    "mean": 0.2,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0.0,
+    "n": 5
+   },
+   "quota_rejected": {
+    "duplicate": 31,
+    "quota": 50
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood50",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 1.3,
+   "flood_rows_stored": 9,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 9,
+   "identity_overridden": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.35528902103955856,
+     0.7552890210395586
+    ],
+    "mean": 0.2,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0.0,
+    "n": 5
+   },
+   "quota_rejected": {
+    "duplicate": 120,
+    "quota": 321
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "missing_metadata",
+   "faulty_agents": {
+    "assistant_agent": 2,
+    "docs_agent": 1,
+    "profile_agent": 1,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.28008738065825556,
+     1.0800873806582556
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.7552890210395586,
+     0.35528902103955856
+    ],
+    "mean": -0.2,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "wrong_user",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 27,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0.0,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood10",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0.7,
+   "flood_rows_stored": 7,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 9,
+   "identity_overridden": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.35528902103955856,
+     0.7552890210395586
+    ],
+    "mean": 0.2,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.05921483683992646,
+     0.12588150350659316
+    ],
+    "mean": 0.03333333333333335,
+    "n": 5
+   },
+   "quota_rejected": {
+    "duplicate": 31,
+    "quota": 50
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood50",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0.8333333333333334,
+   "flood_rows_stored": 7,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 9,
+   "identity_overridden": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.28008738065825556,
+     1.0800873806582556
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.14633150551418045,
+     0.1463315055141805
+    ],
+    "mean": 2.2204460492503132e-17,
+    "n": 5
+   },
+   "quota_rejected": {
+    "duplicate": 120,
+    "quota": 321
+   },
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "missing_metadata",
+   "faulty_agents": {
+    "assistant_agent": 2,
+    "docs_agent": 1,
+    "profile_agent": 1,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     -0.28008738065825556,
+     1.0800873806582556
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.6568940553034164,
+     0.44737024577960693
+    ],
+    "mean": -0.10476190476190475,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "wrong_user",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 27,
+   "locus": "kernel",
+   "memories_missing": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.05921483683992646,
+     0.12588150350659316
+    ],
+    "mean": 0.03333333333333335,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "failed": 0,
+   "fault": "flood10",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 4.7,
+   "flood_rows_stored": 90,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 90,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.16114936631643229,
+     2.2388506336835676
+    ],
+    "mean": 1.2,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.7552890210395586,
+     0.35528902103955856
+    ],
+    "mean": -0.2,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 1,
+    "lost": 2,
+    "p": 1.0,
+    "same": 2
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "failed": 0,
+   "fault": "flood50",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 7.533333333333333,
+   "flood_rows_stored": 450,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 450,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.9199126193417445,
+     2.2800873806582556
+    ],
+    "mean": 1.6,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -1.2145038578794851,
+     0.08117052454615181
+    ],
+    "mean": -0.5666666666666667,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "missing_metadata",
+   "faulty_agents": {
+    "assistant_agent": 2,
+    "docs_agent": 1,
+    "profile_agent": 1,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -0.0800873806582556,
+     1.2800873806582556
+    ],
+    "mean": 0.6,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 2,
+    "p": 0.5,
+    "same": 3
+   },
+   "private_rows_from_others": 2,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.7552890210395586,
+     0.35528902103955856
+    ],
+    "mean": -0.2,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 65,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "failed": 0,
+   "fault": "wrong_user",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.1220109669149172,
+     1.8779890330850828
+    ],
+    "mean": 1,
+    "n": 5
+   },
+   "misfiled_rows": 27,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -1.0800873806582556,
+     0.28008738065825556
+    ],
+    "mean": -0.4,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood10",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 2.3666666666666667,
+   "flood_rows_stored": 31,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 90,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -0.8388506336835677,
+     1.2388506336835676
+    ],
+    "mean": 0.2,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.20386106765178347,
+     0.013384877175593016
+    ],
+    "mean": -0.09523809523809523,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood50",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 4.433333333333334,
+   "flood_rows_stored": 340,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 450,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -0.28008738065825556,
+     1.0800873806582556
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.7127066890132403,
+     0.16984954615609743
+    ],
+    "mean": -0.27142857142857146,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "missing_metadata",
+   "faulty_agents": {
+    "assistant_agent": 2,
+    "docs_agent": 1,
+    "profile_agent": 1,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     -0.23885063368356763,
+     1.8388506336835677
+    ],
+    "mean": 0.8,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 1,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.6693771150723462,
+     0.3265199722152033
+    ],
+    "mean": -0.17142857142857143,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 73,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "wrong_user",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "native",
+   "memories_missing": {
+    "ci": [
+     0.6447109789604414,
+     1.7552890210395584
+    ],
+    "mean": 1.2,
+    "n": 5
+   },
+   "misfiled_rows": 34,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -1.015607496364511,
+     0.33941702017403486
+    ],
+    "mean": -0.3380952380952381,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "failed": 0,
+   "fault": "flood10",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 6.5,
+   "flood_rows_stored": 89,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 90,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.24166399820376405,
+     2.241663998203764
+    ],
+    "mean": 1,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     0.0,
+     0.0
+    ],
+    "mean": 0.0,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "failed": 0,
+   "fault": "flood50",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 9.833333333333334,
+   "flood_rows_stored": 444,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 450,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.16114936631643229,
+     2.2388506336835676
+    ],
+    "mean": 1.2,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.9943588961161461,
+     0.26102556278281275
+    ],
+    "mean": -0.3666666666666667,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "missing_metadata",
+   "faulty_agents": {
+    "assistant_agent": 2,
+    "docs_agent": 1,
+    "profile_agent": 1,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.28008738065825556,
+     1.0800873806582556
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.7552890210395586,
+     0.35528902103955856
+    ],
+    "mean": -0.2,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "inhouse",
+   "contradiction": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 88,
+   "deletion": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "failed": 0,
+   "fault": "wrong_user",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.24471097896044147,
+     1.3552890210395585
+    ],
+    "mean": 0.8,
+    "n": 5
+   },
+   "misfiled_rows": 27,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -1.0800873806582556,
+     0.28008738065825556
+    ],
+    "mean": -0.4,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood10",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 2.5,
+   "flood_rows_stored": 30,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 90,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.5105780420791172,
+     1.710578042079117
+    ],
+    "mean": 0.6,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.26957299235649057,
+     0.08862061140410969
+    ],
+    "mean": -0.09047619047619045,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "flood50",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 5.1,
+   "flood_rows_stored": 153,
+   "flood_sessions_over_bound": 9,
+   "flood_writes_accepted": 450,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.23885063368356763,
+     1.8388506336835677
+    ],
+    "mean": 0.8,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.27656979803047094,
+     0.028950750411423365
+    ],
+    "mean": -0.12380952380952379,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 0,
+    "lost": 1,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "cross_user_rows": 0,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "missing_metadata",
+   "faulty_agents": {
+    "assistant_agent": 2,
+    "docs_agent": 1,
+    "profile_agent": 1,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     -0.28008738065825556,
+     1.0800873806582556
+    ],
+    "mean": 0.4,
+    "n": 5
+   },
+   "misfiled_rows": 0,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -0.6568940553034164,
+     0.44737024577960693
+    ],
+    "mean": -0.10476190476190475,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 0,
+    "p": 1.0,
+    "same": 4
+   },
+   "users": 5
+  },
+  {
+   "backend": "mem0",
+   "contradiction": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "cross_user_rows": 81,
+   "deletion": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "failed": 0,
+   "fault": "wrong_user",
+   "faulty_agents": {
+    "calendar_agent": 1,
+    "docs_agent": 1,
+    "profile_agent": 2,
+    "task_agent": 1
+   },
+   "flood_rows_in_block_per_probe": 0,
+   "flood_rows_stored": 0,
+   "flood_sessions_over_bound": 0,
+   "flood_writes_accepted": 0,
+   "identity_overridden": 0,
+   "locus": "replicated",
+   "memories_missing": {
+    "ci": [
+     0.1220109669149172,
+     1.8779890330850828
+    ],
+    "mean": 1,
+    "n": 5
+   },
+   "misfiled_rows": 32,
+   "model": "qwen",
+   "privacy": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "private_rows_from_others": 0,
+   "profile_facts_in_block": {
+    "ci": [
+     -1.022696878258404,
+     0.2798397354012612
+    ],
+    "mean": -0.3714285714285714,
+    "n": 5
+   },
+   "quota_rejected": {},
+   "recall": {
+    "gained": 0,
+    "lost": 0,
+    "p": 1.0,
+    "same": 5
+   },
+   "recency": {
+    "gained": 1,
+    "lost": 1,
+    "p": 1.0,
+    "same": 3
+   },
+   "users": 5
+  }
+ ],
+ "load": [
+  {
+   "backend": "inhouse",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_median": 0.14972900680731982,
+   "barrier_wait_ms_p95": 0.5217292709858157,
+   "failed": 0,
+   "format_ms_median": 0.16143750690389425,
+   "format_ms_p95": 0.4285312461433932,
+   "latency_p50_s": 8.854154208005639,
+   "latency_p95_s": 30.855197802258772,
+   "llm_ms_median": 8747.157978505129,
+   "llm_ms_p95": 30611.896479742427,
+   "load": 1,
+   "locus": "kernel",
+   "model": "qwen",
+   "ms_per_completion_token": 75.88936135395612,
+   "schedule_wait_ms_median": 1.1250972747802734,
+   "schedule_wait_ms_p95": 9.149312973022461,
+   "search_ms_median": 137.8558960132068,
+   "search_ms_p95": 320.4524272514391,
+   "select_ms_median": 1.4679790037916973,
+   "select_ms_p95": 9.450541008845903,
+   "users": 16,
+   "users_per_minute": 0.7538382132503019
+  },
+  {
+   "backend": "inhouse",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_median": 0.17066650616470724,
+   "barrier_wait_ms_p95": 1.8709582291194238,
+   "failed": 0,
+   "format_ms_median": 0.1252710062544793,
+   "format_ms_p95": 0.2941355196526274,
+   "latency_p50_s": 79.68912393800565,
+   "latency_p95_s": 330.6270293752532,
+   "llm_ms_median": 47235.2365419938,
+   "llm_ms_p95": 210764.92354174843,
+   "load": 16,
+   "locus": "kernel",
+   "model": "qwen",
+   "ms_per_completion_token": 440.53842142264756,
+   "schedule_wait_ms_median": 12232.203960418701,
+   "schedule_wait_ms_p95": 31212.232887744904,
+   "search_ms_median": 344.00858348817565,
+   "search_ms_p95": 564.427645993419,
+   "select_ms_median": 1.2151249829912558,
+   "select_ms_p95": 2.8957922404515557,
+   "users": 16,
+   "users_per_minute": 0.9993000589435451
+  },
+  {
+   "backend": "inhouse",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_median": 0.15193750732578337,
+   "barrier_wait_ms_p95": 1.902323005197104,
+   "failed": 0,
+   "format_ms_median": 0.13883299834560603,
+   "format_ms_p95": 0.34396924456814304,
+   "latency_p50_s": 33.962342916987836,
+   "latency_p95_s": 92.71585693725501,
+   "llm_ms_median": 12558.779375001905,
+   "llm_ms_p95": 54292.42325024825,
+   "load": 4,
+   "locus": "kernel",
+   "model": "qwen",
+   "ms_per_completion_token": 111.91878342640774,
+   "schedule_wait_ms_median": 8818.35651397705,
+   "schedule_wait_ms_p95": 46385.04433631897,
+   "search_ms_median": 136.29564599250443,
+   "search_ms_p95": 242.11502051184652,
+   "select_ms_median": 1.1956669914070517,
+   "select_ms_p95": 3.603989251132589,
+   "users": 16,
+   "users_per_minute": 0.9580367412600603
+  },
+  {
+   "backend": "mem0",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_median": 0.12068750220350921,
+   "barrier_wait_ms_p95": 0.20812500588363037,
+   "failed": 0,
+   "format_ms_median": 0.243041489738971,
+   "format_ms_p95": 0.3780519909923896,
+   "latency_p50_s": 8.614274645515252,
+   "latency_p95_s": 23.75798548925377,
+   "llm_ms_median": 8513.654750015121,
+   "llm_ms_p95": 23632.459490007022,
+   "load": 1,
+   "locus": "kernel",
+   "model": "qwen",
+   "ms_per_completion_token": 54.535887049186606,
+   "schedule_wait_ms_median": 0.8471012115478516,
+   "schedule_wait_ms_p95": 1.4493465423583984,
+   "search_ms_median": 115.20760349230841,
+   "search_ms_p95": 154.6579894857132,
+   "select_ms_median": 1.361207992886193,
+   "select_ms_p95": 2.3680942395003513,
+   "users": 16,
+   "users_per_minute": 0.6620260028574744
+  },
+  {
+   "backend": "mem0",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_median": 0.1691659854259342,
+   "barrier_wait_ms_p95": 1.4153849915601313,
+   "failed": 0,
+   "format_ms_median": 0.25772899971343577,
+   "format_ms_p95": 0.5578854979830794,
+   "latency_p50_s": 145.5289213329961,
+   "latency_p95_s": 348.27863466624694,
+   "llm_ms_median": 49067.99366649648,
+   "llm_ms_p95": 147015.93675000913,
+   "load": 16,
+   "locus": "kernel",
+   "model": "qwen",
+   "ms_per_completion_token": 315.4577244672581,
+   "schedule_wait_ms_median": 58578.5368680954,
+   "schedule_wait_ms_p95": 127070.03051042557,
+   "search_ms_median": 948.5162080090959,
+   "search_ms_p95": 1637.1984894940397,
+   "select_ms_median": 1.4882084942655638,
+   "select_ms_p95": 2.620886007207446,
+   "users": 16,
+   "users_per_minute": 0.6093465554791075
+  },
+  {
+   "backend": "mem0",
+   "barrier_timeouts": 0,
+   "barrier_wait_ms_median": 0.14524949074257165,
+   "barrier_wait_ms_p95": 0.6583125068573281,
+   "failed": 0,
+   "format_ms_median": 0.2583960158517584,
+   "format_ms_p95": 0.5163547612028196,
+   "latency_p50_s": 43.415096833516145,
+   "latency_p95_s": 92.49470480200398,
+   "llm_ms_median": 15151.166666983045,
+   "llm_ms_p95": 46761.18451073853,
+   "load": 4,
+   "locus": "kernel",
+   "model": "qwen",
+   "ms_per_completion_token": 106.63441431153139,
+   "schedule_wait_ms_median": 11526.815414428711,
+   "schedule_wait_ms_p95": 45150.298058986664,
+   "search_ms_median": 290.0412290036911,
+   "search_ms_p95": 538.0516972436453,
+   "select_ms_median": 1.5758750087115914,
+   "select_ms_p95": 3.191666502971202,
+   "users": 16,
+   "users_per_minute": 0.6936595893777255
+  }
+ ],
+ "probes": [
+  {
+   "backend": "inhouse",
+   "condition": "n12h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n12h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n3h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n3h2",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6conc",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6flood10",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6flood50",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6h2",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6load1",
+   "contradiction": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.7167126242970108,
+     0.9888806552353575
+    ],
+    "k": 15,
+    "n": 16,
+    "rate": 0.9375
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "trials": 16,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6load16",
+   "contradiction": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.7167126242970108,
+     0.9888806552353575
+    ],
+    "k": 15,
+    "n": 16,
+    "rate": 0.9375
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "trials": 16,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6load4",
+   "contradiction": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.7167126242970108,
+     0.9888806552353575
+    ],
+    "k": 15,
+    "n": 16,
+    "rate": 0.9375
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "trials": 16,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6missing_metadata",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6wrong_user",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n12h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n12h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n3h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n3h2",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6conc",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6flood10",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6flood50",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6load1",
+   "contradiction": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.4440435583474067,
+     0.8583535614521796
+    ],
+    "k": 11,
+    "n": 16,
+    "rate": 0.6875
+   },
+   "trials": 16,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6load16",
+   "contradiction": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5699111903802587,
+     0.9340840092857186
+    ],
+    "k": 13,
+    "n": 16,
+    "rate": 0.8125
+   },
+   "trials": 16,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6load4",
+   "contradiction": {
+    "ci": [
+     0.7167126242970108,
+     0.9888806552353575
+    ],
+    "k": 15,
+    "n": 16,
+    "rate": 0.9375
+   },
+   "deletion": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.8063923194655636,
+     1.0
+    ],
+    "k": 16,
+    "n": 16,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5050168346449123,
+     0.8981793250878695
+    ],
+    "k": 12,
+    "n": 16,
+    "rate": 0.75
+   },
+   "trials": 16,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6missing_metadata",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6wrong_user",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "kernel",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n12h0",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n12h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n3h0",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n3h2",
+   "contradiction": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6conc",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6flood10",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6flood50",
+   "contradiction": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6h0",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6h2",
+   "contradiction": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6missing_metadata",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6wrong_user",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n12h0",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.5614970317550454
+    ],
+    "k": 0,
+    "n": 3,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.4385029682449546,
+     1.0
+    ],
+    "k": 3,
+    "n": 3,
+    "rate": 1.0
+   },
+   "failed": 2,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.4385029682449546,
+     1.0
+    ],
+    "k": 3,
+    "n": 3,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.5614970317550454
+    ],
+    "k": 0,
+    "n": 3,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.5614970317550454
+    ],
+    "k": 0,
+    "n": 3,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 2
+  },
+  {
+   "backend": "mem0",
+   "condition": "n12h2",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.48989083645459713
+    ],
+    "k": 0,
+    "n": 4,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "failed": 1,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.48989083645459713
+    ],
+    "k": 0,
+    "n": 4,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.48989083645459713
+    ],
+    "k": 0,
+    "n": 4,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 1
+  },
+  {
+   "backend": "mem0",
+   "condition": "n3h0",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n3h2",
+   "contradiction": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6conc",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.48989083645459713
+    ],
+    "k": 0,
+    "n": 4,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "failed": 1,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.48989083645459713
+    ],
+    "k": 0,
+    "n": 4,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.48989083645459713
+    ],
+    "k": 0,
+    "n": 4,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 1
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6flood10",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6flood50",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6h0",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6h2",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6missing_metadata",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6wrong_user",
+   "contradiction": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "native",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "recency": {
+    "ci": [
+     0.0,
+     0.43448246478317465
+    ],
+    "k": 0,
+    "n": 5,
+    "rate": 0.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n12h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n12h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n3h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n3h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6conc",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6flood10",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6flood50",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6missing_metadata",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "inhouse",
+   "condition": "n6wrong_user",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n12h0",
+   "contradiction": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "failed": 1,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3006418425824019,
+     0.9544127391902993
+    ],
+    "k": 3,
+    "n": 4,
+    "rate": 0.75
+   },
+   "trials": 5,
+   "writes_without_row": 1
+  },
+  {
+   "backend": "mem0",
+   "condition": "n12h2",
+   "contradiction": {
+    "ci": [
+     0.15003898915214958,
+     0.8499610108478504
+    ],
+    "k": 2,
+    "n": 4,
+    "rate": 0.5
+   },
+   "deletion": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "failed": 1,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5101091635454028,
+     1.0
+    ],
+    "k": 4,
+    "n": 4,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.3006418425824019,
+     0.9544127391902993
+    ],
+    "k": 3,
+    "n": 4,
+    "rate": 0.75
+   },
+   "recency": {
+    "ci": [
+     0.15003898915214958,
+     0.8499610108478504
+    ],
+    "k": 2,
+    "n": 4,
+    "rate": 0.5
+   },
+   "trials": 5,
+   "writes_without_row": 1
+  },
+  {
+   "backend": "mem0",
+   "condition": "n3h0",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n3h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6conc",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6flood10",
+   "contradiction": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6flood50",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.117620774232648,
+     0.7692757187239869
+    ],
+    "k": 2,
+    "n": 5,
+    "rate": 0.4
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6h0",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6h2",
+   "contradiction": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "recency": {
+    "ci": [
+     0.036224108632430196,
+     0.6244653702374746
+    ],
+    "k": 1,
+    "n": 5,
+    "rate": 0.2
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6missing_metadata",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  },
+  {
+   "backend": "mem0",
+   "condition": "n6wrong_user",
+   "contradiction": {
+    "ci": [
+     0.3755346297625254,
+     0.9637758913675697
+    ],
+    "k": 4,
+    "n": 5,
+    "rate": 0.8
+   },
+   "deletion": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "failed": 0,
+   "locus": "replicated",
+   "model": "qwen",
+   "privacy": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recall": {
+    "ci": [
+     0.5655175352168255,
+     1.0
+    ],
+    "k": 5,
+    "n": 5,
+    "rate": 1.0
+   },
+   "recency": {
+    "ci": [
+     0.23072428127601302,
+     0.882379225767352
+    ],
+    "k": 3,
+    "n": 5,
+    "rate": 0.6
+   },
+   "trials": 5,
+   "writes_without_row": 0
+  }
+ ]
+}
