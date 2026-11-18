@@ -20,7 +20,7 @@ import statistics
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
-from benchmarks.shared_memory.ablation import SWITCHES
+from benchmarks.shared_memory.ablation import SWITCHES, trial_ablation
 from benchmarks.shared_memory.bench_v2_analysis import CELLS
 from benchmarks.shared_memory.probes import t_interval
 from benchmarks.shared_memory.stress_report import (
@@ -139,6 +139,20 @@ def jf(key: str) -> Callable[[dict], Any]:
     return lambda t: _judge_free(t, key)
 
 
+def flood_writes_accepted(t):
+    return _stress(t).get("flood_writes_accepted") or 0
+
+
+def deletion_failed_of(echo: bool) -> Callable[[dict], Optional[int]]:
+    """The deletion outcome of echo users only (``echo``), or of the
+    others: None for a user of the other kind, so it is not paired."""
+    def value(trial):
+        if is_echo_user(trial["trial_index"]) != echo:
+            return None
+        return _failed("deletion")(trial)
+    return value
+
+
 class Measure(NamedTuple):
     condition: str
     name: str
@@ -182,7 +196,10 @@ MEASURES: Dict[str, List[Measure]] = {
     ],
     "forget_scope": [
         Measure("n6h0", "carriers left per user", carriers_left, +1, True),
-        Measure("n6h0", "deletion failed", _failed("deletion"), +1),
+        Measure("n6h0", "deletion failed, echo users",
+                deletion_failed_of(True), +1),
+        Measure("n6h0", "deletion failed, other users",
+                deletion_failed_of(False), 0),
     ],
     "quota": [
         Measure(level, name, value, direction, primary)
@@ -191,8 +208,9 @@ MEASURES: Dict[str, List[Measure]] = {
             ("flood rows in the block per probe", flood_rows_per_probe,
              +1, True),
             ("profile facts in the block",
-             jf("profile_facts_in_block"), -1, False),
+             jf("profile_facts_in_block"), -1, True),
             ("memories_missing", jf("memories_missing"), +1, False),
+            ("flood writes accepted", flood_writes_accepted, +1, False),
         )
     ],
     "block_format": [
@@ -217,6 +235,7 @@ MEASURES: Dict[str, List[Measure]] = {
         Measure("n6v4", "block tokens per probe", block_tokens, -1),
         Measure("n6v4", "profile facts in the block",
                 jf("profile_facts_in_block"), -1),
+        Measure("n6v4", "memories_missing", jf("memories_missing"), +1),
     ],
 }
 
@@ -246,9 +265,10 @@ def paired(ablated: List[dict], full: List[dict], value) -> dict:
 
 def confirmed(row: dict) -> Optional[bool]:
     """A predicted direction confirmed: the interval excludes 0 on its
-    side (a constant difference has no interval and counts by its
-    sign). None for a reported measure or no pairs."""
-    if not row["direction"] or row["diff"] is None:
+    side (a constant difference over two or more users has no interval
+    and counts by its sign). None for a reported measure, or fewer
+    than two pairs, which test nothing."""
+    if not row["direction"] or row["diff"] is None or row.get("n", 0) < 2:
         return None
     ci = row["ci"] or [row["diff"], row["diff"]]
     return bool(ci[0] > 0 if row["direction"] > 0 else ci[1] < 0)
@@ -308,6 +328,33 @@ def _cell(cells, model, backend, switch, condition,
 def _blocks(trials: List[dict]) -> Dict[tuple, Optional[str]]:
     return {(t["trial_index"], p.get("probe_id")): _block(p)
             for t in trials for p in t.get("probe_results") or []}
+
+
+def _per_probe(trials: List[dict], key: str) -> Dict[tuple, Any]:
+    return {(t["trial_index"], p.get("probe_id")):
+            (p.get("diagnostics") or {}).get(key)
+            for t in trials for p in t.get("probe_results") or []}
+
+
+def record_checks(cells: Dict[tuple, List[dict]]) -> List[dict]:
+    """Every trial records the ablation its cell ran (``trial_ablation``):
+    ``{}`` in a full-kernel or replicated cell, its switch in an
+    ablated one; and a cell with no successful trial is reported, not
+    skipped."""
+    out = []
+    for (model, backend, switch, condition, method), trials in sorted(
+            cells.items(), key=lambda kv: tuple(map(str, kv[0]))):
+        want = ({} if switch in (None, "replicated")
+                else {switch: SWITCHES[switch][2]})
+        wrong = [t["trial_index"] for t in trials
+                 if trial_ablation(t) != want]
+        ok = [t for t in trials if not t.get("failed")]
+        out.append({"model": model, "backend": backend,
+                    "switch": switch or "full", "condition": condition,
+                    "method": method, "trials": len(trials),
+                    "succeeded": len(ok), "wrong_record": wrong,
+                    "held": bool(ok) and not wrong})
+    return out
 
 
 def functional_checks(cells: Dict[tuple, List[dict]]) -> List[dict]:
@@ -408,13 +455,13 @@ def functional_checks(cells: Dict[tuple, List[dict]]) -> List[dict]:
                   bound == 0, f"{bound} probes bound")
         abl, full = pair("threshold", "n6h0")
         if abl and full:
-            here, there = _by_user(abl), _by_user(full)
-            over = [u for u in set(here) & set(there)
-                    if (after_threshold(here[u]) or 0)
-                    > (after_threshold(there[u]) or 0)]
+            a = _per_probe(abl, "after_threshold")
+            f = _per_probe(full, "after_threshold")
+            over = sorted(k for k in a if k in f and (a[k] or 0)
+                          > (f[k] or 0))
             check(model, backend, "threshold",
-                  "after_threshold never above the full kernel's",
-                  not over, f"users above: {sorted(over)}")
+                  "after_threshold never above the full kernel's, probe "
+                  "by probe", not over, f"probes above: {over}")
         abl = _cell(cells, model, backend, "consumer_config", "n6v4")
         replicated = _cell(cells, model, backend, "replicated", "n6v4",
                            f"replicated_{backend}")
@@ -464,7 +511,7 @@ def _fmt_diff(row: dict) -> str:
 
 
 def markdown(table: List[dict], outcomes: List[dict],
-             functional: List[dict]) -> str:
+             functional: List[dict], records: List[dict] = ()) -> str:
     lines = ["# Kernel ablations (AIOS docs/ABLATION.md)", "",
              "Paired by trial index: ablated minus the full kernel, with "
              "a 95% t interval. Direction: + the ablation should raise the "
@@ -493,6 +540,15 @@ def markdown(table: List[dict], outcomes: List[dict],
         for r in functional:
             lines.append(f"| {r['switch']} | {r['rule']} | {r['held']} | "
                          f"{r['seen']} |")
+    if records:
+        lines += ["", "## Cells", "",
+                  "Each trial's recorded ablation is its cell's.", "",
+                  "| switch | condition | method | trials | succeeded | "
+                  "wrong record | held |", "|---|---|---|---|---|---|---|"]
+        for r in records:
+            lines.append(f"| {r['switch']} | {r['condition']} | "
+                         f"{r['method']} | {r['trials']} | {r['succeeded']}"
+                         f" | {r['wrong_record'] or '-'} | {r['held']} |")
     return "\n".join(lines) + "\n"
 
 
@@ -507,10 +563,12 @@ def main(argv=None) -> None:
     table = rows(cells)
     outcomes = outcome_rows(cells)
     functional = functional_checks(cells)
+    records = record_checks(cells)
     report = {"rows": table, "outcomes": outcomes,
               "functional_checks": functional,
-              "smoke_checks": smoke_checks(table)}
-    text = markdown(table, outcomes, functional)
+              "smoke_checks": smoke_checks(table),
+              "record_checks": records}
+    text = markdown(table, outcomes, functional, records)
     if args.md:
         args.md.write_text(text)
     else:

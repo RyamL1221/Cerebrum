@@ -29,6 +29,10 @@ from cerebrum.config.config_manager import config
 # stored nothing found no fact, and is a lost memory too. Before it, a
 # Mem0 empty write failed the trial (Subtask 10).
 EMPTY_WRITE_IS_LOSS = frozenset({"graphiti", "amem", "mem0"})
+# v1 keeps Mem0's old rule: a v1 kernel writer reads a create the kernel
+# refused (a ProviderError, a swallowed failure since Amendment 9) as one
+# that stored nothing, so a v1 empty write cannot tell the two apart.
+EMPTY_WRITE_IS_LOSS_V1 = frozenset({"graphiti", "amem"})
 
 
 def _error_text(value: Any) -> Optional[str]:

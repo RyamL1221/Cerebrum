@@ -414,7 +414,10 @@ def library_criteria(cells: Dict[tuple, dict]) -> List[dict]:
     for _, trial in _trials(cells, h0_like):
         if trial.get("failed"):
             continue
+        # A forget under an ablated scope (no_delete, writer_scoped since
+        # Subtask 19) records no tombstone, so it arms no guard.
         forgot = any(event.get("revoke_path") == "forget"
+                     and not (event.get("forget") or {}).get("forget_scope")
                      for event in _events(trial, "revoke"))
         for probe in trial.get("probe_results") or []:
             probes += 1
@@ -897,7 +900,7 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
                "alias": 0, "entity": 0, "derived": 0, "other_agents": 0,
                "same_writer": 0,
                "no_values": 0, "messages": 0, "history": 0, "swept": 0,
-               "suppressed": 0}
+               "suppressed": 0, "scoped": 0}
         for trial in cell["trials"]:
             if trial.get("failed"):
                 continue
@@ -905,6 +908,11 @@ def forget_rows(cells: Dict[tuple, dict]) -> List[dict]:
                 row["revokes"] += 1
                 report = event.get("forget")
                 if event.get("revoke_path") != "forget" or not report:
+                    continue
+                if report.get("forget_scope"):
+                    # The kernel's forget under an ablated scope (no_delete,
+                    # writer_scoped since Subtask 19): counted apart.
+                    row["scoped"] += 1
                     continue
                 row["forget"] += 1
                 for entry in report.get("deleted") or []:
@@ -1049,12 +1057,15 @@ READING_SECTIONS = [
      "facts, as a Mem0 fold is), forgets that found no value, the "
      "history scrub (Mem0: `messages` deleted, `history` records "
      "cleared; A-MEM: `history` counts the carrier notes it deleted, as "
-     "`derived` does), and "
-     "rows later writes `swept` and writes `suppressed`.",
+     "`derived` does), "
+     "rows later writes `swept` and writes `suppressed`, and `scoped`: "
+     "revokes through a forget the kernel ran under an ablated scope "
+     "(no_delete, writer_scoped since Subtask 19; counted in no other "
+     "column).",
      ["revokes", "forget", "deleted", "fact_key", "value", "alias",
       "entity", "derived", "other_agents", "same_writer", "no_values",
       "messages",
-      "history", "swept", "suppressed"]),
+      "history", "swept", "suppressed", "scoped"]),
     ("supersession", "Supersession (Amendment 4)",
      "`retired`: rows writes marked retired; `earlier_rows`: the "
      "earlier statements' rows after the history (from the dataset) and "

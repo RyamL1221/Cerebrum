@@ -54,14 +54,14 @@ _collector = _Collector(level=logging.WARNING)
 
 
 def _install() -> None:
-    """Attach the collector once, and let Mem0's logger emit its
-    warnings (an embedding failure is one) if it was set higher."""
+    """Attach the collector once. It sees what Mem0's logger emits: a
+    logger set above WARNING would hide an embedding failure (nothing in
+    AIOS or Cerebrum sets it), and the collector leaves its level as it
+    is."""
     logger = logging.getLogger(MEM0_LOGGER)
     with _lock:
         if _collector not in logger.handlers:
             logger.addHandler(_collector)
-        if not logger.isEnabledFor(logging.WARNING):
-            logger.setLevel(logging.WARNING)
 
 
 @contextlib.contextmanager

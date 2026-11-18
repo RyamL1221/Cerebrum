@@ -841,6 +841,11 @@ def run_v2_session(
                         "scrubbed", "listed", "not_found",
                     )
                 }
+                # A forget the kernel ran under an ablated scope (Subtask
+                # 19, AIOS docs/ABLATION.md) says so: it recorded no
+                # tombstone. The full kernel's report has no such key.
+                if report.get("forget_scope"):
+                    record["forget"]["forget_scope"] = report["forget_scope"]
                 record["found_ids"] = [
                     entry["memory_id"] for entry in report["deleted"]
                     if entry.get("reason") == "fact_key"

@@ -78,6 +78,7 @@ def test_a_row_is_the_paired_difference_with_its_interval(tmp_path):
     ([2, 3, 2, 3, 2, 3], +1, True), ([1, 2, 3], +1, False),
     ([-1, 0, 1], +1, False), ([-3, -2, -4, -3, -2, -4], -1, True),
     ([2, 2, 2], +1, True), ([0, 0, 0], +1, False), ([1, 2], 0, None),
+    ([5], +1, None),  # one pair tests nothing
 ])
 def test_a_prediction_is_confirmed_when_its_interval_excludes_0(
         diffs, direction, want):
@@ -87,7 +88,7 @@ def test_a_prediction_is_confirmed_when_its_interval_excludes_0(
 
     low, high = t_interval(diffs)
     row = {"direction": direction, "diff": statistics.mean(diffs),
-           "ci": None if low is None else [low, high]}
+           "ci": None if low is None else [low, high], "n": len(diffs)}
     assert report.confirmed(row) is want
 
 
@@ -200,3 +201,61 @@ def test_the_figure_draws_one_bar_per_primary_row_on_its_own_axis():
     assert "+18.00 [+12.00, +24.00]" in svg and "-0.50 [-0.70, -0.30]" in svg
     assert "memories_missing" not in svg       # not a primary row
     assert "prefers-color-scheme: dark" in svg
+
+
+def test_the_threshold_rule_compares_probe_by_probe(tmp_path):
+    """A probe whose ablated candidates exceed the full kernel's fails
+    the rule even when the user's mean does not."""
+    write(tmp_path, "kinh", "n6h0", [trial(0, probes=[
+        probe("recall", after=4), probe("recency", after=9)])])
+    write(tmp_path, "kinh_threshold", "n6h0", [trial(0, probes=[
+        probe("recall", after=5), probe("recency", after=1)])])
+    (check,) = report.functional_checks(report.load(tmp_path))
+    assert check["held"] is False and "(0, 'recall')" in check["seen"]
+
+
+def test_each_trial_must_record_its_cells_ablation(tmp_path):
+    """``trial_ablation``: the ablated cell's trials record its switch,
+    the full kernel's ``{}``, an older trial its control's alias; a
+    wrong record, or a cell with no successful trial, is reported."""
+    write(tmp_path, "kinh", "n6h0", [trial(0, ablation={}),
+                                     trial(1, control="writer_scoped")])
+    write(tmp_path, "kinh_forget_scope", "n6h0", [
+        trial(0, ablation={"forget_scope": "writer"}),
+        trial(1, control="writer_scoped")])
+    write(tmp_path, "kinh_barrier", "n6conc",
+          [dict(trial(0, ablation={"barrier": "off"}), failed=True)])
+    held = {(r["switch"], r["condition"]): (r["held"], r["wrong_record"])
+            for r in report.record_checks(report.load(tmp_path))}
+    assert held == {("full", "n6h0"): (False, [1]),
+                    ("forget_scope", "n6h0"): (True, []),
+                    ("barrier", "n6conc"): (False, [])}
+
+
+def test_the_quota_smoke_checks_flood_rows_and_profile_facts(tmp_path):
+    for phase, flood, facts in (("kinh", 1, 0.9), ("kinh_quota", 6, 0.4)):
+        for level in ("n6flood10", "n6flood50"):
+            write(tmp_path, phase, level, [
+                trial(i, stress={"probes": {"p": {
+                    "flood_rows_in_block": flood + i}}},
+                    judge_free={"profile_facts_in_block": facts - i / 10})
+                for i in range(3)])
+    checks = report.smoke_checks(report.rows(report.load(tmp_path)))
+    assert sorted((c["condition"], c["measure"]) for c in checks) == [
+        ("n6flood10", "flood rows in the block per probe"),
+        ("n6flood10", "profile facts in the block"),
+        ("n6flood50", "flood rows in the block per probe"),
+        ("n6flood50", "profile facts in the block")]
+    assert all(c["held"] for c in checks)
+
+
+def test_the_deletion_outcome_is_split_by_echo_user(tmp_path):
+    write(tmp_path, "kinh", "n6h0", [trial(i) for i in range(5)])
+    write(tmp_path, "kinh_forget_scope", "n6h0", [
+        trial(i, probes=[probe("deletion", passed=i not in (0, 4))])
+        for i in range(5)])
+    rows = {r["measure"]: r for r in report.rows(report.load(tmp_path))}
+    echo = rows["deletion failed, echo users"]
+    other = rows["deletion failed, other users"]
+    assert (echo["n"], echo["full"], echo["ablated"]) == (2, 0.0, 1.0)
+    assert (other["n"], other["ablated"]) == (3, 0.0)

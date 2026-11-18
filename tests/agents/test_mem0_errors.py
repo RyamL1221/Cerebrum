@@ -64,10 +64,13 @@ def quiet_mem0():
     LOGGER.setLevel(level)
 
 
-def test_a_warning_is_collected_when_mem0_logs_only_errors(quiet_mem0):
-    """An embedding failure is a WARNING: a logger set to ERROR would
-    not emit it, so the collector lets it through."""
+def test_the_collector_leaves_mem0s_logger_level_alone(quiet_mem0):
+    """The collector changes no process-wide logging: a logger set to
+    ERROR stays at ERROR, and then hides an embedding failure (a
+    WARNING) from the collector too; its errors are still collected."""
     with swallowed_errors() as errors:
         LOGGER.warning("Failed to embed memory text: down")
-    assert errors == ["Failed to embed memory text: down"]
+        LOGGER.error("LLM extraction failed: refused")
+    assert LOGGER.level == logging.ERROR
+    assert errors == ["LLM extraction failed: refused"]
     assert mem0_errors._collector in LOGGER.handlers

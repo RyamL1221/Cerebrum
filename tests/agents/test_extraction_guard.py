@@ -70,13 +70,12 @@ def test_stored_rows_and_calls_pass():
     ) is None
 
 
-@pytest.mark.parametrize("backend", ["graphiti", "amem", "mem0"])
+@pytest.mark.parametrize("backend", ["graphiti", "amem"])
 def test_a_writer_that_stored_no_row_is_a_loss(backend):
     """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
     so its empty write found no fact; it is recorded, not a failure.
-    A-MEM since Amendment 8; Mem0 since Amendment 9, whose writes now
-    raise when Mem0 swallowed a failure. A backend the harness does not
-    know still fails the trial."""
+    A-MEM since Amendment 8. A backend the harness does not know still
+    fails the trial."""
     stored = {"profile_agent": 0, "task_agent": 1}
     assert extraction_failure(True, stored, CALLED, backend) is None
     assert writes_without_fact(True, stored, backend) == ["profile_agent"]
@@ -84,6 +83,18 @@ def test_a_writer_that_stored_no_row_is_a_loss(backend):
     assert extraction_failure(True, stored, CALLED, None) == (
         "backend_extraction_failed: stored no rows: profile_agent")
     assert writes_without_fact(True, stored, None) == []
+
+
+def test_a_v1_mem0_writer_that_stored_no_row_still_fails():
+    """Amendment 9 is v2's: a v1 kernel writer reads a create the kernel
+    refused (a swallowed Mem0 failure raises in the provider) as one
+    that stored nothing, so in v1 a Mem0 empty write still fails the
+    trial, as before it."""
+    stored = {"profile_agent": 0, "task_agent": 1}
+    assert extraction_failure(True, stored, CALLED, "mem0") == (
+        "backend_extraction_failed: stored no rows: profile_agent")
+    assert writes_without_fact(True, stored, "mem0") == []
+    assert "mem0" in models.EMPTY_WRITE_IS_LOSS
 
 
 def test_a_graphiti_trial_with_no_backend_call_still_fails():

@@ -41,7 +41,7 @@ from cerebrum.example.agents.variants import apply_variant
 from benchmarks.shared_memory import judge_free
 from cerebrum.utils import usage
 from benchmarks.shared_memory.models import (
-    EMPTY_WRITE_IS_LOSS,
+    EMPTY_WRITE_IS_LOSS_V1,
     InjectedMemoryEntry,
     InjectionDiagnostics,
     JudgeFreeMeasures,
@@ -232,9 +232,9 @@ def writes_without_fact(
     memory_backend: Optional[str],
 ) -> List[str]:
     """The writers whose write stored no row on a backend whose empty
-    write is a lost memory (``EMPTY_WRITE_IS_LOSS``, Amendment 5), else
+    write is a lost memory (``EMPTY_WRITE_IS_LOSS_V1``, Amendment 5), else
     []."""
-    if memory_backend not in EMPTY_WRITE_IS_LOSS:
+    if memory_backend not in EMPTY_WRITE_IS_LOSS_V1:
         return []
     return _empty_writers(backend_extraction, writer_stored_rows)
 
@@ -253,15 +253,16 @@ def extraction_failure(
     on with an empty store. Two signs give it away: a writer whose write
     stored no row, and a trial with no backend LLM call at all. Each
     trial's user is new, so every writer creates and Mem0 extracts. On a
-    backend in ``EMPTY_WRITE_IS_LOSS`` (Graphiti, Amendment 5; A-MEM;
-    Mem0 since Amendment 9, whose writes now raise on a failure Mem0
-    swallowed) an empty write is a lost memory (``writes_without_fact``),
-    not a failure; no backend LLM call still is.
+    backend in ``EMPTY_WRITE_IS_LOSS_V1`` (Graphiti, Amendment 5;
+    A-MEM) an empty write is a lost memory (``writes_without_fact``),
+    not a failure; no backend LLM call still is. Mem0 keeps this rule in
+    v1 (Amendment 9 is v2's): a v1 kernel writer reads a create the
+    kernel refused as one that stored nothing.
     """
     if backend_extraction is not True:
         return None
     empty = _empty_writers(backend_extraction, writer_stored_rows)
-    if empty and memory_backend not in EMPTY_WRITE_IS_LOSS:
+    if empty and memory_backend not in EMPTY_WRITE_IS_LOSS_V1:
         return ("backend_extraction_failed: stored no rows: "
                 + ", ".join(empty))
     if backend_llm_tokens is not None and backend_llm_tokens.calls == 0:

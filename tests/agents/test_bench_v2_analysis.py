@@ -891,7 +891,7 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
         ("forgets", "Revokes and the forget (Amendment 4)",
          ["revokes", "forget", "deleted", "fact_key", "value", "alias",
           "entity", "derived", "other_agents", "same_writer", "no_values",
-          "messages", "history", "swept", "suppressed"]),
+          "messages", "history", "swept", "suppressed", "scoped"]),
         ("supersession", "Supersession (Amendment 4)",
          ["retired", "earlier_rows", "marked", "probes", "retired_in_block",
           "excluded"]),
@@ -1281,6 +1281,34 @@ def test_the_guard_must_be_armed_and_drop_nothing(tmp_path, change):
     checks = library_checks(cells)
     assert checks["guard"]["holds"] is False
     assert all(c["holds"] for name, c in checks.items() if name != "guard")
+
+
+@pytest.mark.parametrize("control, scope", [
+    ("writer_scoped", "writer"), ("no_delete", "none")])
+def test_a_scoped_forget_arms_no_guard_and_is_counted_apart(
+        tmp_path, control, scope):
+    """Since Subtask 19 a control's writers revoke through the kernel's
+    forget, which runs under the ablated scope and records no
+    tombstone: its record names the scope, the guard criterion asks no
+    armed guard after it, and the forget table counts it as ``scoped``,
+    in no other column. Without the scope recorded the same probes
+    would read as unarmed after a forget."""
+    cells = library_cells(tmp_path)
+    trial = cells[("qwen", "kernel", "inhouse", control)]["trials"][0]
+    revoke = revoke_of(trial)
+    revoke["revoke_path"] = "forget"
+    revoke["forget"] = {"deleted": [], "values_count": 0,
+                        "forms_count": 0, "scrubbed": {}, "listed": 3,
+                        "not_found": [], "forget_scope": scope}
+    for p in trial["probe_results"]:
+        p["diagnostics"]["tombstoned_forms"] = 0
+    assert library_checks(cells)["guard"]["holds"] is True
+    row = next(r for r in ba.forget_rows(cells)
+               if (r["locus"], r["backend"], r["condition"])
+               == ("kernel", "inhouse", control))
+    assert (row["scoped"], row["forget"], row["no_values"]) == (1, 0, 0)
+    del revoke["forget"]["forget_scope"]
+    assert library_checks(cells)["guard"]["holds"] is False
 
 
 def test_a_guard_stage_that_kept_no_row_reported_it(tmp_path):

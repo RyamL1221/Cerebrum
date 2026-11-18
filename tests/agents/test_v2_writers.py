@@ -566,6 +566,20 @@ def test_a_revoke_goes_through_the_users_forget(shape):
     assert not result["writer_failed"]
 
 
+@pytest.mark.parametrize("scope", ["writer", "none"])
+def test_a_scoped_forget_records_its_scope(scope):
+    """A forget the kernel ran under an ablated scope (Subtask 19, AIOS
+    docs/ABLATION.md) records it, since it recorded no tombstone; the
+    full kernel's report has no scope, and its record none (above)."""
+    report = dict(FORGET_REPORT, forget_scope=scope)
+    forget = Forget({"response": {"success": True, "metadata": report}})
+    result = run(Writer(), [event("e9", "revoke", "pet")],
+                 Locus(rows=sibling_rows()), forget=forget)
+    [record] = result["events"]
+    assert record["forget"] == dict(
+        {key: FORGET_REPORT[key] for key in RECORDED}, forget_scope=scope)
+
+
 def test_a_forget_that_left_a_listed_row_fails_the_writer():
     """A forget whose report lists a row it listed but did not delete
     (``not_found``) fails the writer: the revoke is recorded with its
