@@ -1198,7 +1198,10 @@ def _empty_writes(user: V2UserData,
         listing = after.get(f"session {event['session']}")
         if listing is None:
             continue
-        rows = _writer_rows(listing, event["writer"])
+        # A flood copy carries its source event's provenance_event but
+        # is no row of it (STRESS_DIMENSIONS.md, "flood10, flood50").
+        rows = [r for r in _writer_rows(listing, event["writer"])
+                if (r.get("metadata") or {}).get("flood") is None]
         if any((r.get("metadata") or {}).get("provenance_event")
                == event["event_id"] for r in rows):
             continue

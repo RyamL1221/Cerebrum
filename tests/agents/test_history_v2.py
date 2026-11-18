@@ -632,6 +632,25 @@ def drop_rows_of(user, outcome, session_index, named=False):
     return event
 
 
+def test_a_flood_copy_does_not_excuse_a_write_that_stored_nothing():
+    """STRESS_DIMENSIONS.md 461-466: a flood near-duplicate carries its
+    source event's ``provenance_event``, as a retried write would, and
+    ``metadata.flood``, by which the harness keeps it out of its source
+    event's stored rows. So a Mem0 write that stored nothing still fails
+    the extraction check when its flood copy stored a row (as
+    ``_listed_rows`` already counts no row for it)."""
+    user, outcome = run(FakeLocus())
+    event = drop_rows_of(user, outcome, 2)
+    writer = user.sessions[2]["writer"]
+    outcome.listings[2]["rows"][writer].append({
+        "memory_id": "flood-1", "content": event["utterance"].upper(),
+        "metadata": {"provenance_event": event["event_id"], "flood": 1,
+                     "user_id": USER_ID, "owner_agent": writer}})
+    outcome.memory_backend = "mem0"
+    failure = history.extraction_failure(user, outcome, True)
+    assert failure is not None and event["event_id"] in failure
+
+
 def test_a_graphiti_write_with_no_fact_is_a_loss_not_a_failure():
     """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
     so a Graphiti write whose reply named no fact and that left no row
