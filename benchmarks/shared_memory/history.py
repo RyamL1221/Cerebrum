@@ -17,7 +17,13 @@ and the listing calls of one condition:
 
 The negative controls (``no_memory``, ``no_delete``, ``no_visibility``,
 ``writer_scoped``, ``no_supersession``) switch one property off so a
-probe shows it can fail.
+probe shows it can fail. Since Subtask 19 all but ``no_memory`` are
+kernel ablation switches (AIOS docs/ABLATION.md; ``ablation.ALIASES``),
+like every other switch: the kernel, or the library a replicated agent
+copies its settings into, removes the component, so the kernel and
+replicated writers revoke through the user's forget under every
+control. Native agents keep their own switches: the consumer's
+visibility check and the writers' delete.
 
 Since Amendment 2, any failure (a ``LocusFailure`` or any exception)
 fails the user and keeps what ran. A probe whose diagnostics report a
@@ -64,9 +70,9 @@ LIST_LIMIT = 10_000
 CONTROLS = ("no_memory", "no_delete", "no_visibility", "writer_scoped",
             "no_supersession")
 # Controls of the library's deletion and supersession (Amendment 4):
-# kernel and replicated only. writer_scoped makes the writers revoke by
-# their own list and delete; no_supersession needs the kernel's
-# memory.supersession off, which the replicated agents copy.
+# kernel and replicated only. Since Subtask 19 both are ablation
+# switches of the library (forget_scope: writer, supersession: off),
+# which the replicated agents copy from the kernel's settings.
 LIBRARY_CONTROLS = ("writer_scoped", "no_supersession")
 WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
 # The events that state a fact's value (a base event states none).
@@ -83,10 +89,24 @@ BLOCK_ERRORS = (("retrieval_error", "retrieval failed"),
 
 
 def forget_scope(control: Optional[str]) -> str:
-    """A writer's ``forget_scope`` under ``control``: ``"writer"`` (its
-    own list and delete) under ``writer_scoped``, else ``"user"`` (the
-    user's forget, where the locus has one; Amendment 4)."""
-    return "writer" if control == "writer_scoped" else "user"
+    """A kernel or replicated writer's ``forget_scope`` under
+    ``control``: ``"user"`` (the user's forget; Amendment 4) under every
+    control since Subtask 19, when ``writer_scoped`` became the library's
+    switch ``forget_scope: writer`` (AIOS docs/ABLATION.md). Before, it
+    was ``"writer"`` under ``writer_scoped`` (the writer's own list and
+    delete)."""
+    return "user"
+
+
+def ablation_for(control: Optional[str],
+                 ablation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The run's ablation: ``ablation`` when given, else ``control``'s
+    alias ({} for none)."""
+    from benchmarks.shared_memory.ablation import ALIASES
+
+    if ablation is not None:
+        return dict(ablation)
+    return dict(ALIASES.get(control, {}))
 
 
 def provenance(agent_name: str, user_id: str) -> Dict[str, str]:
@@ -303,10 +323,12 @@ class KernelLocus:
         return _audit_rows(body.get("rows") or [])
 
     def start_user(self, user_id: str, control: Optional[str],
-                   writers: Tuple[str, ...] = WRITERS) -> None:
-        if control == "no_visibility":
-            raise ValueError("no_visibility applies to the native locus only:"
-                             " the kernel enforces visibility itself")
+                   writers: Tuple[str, ...] = WRITERS,
+                   ablation: Optional[Dict[str, Any]] = None) -> None:
+        """The user's writers. Every ablation switch, the old controls
+        included, is the kernel's (its ``memory.ablate``, which the
+        pre-flight checked): the writers revoke through the user's
+        forget whatever it is."""
         from cerebrum.example.agents.calendar_agent.agent import (
             CalendarAgent,
         )
@@ -325,7 +347,7 @@ class KernelLocus:
             agent.user_id = user_id
             agent.llms = self.assistant_llms
             agent.extra_metadata = provenance(name, user_id)
-            agent.delete_on_revoke = control != "no_delete"
+            agent.delete_on_revoke = True
             agent.forget_scope = forget_scope(control)
             self._writers[name] = agent
 
@@ -391,29 +413,42 @@ class AgentManagedLocus:
         self._saved_visibility = None
 
     def start_user(self, user_id: str, control: Optional[str],
-                   writers: Tuple[str, ...] = WRITERS) -> None:
+                   writers: Tuple[str, ...] = WRITERS,
+                   ablation: Optional[Dict[str, Any]] = None) -> None:
+        """The agents, re-pointed at the user. A replicated agent's
+        ablation switches are its library's, copied from the kernel's
+        settings with the rest; a native agent's are its own code's:
+        under ``forget_scope: none`` (``no_delete``) the writers delete
+        nothing, and under ``visibility: off`` (``no_visibility``) the
+        consumer checks no visibility. A switch the locus has no
+        counterpart for (``ablation.locus_problems``) is refused before
+        anything runs."""
+        from benchmarks.shared_memory.ablation import locus_problems
+
         missing = [name for name in writers if name not in self.agents]
         if missing:
             raise ValueError(f"no agents for writers {missing}")
-        if control in LIBRARY_CONTROLS and self.locus == "native":
+        ablation = ablation_for(control, ablation)
+        problems = locus_problems(ablation, self.locus)
+        if problems:
             raise ValueError(
-                f"{control} applies to the kernel and replicated loci "
-                "only: native revokes by its owner and retires nothing")
+                f"{control or 'the ablation'}: " + "; ".join(problems)
+                + (" (native revokes by its owner and retires nothing)"
+                   if self.locus == "native" else ""))
+        native = self.locus == "native"
         for name, agent in self.agents.items():
             agent.user_id = user_id
             agent.llms = self.assistant_llms
             agent.extra_metadata = provenance(name, user_id)
             if name != CONSUMER:
                 agent.share_memory = True
-                agent.delete_on_revoke = control != "no_delete"
+                agent.delete_on_revoke = not (
+                    native and ablation.get("forget_scope") == "none")
                 agent.forget_scope = forget_scope(control)
         consumer = self.agents[CONSUMER]
         consumer.session, consumer.probe_id = None, None
         consumer.store_conversation = True
-        if control == "no_visibility":
-            if self.locus != "native":
-                raise ValueError("no_visibility applies to the native locus"
-                                 " only: the library enforces visibility")
+        if native and ablation.get("visibility") == "off":
             self._saved_visibility = consumer.check_visibility
             consumer.check_visibility = False
 
@@ -683,7 +718,9 @@ def run_history(user: V2UserData, locus, runner, *,
                 control: Optional[str] = None,
                 recency_session: bool = True,
                 concurrency: str = "sequential",
-                victim_id: Optional[str] = None) -> HistoryOutcome:
+                victim_id: Optional[str] = None,
+                ablation: Optional[Dict[str, Any]] = None
+                ) -> HistoryOutcome:
     """Run ``user``'s sessions and probes through ``locus``.
 
     ``runner`` is the trial's ``VariantRunner`` (``runner.run(name,
@@ -699,6 +736,9 @@ def run_history(user: V2UserData, locus, runner, *,
     are issued. ``victim_id`` is the id a ``wrong_user`` writer tags
     (never one of this user's ids): its partition is listed once at the
     end, for this user's rows found in it (``misfiled_rows``).
+    ``ablation`` is the run's switches (AIOS docs/ABLATION.md; None:
+    ``control``'s alias), passed to the locus only when there are some
+    (a locus from before Subtask 19 takes none).
     """
     if control is not None and control not in CONTROLS:
         raise ValueError(f"control must be one of {CONTROLS}")
@@ -710,10 +750,11 @@ def run_history(user: V2UserData, locus, runner, *,
     ids = {name: {uid} for name in writers + (CONSUMER,)}
     # The writers only when they are not v2's (a locus from before
     # Subtask 18 takes the user and the control).
+    extra = {"ablation": ablation} if ablation else {}
     if writers == WRITERS:
-        locus.start_user(uid, control)
+        locus.start_user(uid, control, **extra)
     else:
-        locus.start_user(uid, control, writers)
+        locus.start_user(uid, control, writers, **extra)
     concurrent = concurrency == "concurrent"
     if concurrent:
         for name in writers:

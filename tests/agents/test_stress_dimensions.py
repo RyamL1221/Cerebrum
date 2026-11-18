@@ -1135,7 +1135,8 @@ def test_the_faulty_agent_writes_and_the_victim_is_the_next_user():
 
 def preflight(fault, **quota):
     body = kernel_config(write_quota=dict(
-        {"enabled": False, "max_writes": 4, "dedupe": True}, **quota))
+        {"enabled": False, "max_writes": 4, "dedupe": True}, **quota),
+        ablate={})  # the full kernel (Subtask 19)
     with patch.object(run_evaluation.requests, "get") as get:
         get.return_value.json.return_value = body
         return run_evaluation.check_v2_settings("http://k", "kernel_shared",

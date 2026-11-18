@@ -76,6 +76,12 @@ class AssistantAgent:
                 extra["session"] = session
             if probe_id is not None:
                 extra["provenance_event"] = probe_id
+            # The agent's own retrieval config, when it has one (a V4
+            # consumer; Subtask 19): the kernel applies it only under
+            # its ablation consumer_config: honor.
+            retrieval = getattr(self, "retrieval", None)
+            if retrieval:
+                extra["retrieval"] = dict(retrieval)
 
             # Call LLM — kernel handles memory injection and extraction
             response = llm_chat(

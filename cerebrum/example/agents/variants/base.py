@@ -41,14 +41,20 @@ LOCI = ("kernel", "replicated", "native")
 RETRIEVAL_KEYS = (
     "k", "relevance_threshold", "max_memory_tokens", "block_format",
 )
+# What a kernel consumer's chat request can carry (``LLMQuery.retrieval``,
+# Subtask 19): the kernel applies it under ``consumer_config: honor``
+# (AIOS docs/ABLATION.md). A block format has no channel.
+KERNEL_RETRIEVAL_KEYS = ("k", "relevance_threshold", "max_memory_tokens")
 
 # Why an aspect has no channel: (locus or "*", role, aspect) -> reason.
 NOT_APPLIED = {
     ("kernel", "consumer", "write"):
         "write: the kernel writes the conversation itself",
     ("kernel", "consumer", "retrieval"):
-        "retrieval: a chat request carries no retrieval config; the "
-        "kernel applies its own",
+        "retrieval: the chat request carries the consumer's k, threshold "
+        "and token budget, which the kernel applies only under "
+        "consumer_config: honor, and no block format; the kernel applies "
+        "its own",
     ("kernel", "writer", "retrieval"):
         "retrieval: the SDK search carries k only; the kernel applies "
         "its own threshold",
@@ -262,10 +268,16 @@ def _native_write(variant: Variant, agent: Any, restore: _Restore) -> None:
 @contextlib.contextmanager
 def apply_variant(
     variant: Optional[Variant], agent: Any, agent_name: str, locus: str,
+    ablation: Optional[Dict[str, Any]] = None,
 ) -> Iterator[Optional[str]]:
     """Apply ``variant`` to ``agent`` (named ``agent_name``) in
     ``locus`` for the block; yield the not-applied reasons joined with
-    "; " (None when every aspect applied, or no variant)."""
+    "; " (None when every aspect applied, or no variant).
+
+    ``ablation`` is the kernel's ablation switches (Subtask 19, AIOS
+    docs/ABLATION.md). A kernel consumer's own retrieval config rides
+    on its chat request (``retrieval``) whatever they are, and is
+    recorded as applied only under ``consumer_config: honor``."""
     if variant is None:
         yield None
         return
@@ -303,6 +315,14 @@ def apply_variant(
             if locus == "native" and role == "consumer":
                 for key, value in overrides.items():
                     restore.set(agent, key, value)
+            elif locus == "kernel" and role == "consumer":
+                carried = {key: value for key, value in overrides.items()
+                           if key in KERNEL_RETRIEVAL_KEYS}
+                if carried:
+                    restore.set(agent, "retrieval", carried)
+                honored = (ablation or {}).get("consumer_config") == "honor"
+                if not honored or set(overrides) - set(carried):
+                    skip("retrieval")
             elif locus != "replicated":
                 skip("retrieval")
 

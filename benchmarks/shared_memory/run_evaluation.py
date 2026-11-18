@@ -28,7 +28,7 @@ Usage::
 
 import argparse
 import time
-from typing import Optional
+from typing import Dict, Optional
 import logging
 import os
 import statistics
@@ -75,6 +75,7 @@ from benchmarks.shared_memory.dataset import (
     v2_input_sha256,
     with_agents,
 )
+from benchmarks.shared_memory import ablation as ablation_switches
 from benchmarks.shared_memory import stress
 from benchmarks.shared_memory import history
 from benchmarks.shared_memory import judge_free as judge_free_measures
@@ -85,6 +86,7 @@ from benchmarks.shared_memory.pipeline import (
     model_name,
     writes_without_fact,
 )
+from cerebrum.example.agents import variants as variant_catalog
 from cerebrum.example.agents.variants import (
     CATALOG_VERSION as VARIANT_CATALOG_VERSION,
     schedule as variant_schedule,
@@ -236,22 +238,27 @@ def check_kernel_mode(kernel_url: str, method: str) -> None:
 V2_SETTINGS = {"max_injected_memories": 30, "max_memory_tokens": 300,
                "relevance_threshold": 0.0, "block_format": "compact"}
 V2_BARRIER_TIMEOUT_MS = 60_000
-# Amendment 4: supersession on, except under its control.
+# Amendment 4: supersession on. Its control, no_supersession, is the
+# ablation supersession: off since Subtask 19 (AIOS docs/ABLATION.md),
+# with memory.supersession still exclude.
 V2_SUPERSESSION = "exclude"
 NO_SUPERSESSION = "no_supersession"
 
 
 def expected_supersession(control: Optional[str]) -> str:
     """The ``memory.supersession`` a v2 cell of the kernel or replicated
-    locus runs with: ``off`` under ``no_supersession``, else
-    ``exclude`` (Amendment 4)."""
-    return "off" if control == NO_SUPERSESSION else V2_SUPERSESSION
+    locus runs with: ``exclude`` (Amendment 4), under every control. Its
+    control, ``no_supersession``, turns it off through the kernel's
+    ablation switch, which the pre-flight checks apart (before Subtask
+    19 it needed ``memory.supersession: off``)."""
+    return V2_SUPERSESSION
 
 
 def check_v2_settings(kernel_url: str, method: str,
                       recency: bool = True,
                       control: Optional[str] = None,
-                      fault: str = "none") -> dict:
+                      fault: str = "none",
+                      ablation: Optional[dict] = None) -> dict:
     """Fail unless the kernel's memory settings are benchmark v2's
     (AIOS docs/BENCHMARK_V2.md, "Pre-flight"); return what was checked,
     for the results file. A kernel method needs injection on and, since
@@ -261,7 +268,14 @@ def check_v2_settings(kernel_url: str, method: str,
     (``expected_supersession``), and a kernel method a tombstone file
     and, on Mem0, a history file of the store's own. The two file paths
     are the kernel's, returned for every method (replicated and native
-    cells record them too) but checked only for a kernel method."""
+    cells record them too) but checked only for a kernel method.
+
+    Since Subtask 19 (AIOS docs/ABLATION.md) the kernel's ablation
+    switches (``pipeline.ablate``) must equal the run's ``ablation``
+    (``ablation.run_ablation``: ``--ablate`` and an aliased
+    ``--control``) in every switch, whatever the locus: a full-kernel
+    cell refuses an ablated kernel. ``ablation`` None is read from
+    ``control`` alone."""
     response = requests.get(f"{kernel_url}/memory/config", timeout=10)
     response.raise_for_status()
     body = response.json()
@@ -317,6 +331,10 @@ def check_v2_settings(kernel_url: str, method: str,
     elif quota.get("enabled"):
         problems.append(f"write_quota is on ({quota!r}); only the flood "
                         "levels run with it")
+    if ablation is None:
+        ablation = ablation_switches.run_ablation((), control)
+    problems += ablation_switches.kernel_problems(pipeline.get("ablate"),
+                                                  ablation)
     if problems:
         raise SystemExit("benchmark v2 pre-flight: " + "; ".join(problems))
     return {"pipeline": pipeline, "auto_inject": body.get("auto_inject"),
@@ -324,6 +342,23 @@ def check_v2_settings(kernel_url: str, method: str,
             "pipeline_version": body.get("pipeline_version"),
             "tombstones_path": body.get("tombstones_path"),
             "history_db_path": body.get("history_db_path")}
+
+
+def parse_fixed_variants(values) -> Dict[str, str]:
+    """``--variants AGENT=CODE`` entries as ``{agent: code}``; each
+    agent once, a known agent and a catalog variant. ``{}`` for none."""
+    fixed: Dict[str, str] = {}
+    for text in values or ():
+        agent, _, code = text.partition("=")
+        agent, code = agent.strip(), code.strip()
+        if not agent or not code:
+            raise ValueError(f"--variants {text!r}: AGENT=CODE")
+        if agent in fixed:
+            raise ValueError(f"--variants names {agent} twice")
+        variant_catalog.role_of(agent)  # an unknown agent fails here
+        variant_catalog.variant(code)   # and an unknown variant here
+        fixed[agent] = code
+    return fixed
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -530,6 +565,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--ablate",
+        action="append",
+        metavar="SWITCH[=VALUE]",
+        default=None,
+        help=(
+            "A kernel ablation switch (AIOS docs/ABLATION.md), "
+            "repeatable: a bare switch takes its ablated value (barrier, "
+            "identity, visibility, supersession, forget_scope, quota, "
+            "block_format, block_order, budget, threshold, "
+            "consumer_config). The kernel's memory.ablate must match it "
+            "(the pre-flight), and every trial records it."
+        ),
+    )
+    parser.add_argument(
+        "--variants",
+        action="append",
+        metavar="AGENT=CODE",
+        default=None,
+        help=(
+            "Give every user the same variant on an agent (repeatable; "
+            "e.g. assistant_agent=V4): a fixed condition instead of the "
+            "seeded cycle. H is the number of agents named. Needs "
+            "--no-judge."
+        ),
+    )
+    parser.add_argument(
         "--agents",
         type=int,
         choices=list(AGENT_COUNTS),
@@ -641,7 +702,17 @@ class EvaluationOrchestrator:
         load: int = 1,
         fault: str = "none",
         fault_seed: int | None = None,
+        ablate: list | None = None,
+        variants: list | None = None,
     ):
+        # Subtask 19: every user's variants fixed (--variants), H their
+        # number.
+        self.fixed_variants = parse_fixed_variants(variants)
+        if self.fixed_variants:
+            if heterogeneity or schedule is not None:
+                raise ValueError("--variants fixes the variants: pass no "
+                                 "--heterogeneity or --schedule")
+            heterogeneity = len(self.fixed_variants)
         if heterogeneity not in HETEROGENEITY_LEVELS:
             raise ValueError(
                 f"heterogeneity must be one of {HETEROGENEITY_LEVELS}"
@@ -716,6 +787,18 @@ class EvaluationOrchestrator:
         if control is not None and judge:
             raise ValueError("a negative control runs without the judge: "
                              "pass --no-judge")
+        # Subtask 19 (AIOS docs/ABLATION.md): the switches this run turns
+        # off, from --ablate and an aliased --control ({}: the full
+        # kernel).
+        self.ablation = ablation_switches.run_ablation(ablate or (),
+                                                       control)
+        if self.ablation and not self.v2:
+            raise ValueError("--ablate needs a benchmark v2 dataset")
+        problems = ablation_switches.locus_problems(
+            self.ablation, locus_of(canonical_condition(method)))
+        if problems:
+            raise ValueError(f"{canonical_condition(method)} cannot run "
+                             f"this ablation: " + "; ".join(problems))
         if self.v2 and condition is not None:
             raise ValueError("benchmark v2 needs --method, not --condition")
         if self.v2 and canonical_condition(method) not in \
@@ -854,12 +937,16 @@ class EvaluationOrchestrator:
         }
         if getattr(self, "schedule", None):
             out.update(self.schedule.metadata())
+        if getattr(self, "fixed_variants", None):
+            out["variants"] = dict(self.fixed_variants)
         return out
 
     def trial_variants(self, trial_index: int) -> dict:
         """``{agent: variant}`` for user ``trial_index``: from the
         schedule file when given, else the seeded cycle."""
         level = getattr(self, "heterogeneity", 0)
+        if getattr(self, "fixed_variants", None):
+            return dict(self.fixed_variants)
         if getattr(self, "schedule", None):
             return self.schedule.variants(level, trial_index)
         if getattr(self, "agents", 4) != 4:
@@ -1156,6 +1243,7 @@ class EvaluationOrchestrator:
         if not getattr(self, "v2", False):
             return {}
         return {"benchmark": "v2", "control": self.control,
+                "ablation": getattr(self, "ablation", {}),
                 "recency": self.recency, "preflight": self.preflight,
                 "stress": {
                     "agents": getattr(self, "agents", 4),
@@ -1210,6 +1298,7 @@ class EvaluationOrchestrator:
             "method": method, "dataset": self.dataset_name,
             "heterogeneity_level": getattr(self, "heterogeneity", 0),
             "control": self.control,
+            "ablation": getattr(self, "ablation", {}),
         }
         try:
             user = self.dataset.user_v2(trial_index, self.generator.run_id)
@@ -1240,6 +1329,9 @@ class EvaluationOrchestrator:
         if getattr(self, "fault", "none") != "none":
             stress_kwargs.update(fault=self.fault, faulty_agent=faulty,
                                  victim_user_id=victim)
+        # The ablation only when there is one, as the stress keywords.
+        if getattr(self, "ablation", None):
+            stress_kwargs["ablation"] = self.ablation
         try:
             user, outcome, locus = pipeline.run_history_trial(
                 user, variants or None, control=self.control,
@@ -1587,10 +1679,16 @@ def main():
         check_kernel_mode(kernel_url, canonical_condition(args.method))
     preflight = None
     if dataset_spec is not None and dataset_spec.version == 2:
+        try:
+            ablation = ablation_switches.run_ablation(args.ablate or (),
+                                                      args.control)
+        except ValueError as e:
+            raise SystemExit(f"--ablate: {e}")
         preflight = check_v2_settings(kernel_url, args.method,
                                       recency=not args.no_recency,
                                       control=args.control,
-                                      fault=args.fault)
+                                      fault=args.fault,
+                                      ablation=ablation)
 
     orchestrator = EvaluationOrchestrator(
         trials=args.trials,
@@ -1616,6 +1714,8 @@ def main():
         load=args.load,
         fault=args.fault,
         fault_seed=args.fault_seed,
+        ablate=args.ablate,
+        variants=args.variants,
     )
 
     experiment = orchestrator.run()

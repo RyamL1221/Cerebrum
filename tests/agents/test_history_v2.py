@@ -1226,9 +1226,11 @@ def test_a_writer_that_raises_fails_the_user_and_records_its_session():
 
 def test_a_harness_misuse_still_raises():
     """A control the locus cannot run is the caller's error, not the
-    user's: it is raised before the history starts."""
-    with pytest.raises(ValueError):
-        run(history.KernelLocus(), control="no_visibility")
+    user's: it is raised before the history starts. Since Subtask 19
+    the kernel runs no_visibility (its ablation ``visibility: off``);
+    native has no writer scope."""
+    with pytest.raises(ValueError, match="no native counterpart"):
+        run(managed("native"), control="writer_scoped")
 
 
 # -- Amendment 2: rows per event from the listings --------------------------
@@ -1815,13 +1817,15 @@ def test_a_kernel_revoke_forgets_the_echo_too():
 
 @pytest.mark.parametrize("control", [None, "no_memory", "no_delete",
                                      "writer_scoped", "no_supersession"])
-def test_the_writers_forget_scope_follows_the_control(control):
-    """Under writer_scoped the writers revoke by their own list and
-    delete (``forget_scope`` "writer"); under every other control, and
-    none, through the user's forget ("user"), in the kernel and the
-    replicated locus alike. no_delete stays its own switch."""
-    want = "writer" if control == "writer_scoped" else "user"
-    assert history.forget_scope(control) == want
+def test_the_writers_revoke_through_the_forget_under_every_control(control):
+    """Since Subtask 19 (AIOS docs/ABLATION.md) writer_scoped and
+    no_delete are the kernel's (or a replicated agent's library's)
+    ablation ``forget_scope: writer`` / ``none``: the kernel and
+    replicated writers call the user's forget (``forget_scope`` "user",
+    deleting) under every control, and the forget scopes itself. A
+    native writer keeps its own switch: under no_delete it deletes
+    nothing. Before, the harness set the writers' scope and delete."""
+    assert history.forget_scope(control) == "user"
     kernel = history.KernelLocus()
     kernel.start_user(USER_ID, control)
     replicated = managed("replicated")
@@ -1829,9 +1833,16 @@ def test_the_writers_forget_scope_follows_the_control(control):
     for locus in (kernel, replicated):
         for name in history.WRITERS:
             writer = locus.writer(name)
-            assert writer.forget_scope == want, (locus, name)
-            assert writer.delete_on_revoke is (control != "no_delete")
+            assert writer.forget_scope == "user", (locus, name)
+            assert writer.delete_on_revoke is True
         locus.finish_user()
+    if control in ("writer_scoped", "no_supersession"):
+        return  # native refuses them (no native counterpart)
+    native = managed("native")
+    native.start_user(USER_ID, control)
+    for name in history.WRITERS:
+        assert native.writer(name).delete_on_revoke is (
+            control != "no_delete")
 
 
 @pytest.mark.parametrize("control", ["writer_scoped", "no_supersession"])

@@ -42,11 +42,21 @@ def agent_config(**changes):
     return kernel_config(auto_inject=False, **changes)
 
 
-def preflight(body, method="kernel_shared", control=None):
+def preflight(body, method="kernel_shared", control=None, ablation=None):
+    """The pre-flight against ``body``. Since Subtask 19 the kernel must
+    run the run's ablation (an aliased control's included): a body that
+    sets no ``ablate`` reports the one the run needs."""
+    from benchmarks.shared_memory.ablation import run_ablation
+
+    if "ablate" not in body["pipeline"]:
+        body["pipeline"]["ablate"] = (
+            dict(ablation) if ablation is not None
+            else run_ablation((), control))
     with patch.object(run_evaluation.requests, "get") as get:
         get.return_value.json.return_value = body
         return run_evaluation.check_v2_settings("http://kernel", method,
-                                                control=control)
+                                                control=control,
+                                                ablation=ablation)
 
 
 def test_a_kernel_v2_run_needs_injection_on_and_extraction_off():
@@ -115,12 +125,12 @@ def test_v2_native_consumers_keep_k_10_and_replicated_the_kernels():
 # -- Amendment 4 -------------------------------------------------------------
 
 @pytest.mark.parametrize("control", CONTROLS)
-def test_supersession_is_off_only_under_its_control(control):
+def test_supersession_is_exclude_under_every_control(control):
     """A v2 cell of the kernel or replicated locus runs with
-    ``memory.supersession`` ``exclude``, ``off`` under
-    no_supersession."""
-    want = "off" if control == "no_supersession" else "exclude"
-    assert run_evaluation.expected_supersession(control) == want
+    ``memory.supersession`` ``exclude``; since Subtask 19 no_supersession
+    is the ablation ``supersession: off``, checked apart (before, it
+    needed ``memory.supersession: off``)."""
+    assert run_evaluation.expected_supersession(control) == "exclude"
 
 
 @pytest.mark.parametrize("control", CONTROLS)
@@ -128,12 +138,10 @@ def test_supersession_is_off_only_under_its_control(control):
 def test_kernel_and_replicated_cells_need_the_controls_supersession(
         method, control):
     """The pre-flight of a kernel or replicated cell refuses a kernel
-    whose ``supersession`` is not the control's (``off`` under
-    no_supersession, else ``exclude``; the replicated agents copy it
-    from ``/memory/config``), a missing one included, and records the
-    one it checked."""
-    want = "off" if control == "no_supersession" else "exclude"
-    other = "exclude" if want == "off" else "off"
+    whose ``supersession`` is not ``exclude`` (the replicated agents
+    copy it from ``/memory/config``), a missing one included, and
+    records the one it checked."""
+    want, other = "exclude", "off"
     body = (kernel_config if method in KERNEL_METHODS else agent_config)
     checked = preflight(body(supersession=want), method, control)
     assert checked["pipeline"]["supersession"] == want
@@ -215,3 +223,40 @@ def test_a_v2_run_refuses_a_kernel_url_its_agents_do_not_use(monkeypatch):
                       side_effect=AssertionError("no kernel call")):
         with pytest.raises(SystemExit, match="configured kernel"):
             run_evaluation.main()
+
+
+# -- Subtask 19: the kernel's ablation switches ----------------------------
+
+@pytest.mark.parametrize("method", KERNEL_METHODS + REPLICATED_METHODS
+                         + NATIVE_METHODS)
+def test_the_kernel_must_run_the_runs_ablation(method):
+    """AIOS docs/ABLATION.md: the kernel's ``pipeline.ablate`` must equal
+    the run's ablation in every switch, whatever the locus. A full-kernel
+    cell refuses an ablated kernel, an ablated cell a full kernel or
+    another ablation, and a kernel from before the switches."""
+    body = (kernel_config if method in KERNEL_METHODS else agent_config)
+    checked = preflight(body(ablate={"barrier": "off"}), method,
+                        ablation={"barrier": "off"})
+    assert checked["pipeline"]["ablate"] == {"barrier": "off"}
+    with pytest.raises(SystemExit, match="ablate.barrier is 'off', not "
+                                         "'on'"):
+        preflight(body(ablate={"barrier": "off"}), method, ablation={})
+    with pytest.raises(SystemExit, match="ablate.quota is 'on', not 'off'"):
+        preflight(body(ablate={"barrier": "off"}), method,
+                  ablation={"quota": "off"})
+    with pytest.raises(SystemExit, match="predates the ablation"):
+        preflight(body(ablate=None), method, ablation={})
+
+
+@pytest.mark.parametrize("control, switches", [
+    ("no_visibility", {"visibility": "off"}),
+    ("no_delete", {"forget_scope": "none"}),
+    ("writer_scoped", {"forget_scope": "writer"}),
+    ("no_supersession", {"supersession": "off"}),
+])
+def test_an_old_control_needs_its_ablation_on_the_kernel(control,
+                                                         switches):
+    full = kernel_config(ablate={})
+    with pytest.raises(SystemExit, match="ablate\\."):
+        preflight(full, control=control)
+    preflight(kernel_config(ablate=dict(switches)), control=control)

@@ -526,6 +526,11 @@ class TrialResult(BaseModel):
     # writer session, each probe, and what the revokes left behind.
     user_id: Optional[str] = None
     control: Optional[str] = None
+    # The kernel ablation switches the trial ran with (Subtask 19, AIOS
+    # docs/ABLATION.md): those that differ from the full kernel, {} for
+    # the full kernel; None in files from before it, whose ablation is
+    # their control's alias (``ablation.trial_ablation``).
+    ablation: Optional[Dict[str, Any]] = None
     sessions: List[SessionRecord] = []
     probe_results: List[ProbeResult] = []
     deleted_memory_ids: List[str] = []

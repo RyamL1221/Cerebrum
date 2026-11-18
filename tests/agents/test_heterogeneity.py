@@ -260,7 +260,10 @@ def test_kernel_v1_consumer_block_format_is_not_applied(kernel):
     result = run_kernel({"assistant_agent": "V1"})
     reason = result.variants_not_applied["assistant_agent"]
     assert reason.startswith("V1: ")
-    assert "retrieval: a chat request carries no retrieval config" in reason
+    # A block format has no channel into the kernel; the k, threshold
+    # and budget do (LLMQuery.retrieval, Subtask 19), and V1 sets none.
+    assert ("retrieval: the chat request carries the consumer's k, "
+            "threshold and token budget") in reason
     assert set(kernel["chat"][0]) == {
         "agent_name", "messages", "base_url", "llms", "user_id",
     }

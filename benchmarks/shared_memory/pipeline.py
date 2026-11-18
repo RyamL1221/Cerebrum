@@ -135,9 +135,13 @@ class VariantRunner:
     for that agent and kept apart from ``codes``."""
 
     def __init__(self, variants: Optional[Dict[str, str]], locus: str,
-                 faults: Optional[Dict[str, Any]] = None):
+                 faults: Optional[Dict[str, Any]] = None,
+                 ablation: Optional[Dict[str, Any]] = None):
         self.codes = dict(variants or {})
         self.faults = dict(faults or {})
+        # The kernel's ablation switches: whether its consumer channel
+        # honors a V4 consumer's own config (Subtask 19).
+        self.ablation = dict(ablation or {})
         for agent in list(self.codes) + list(self.faults):
             variant_catalog.role_of(agent)  # unknown agents fail early
         self.locus = locus
@@ -152,7 +156,8 @@ class VariantRunner:
         if agent_name in self.faults:
             variant = self.faults[agent_name]
             code = variant.code
-        with apply_variant(variant, agent, agent_name, self.locus) as skipped:
+        with apply_variant(variant, agent, agent_name, self.locus,
+                           ablation=self.ablation) as skipped:
             if skipped:
                 self.not_applied[agent_name] = f"{code}: {skipped}"
             if getattr(agent, "user_id", None):
@@ -924,6 +929,7 @@ class MethodPipeline:
         concurrency: str = "sequential",
         fault: str = "none", faulty_agent: Optional[str] = None,
         victim_user_id: Optional[str] = None,
+        ablation: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """One benchmark v2 user through this method's locus
         (``history.run_history``), under the method-scoped user id.
@@ -933,7 +939,8 @@ class MethodPipeline:
         Subtask 18: ``concurrency`` is ``run_history``'s; ``fault`` is
         applied to ``faulty_agent`` (``variants.faults``); under
         ``wrong_user`` it tags ``victim_user_id`` (a dataset user id,
-        scoped to this method here)."""
+        scoped to this method here). ``ablation`` is the run's kernel
+        ablation switches (Subtask 19, AIOS docs/ABLATION.md)."""
         from benchmarks.shared_memory import history
 
         if self.method not in self.V2_METHODS:
@@ -970,11 +977,12 @@ class MethodPipeline:
             extraction = memory.backend_extraction
             version = getattr(memory, "version", None)
             memory_backend = backend
-        runner = VariantRunner(variants, locus.locus, faults=faults)
+        runner = VariantRunner(variants, locus.locus, faults=faults,
+                               ablation=ablation)
         outcome = history.run_history(user, locus, runner, control=control,
                                       recency_session=recency_session,
                                       concurrency=concurrency,
-                                      victim_id=victim)
+                                      victim_id=victim, ablation=ablation)
         outcome.backend_extraction = extraction
         outcome.pipeline_version = version
         outcome.memory_backend = memory_backend

@@ -185,6 +185,11 @@ class LLMQuery(Query):
     # ``metadata.provenance_event``, as the replicated and native
     # assistants stamp their own turns.
     provenance_event: Optional[str] = Field(default=None)
+    # The caller's own retrieval config (``k``, ``relevance_threshold``,
+    # ``max_memory_tokens``; NeurIPS Subtask 19): the kernel applies it
+    # only under its ablation ``consumer_config: honor`` (AIOS
+    # docs/ABLATION.md) and otherwise records it as not applied.
+    retrieval: Optional[Dict[str, Any]] = Field(default=None)
 
     class Config:
         arbitrary_types_allowed = True
@@ -251,6 +256,7 @@ def llm_chat(
         user_id: Optional[str] = None,
         session: Optional[int] = None,
         provenance_event: Optional[str] = None,
+        retrieval: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
     """
     Perform a chat interaction with the LLM.
@@ -273,6 +279,10 @@ def llm_chat(
         provenance_event: The event the request answers (benchmark v2:
             the probe id), which the kernel stamps on the conversation
             turn it stores; None stamps none
+        retrieval: The caller's own retrieval config (``k``,
+            ``relevance_threshold``, ``max_memory_tokens``), which the
+            kernel applies only under ``consumer_config: honor``; None
+            sends none
 
     Returns:
         LLMResponse containing the generated response
@@ -329,6 +339,7 @@ def llm_chat(
         user_id=user_id,
         session=session,
         provenance_event=provenance_event,
+        retrieval=retrieval,
     )
     return send_request(agent_name, query, base_url)
 
