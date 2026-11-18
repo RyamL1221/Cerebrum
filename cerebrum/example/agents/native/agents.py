@@ -45,7 +45,7 @@ from cerebrum.example.agents.shared_memory_utils import (
 )
 from cerebrum.example.agents.task_agent.agent import TaskAgent
 from cerebrum.llm.apis import llm_chat
-from cerebrum.utils import usage
+from cerebrum.utils import mem0_errors, usage
 
 BACKENDS = ("mem0", "inhouse", "graphiti", "amem")
 COSINE = {"hnsw": {"space": "cosine"}}
@@ -109,8 +109,9 @@ class NativeMemory:
         in-house store keeps ``text`` verbatim. The backend's LLM and
         embedding calls count to the user's trial. Returns the ids of
         the rows the write stored: Mem0's extracted facts (none when its
-        extraction failed or found nothing; Mem0 does not raise), else
-        the one new row's."""
+        extraction found nothing), else the one new row's. A Mem0 write
+        that stored nothing after a failure Mem0 logged and swallowed
+        raises (``cerebrum.utils.mem0_errors``, Amendment 9)."""
         user_id = metadata["user_id"]
         with usage.tagged(user_id):
             return self._write(messages, text, agent_name, metadata, user_id)
@@ -123,11 +124,18 @@ class NativeMemory:
                 self._graphiti_write, messages, text, agent_name, metadata,
                 user_id)
         if self.backend == "mem0":
-            result = self.mem0.add(
-                messages, user_id=user_id, agent_id=agent_name,
-                metadata=metadata, infer=True,
-            )
+            with mem0_errors.swallowed_errors() as errors:
+                result = self.mem0.add(
+                    messages, user_id=user_id, agent_id=agent_name,
+                    metadata=metadata, infer=True,
+                )
             rows = result.get("results") if isinstance(result, dict) else None
+            if not rows and errors:
+                # Amendment 9: an empty write after a failure Mem0
+                # swallowed is an error, not a write that found no fact.
+                raise RuntimeError(
+                    f"Mem0 stored nothing after a failure it swallowed: "
+                    f"{errors[0]}")
             # One entry per row, so a count of the ids is the old count.
             return [
                 row.get("id") if isinstance(row, dict) else None

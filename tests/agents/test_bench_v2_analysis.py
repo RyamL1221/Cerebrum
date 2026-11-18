@@ -898,7 +898,7 @@ def test_the_readings_reach_the_report_and_the_json(tmp_path):
         ("backend_invalidations", "Graphiti's own invalidations (Subtask 16)",
          ["invalidated_rows", "probes", "invalidated_in_block"]),
         ("writes_without_fact",
-         "Graphiti writes that stored no fact (Amendment 5)",
+         "Writes that stored no fact (Amendments 5, 8, 9)",
          ["trials", "with_one", "writes_without_fact", "probes_on_them",
           "passed_on_them"]),
         ("exposure", "Trial-level exposure (deletion, privacy)",

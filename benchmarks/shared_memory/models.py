@@ -20,11 +20,15 @@ from cerebrum.config.config_manager import config
 # Graphiti raises on an extraction LLM error (graphiti_core re-raises
 # after its retries), so a write that returned and stored no row found
 # no fact: it is recorded (``writes_without_fact``) and the trial is
-# scored. Mem0 logs and swallows its extraction errors, so its empty
-# write still fails the trial (Subtask 10). A-MEM stores the note it is
-# given even when its LLM fails (Subtask 17, AIOS AMEM_BACKEND.md), so
-# a write that stored none is a lost memory too (Amendment 8).
-EMPTY_WRITE_IS_LOSS = frozenset({"graphiti", "amem"})
+# scored. A-MEM stores the note it is given even when its LLM fails
+# (Subtask 17, AIOS AMEM_BACKEND.md), so a write that stored none is a
+# lost memory too (Amendment 8). Mem0 logs and swallows its extraction
+# errors; since Amendment 9 (open decision 7) every locus's Mem0 write
+# raises when Mem0 logged one of them and stored nothing
+# (``cerebrum.utils.mem0_errors``), so a Mem0 write that returned and
+# stored nothing found no fact, and is a lost memory too. Before it, a
+# Mem0 empty write failed the trial (Subtask 10).
+EMPTY_WRITE_IS_LOSS = frozenset({"graphiti", "amem", "mem0"})
 
 
 def _error_text(value: Any) -> Optional[str]:

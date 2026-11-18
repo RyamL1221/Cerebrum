@@ -8,6 +8,7 @@ reports the rows its write stored, and the orchestrator fails a trial
 whose backend extracts when a successful writer stored no row or the
 backend recorded no LLM call.
 """
+import logging
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -69,18 +70,20 @@ def test_stored_rows_and_calls_pass():
     ) is None
 
 
-def test_a_graphiti_writer_that_stored_no_row_is_a_loss():
+@pytest.mark.parametrize("backend", ["graphiti", "amem", "mem0"])
+def test_a_writer_that_stored_no_row_is_a_loss(backend):
     """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
     so its empty write found no fact; it is recorded, not a failure.
-    Mem0 swallows its errors: the same write still fails."""
+    A-MEM since Amendment 8; Mem0 since Amendment 9, whose writes now
+    raise when Mem0 swallowed a failure. A backend the harness does not
+    know still fails the trial."""
     stored = {"profile_agent": 0, "task_agent": 1}
-    assert extraction_failure(True, stored, CALLED, "graphiti") is None
-    assert writes_without_fact(True, stored, "graphiti") == [
-        "profile_agent"]
-    assert writes_without_fact(False, stored, "graphiti") == []
-    assert extraction_failure(True, stored, CALLED, "mem0") == (
+    assert extraction_failure(True, stored, CALLED, backend) is None
+    assert writes_without_fact(True, stored, backend) == ["profile_agent"]
+    assert writes_without_fact(False, stored, backend) == []
+    assert extraction_failure(True, stored, CALLED, None) == (
         "backend_extraction_failed: stored no rows: profile_agent")
-    assert writes_without_fact(True, stored, "mem0") == []
+    assert writes_without_fact(True, stored, None) == []
 
 
 def test_a_graphiti_trial_with_no_backend_call_still_fails():
@@ -100,22 +103,40 @@ def test_writer_stored_skips_writers_that_do_not_report():
 # --- every locus reports what it stored ------------------------------------
 
 class SwallowingMem0:
-    """Mem0's ``add`` when its extraction LLM call raised: logged, and
-    an empty result."""
+    """Mem0's ``add``: its result, and, with ``logged``, the line Mem0
+    logs when it swallows its extraction call's error."""
 
-    def __init__(self, results):
+    def __init__(self, results, logged=None):
         self.results = results
+        self.logged = logged
 
     def add(self, *args, **kwargs):
+        if self.logged:
+            logging.getLogger("mem0.memory.main").error(self.logged)
         return {"results": self.results}
 
 
-def native_memory(results):
+def native_memory(results, logged=None):
     memory = object.__new__(NativeMemory)
     memory.backend = "mem0"
     memory.backend_extraction = True
-    memory.mem0 = SwallowingMem0(results)
+    memory.mem0 = SwallowingMem0(results, logged)
     return memory
+
+
+def test_a_native_mem0_write_after_a_swallowed_failure_raises():
+    """Amendment 9: Mem0 stored nothing because its extraction call
+    failed, not because it found no fact, so the write is an error (the
+    trial fails), not a lost memory. With a row, or without the line,
+    the write returns as before."""
+    metadata = {"user_id": "u1"}
+    failed = native_memory([], "LLM extraction failed: refused")
+    with pytest.raises(RuntimeError, match="LLM extraction failed"):
+        failed.write([], "text", "profile_agent", metadata)
+    assert native_memory([]).write([], "text", "profile_agent",
+                                   metadata) == []
+    assert native_memory([{"id": "a"}], "LLM extraction failed: x").write(
+        [], "text", "profile_agent", metadata) == ["a"]
 
 
 @pytest.mark.parametrize("results,stored", [

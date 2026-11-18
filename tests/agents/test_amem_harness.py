@@ -39,9 +39,9 @@ def test_a_v1_amem_trial_runs_on_amem(method, runner):
 
 
 def test_an_amem_write_that_stored_no_note_is_a_lost_memory():
-    """Amendment 8: as on Graphiti (Amendment 5), not Mem0."""
+    """Amendment 8: as on Graphiti (Amendment 5), and on Mem0 since
+    Amendment 9."""
     assert "amem" in EMPTY_WRITE_IS_LOSS
-    assert "mem0" not in EMPTY_WRITE_IS_LOSS
 
 
 def write(root, phase, cell, method, trials):
@@ -95,8 +95,9 @@ def test_amem_cells_have_a_writes_without_a_row_reading(tmp_path):
     write(tmp_path, "agent_amem", "h0_native_amem", "native_amem", [trial])
     write(tmp_path, "kmem0", "h0_kernel_shared", "kernel_shared", [trial])
     rows = ba.writes_without_fact_rows(ba.load(tmp_path))
-    assert [(r["backend"], r["writes_without_fact"]) for r in rows] == [
-        ("amem", 1)]
+    # Mem0's cells too since Amendment 9.
+    assert sorted((r["backend"], r["writes_without_fact"])
+                  for r in rows) == [("amem", 1), ("mem0", 1)]
 
 
 def test_the_pilot_report_reads_the_amem_cells(tmp_path):

@@ -248,9 +248,10 @@ def extraction_failure(
     on with an empty store. Two signs give it away: a writer whose write
     stored no row, and a trial with no backend LLM call at all. Each
     trial's user is new, so every writer creates and Mem0 extracts. On a
-    backend in ``EMPTY_WRITE_IS_LOSS`` (Graphiti, Amendment 5) an empty
-    write is a lost memory (``writes_without_fact``), not a failure; no
-    backend LLM call still is.
+    backend in ``EMPTY_WRITE_IS_LOSS`` (Graphiti, Amendment 5; A-MEM;
+    Mem0 since Amendment 9, whose writes now raise on a failure Mem0
+    swallowed) an empty write is a lost memory (``writes_without_fact``),
+    not a failure; no backend LLM call still is.
     """
     if backend_extraction is not True:
         return None

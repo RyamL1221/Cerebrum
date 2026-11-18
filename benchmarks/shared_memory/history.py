@@ -1225,7 +1225,9 @@ def extraction_failure(user: V2UserData, outcome: HistoryOutcome,
     suppressed write's names none) is never excused; neither is one
     whose named rows a later session removed, or one with a named row
     that nothing removed. On a backend in ``EMPTY_WRITE_IS_LOSS``
-    (Graphiti, Amendment 5) such a write whose reply named no row is a
+    (Graphiti, Amendment 5; A-MEM; Mem0 since Amendment 9, whose writes
+    raise on a failure Mem0 swallowed) such a write whose reply named no
+    row is a
     lost memory, recorded by ``writes_without_fact``, not a failure; one
     whose reply named rows that its writer's listing does not show still
     fails: the rows were stored, so the listing failed (a V3 writer once

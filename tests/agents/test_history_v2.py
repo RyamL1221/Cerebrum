@@ -646,24 +646,29 @@ def test_a_flood_copy_does_not_excuse_a_write_that_stored_nothing():
         "memory_id": "flood-1", "content": event["utterance"].upper(),
         "metadata": {"provenance_event": event["event_id"], "flood": 1,
                      "user_id": USER_ID, "owner_agent": writer}})
-    outcome.memory_backend = "mem0"
+    outcome.memory_backend = None  # a backend whose empty write fails
     failure = history.extraction_failure(user, outcome, True)
     assert failure is not None and event["event_id"] in failure
+    outcome.memory_backend = "mem0"  # Amendment 9: a lost memory
+    assert history.writes_without_fact(user, outcome, True) == [
+        event["event_id"]]
 
 
 def test_a_graphiti_write_with_no_fact_is_a_loss_not_a_failure():
     """Amendment 5 (Subtask 16): Graphiti raises on an extraction error,
     so a Graphiti write whose reply named no fact and that left no row
-    found no fact. It is recorded and the trial is scored; Mem0 swallows
-    its errors, so the same write still fails a Mem0 trial."""
+    found no fact. It is recorded and the trial is scored; on Mem0 too
+    since Amendment 9 (its writes raise when Mem0 swallowed a failure).
+    On a backend the harness does not know, the same write fails."""
     user, outcome = run(FakeLocus())
     event = drop_rows_of(user, outcome, 2)
-    outcome.memory_backend = "graphiti"
-    assert history.extraction_failure(user, outcome, True) is None
-    assert history.writes_without_fact(user, outcome, True) == [
-        event["event_id"]]
-    assert history.writes_without_fact(user, outcome, False) == []
-    outcome.memory_backend = "mem0"
+    for backend in ("graphiti", "mem0"):
+        outcome.memory_backend = backend
+        assert history.extraction_failure(user, outcome, True) is None
+        assert history.writes_without_fact(user, outcome, True) == [
+            event["event_id"]]
+        assert history.writes_without_fact(user, outcome, False) == []
+    outcome.memory_backend = None
     assert event["event_id"] in history.extraction_failure(
         user, outcome, True)
     assert history.writes_without_fact(user, outcome, True) == []
@@ -871,13 +876,13 @@ def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):
 
 @pytest.mark.parametrize("backend,named,failed", [
     ("graphiti", False, False), ("graphiti", True, True),
-    ("mem0", False, True)])
+    ("mem0", False, False), (None, False, True)])
 def test_a_v2_trial_with_a_write_without_a_fact(tmp_path, backend, named,
                                                 failed):
     """Amendment 5: on Graphiti the trial is scored and records the
-    write in ``writes_without_fact``; on Mem0 it fails as before, and on
-    Graphiti too when the write's reply named rows its writer does not
-    list."""
+    write in ``writes_without_fact``, and on Mem0 since Amendment 9; on
+    a backend the harness does not know it fails, and on Graphiti too
+    when the write's reply named rows its writer does not list."""
     path = tmp_path / "v2.jsonl"
     synth_v2.generate(path, n=1)
     o = orchestrator(dataset=str(path), judge=False)

@@ -983,8 +983,8 @@ def backend_invalidation_rows(cells: Dict[tuple, dict]) -> List[dict]:
 
 
 def writes_without_fact_rows(cells: Dict[tuple, dict]) -> List[dict]:
-    """Per Graphiti and A-MEM cell (Amendments 5 and 8): the scored
-    trials, those with a write the backend stored no row from
+    """Per Graphiti, A-MEM and Mem0 cell (Amendments 5, 8 and 9): the
+    scored trials, those with a write the backend stored no row from
     (``writes_without_fact``: a lost memory, not a failed trial), those
     writes, and the probes whose target was one, with their passes. No
     rows for the other backends."""
@@ -1069,11 +1069,13 @@ READING_SECTIONS = [
      "after the history it marked invalid; probes whose block held one.",
      ["invalidated_rows", "probes", "invalidated_in_block"]),
     ("writes_without_fact",
-     "Graphiti writes that stored no fact (Amendment 5)",
+     "Writes that stored no fact (Amendments 5, 8, 9)",
      "Graphiti sometimes extracts a write's entities but no fact, and "
      "its search returns facts only: a write Graphiti stored no fact "
      "from is a lost memory, not a failed trial (and an A-MEM write "
-     "that stored no note, Amendment 8). `trials`: scored "
+     "that stored no note, Amendment 8, and a Mem0 write that stored "
+     "nothing with no failure Mem0 swallowed, Amendment 9). `trials`: "
+     "scored "
      "trials; `with_one`: scored trials with such a write; "
      "`writes_without_fact`: those writes; `probes_on_them`: probes "
      "whose target was one, and `passed_on_them`.",
