@@ -113,6 +113,73 @@ def test_a_derived_user_runs_as_writer_turns():
         dataset.with_agents("pilot_v1", 6)
 
 
+def tiny_user(index):
+    """A v2 user of four sessions: profile's base and its private fact
+    (session 4), task's base, and one calendar slot written before the
+    private event, which no contradiction, echo or private fact
+    constrains: at N = 3 only the user's parity decides its writer."""
+    def event(event_id, kind, key):
+        return {"event_id": event_id, "type": kind, "fact_key": key,
+                "slot": key, "echo_of": None}
+
+    return {"index": index, "probes": [], "sessions": [
+        {"session": 1, "writer": "profile_agent",
+         "events": [event("e0", "base", "base_profile")]},
+        {"session": 2, "writer": "task_agent",
+         "events": [event("e1", "base", "base_task")]},
+        {"session": 3, "writer": "calendar_agent",
+         "events": [event("e2", "add", "yoga_studio")]},
+        {"session": 4, "writer": "profile_agent",
+         "events": [event("e3", "private", "side_business")]},
+    ]}
+
+
+def test_n3_gives_a_free_calendar_unit_to_the_users_parity_writer():
+    """STRESS_DIMENSIONS.md, Agent count, N = 3 (lines 106-113): a v2
+    calendar unit the constraints leave free goes "to profile_agent for
+    even i and to task_agent for odd i"."""
+    writer_of, _ = agents_v1.n3_writers(tiny_user(0))
+    assert writer_of["e2"] == "profile_agent"
+    writer_of, _ = agents_v1.n3_writers(tiny_user(1))
+    assert writer_of["e2"] == "task_agent"
+
+
+V2_MEMORY_TYPES = {"profile_agent": "profile", "task_agent": "task_context",
+                   "calendar_agent": "calendar"}
+
+
+@pytest.mark.parametrize("n", agents_v1.LEVELS)
+def test_each_derived_event_keeps_its_v2_writers_memory_type(n):
+    """STRESS_DIMENSIONS.md, Agent count (lines 124-127): "Memory types
+    stay the v2 event's (profile, task_context, calendar), whoever
+    writes it." Read from the derivation itself, so it holds whatever
+    data files were generated."""
+    _, source, _ = agents_v1.load_source()
+    for user in source[:30]:
+        v2_writer = {e["event_id"]: s["writer"] for s in user["sessions"]
+                     for e in s["events"]}
+        derived = agents_v1.derive_user(user, n)
+        assert {e["event_id"]: (e["v2_writer"], e["memory_type"])
+                for turn in derived["sessions"] for e in turn["events"]} \
+            == {i: (w, V2_MEMORY_TYPES[w]) for i, w in v2_writer.items()}
+
+
+@pytest.mark.parametrize("n", agents_v1.LEVELS)
+def test_a_sessions_writer_turns_follow_each_writers_first_event(n):
+    """STRESS_DIMENSIONS.md, Agent count, Datasets (lines 134-136): "A
+    session of a derived user is a list of writer turns, one per writer
+    active in it, in the order of each writer's first event there.\""""
+    _, source, _ = agents_v1.load_source()
+    for user in source[:30]:
+        writer_of, _ = agents_v1.writers_of(user, n)
+        expected = [(s["session"], w) for s in user["sessions"]
+                    for w in dict.fromkeys(writer_of[e["event_id"]]
+                                           for e in s["events"])]
+        derived = agents_v1.derive_user(user, n)
+        assert [(t["session"], t["writer"])
+                for t in derived["sessions"]] == expected
+
+
 # -- schedules -----------------------------------------------------------
 
 def test_the_n_agent_schedule_is_the_heterogeneity_schedule_at_three():
@@ -832,6 +899,179 @@ def test_a_trials_flood_bound_is_the_kernels_quota(tmp_path):
     assert seen["quota"] == quota
 
 
+T0 = 1000.0
+
+
+def measured_probe(events, *, locus, kind="recall", target=None,
+                   fetch=T0 + 0.03, snapshot=None, **fields):
+    """The stress measures of one probe issued at ``T0 + 0.001`` whose
+    fetch began at ``fetch``, over ``events`` (one writer, session 6;
+    each event's ``sharing`` and ``fact_key`` are the user's)."""
+    outcome = SimpleNamespace(
+        sessions=[SessionRecord(session=6, writer="w", events=events)],
+        misfiled_rows=None, listings=[],
+        turns=[SimpleNamespace(probe={"probe_id": "p"}, issued_at=T0 + 0.001,
+                               completed_at=T0 + 3, latency_seconds=3)])
+    user = SimpleNamespace(sessions=[{"session": 6, "writer": "w", "events": [
+        {"event_id": e["event_id"], "sharing": e.get("sharing", "shared"),
+         "fact_key": e.get("fact_key")} for e in events]}])
+    diagnostics = {"fetch_started_at": fetch, "barrier_snapshot": snapshot,
+                   "injected_memories": []}
+    result = probe("p", kind, target, diagnostics, **fields)
+    return stress.measures(user, outcome, [result],
+                           locus=locus)["probes"]["p"]
+
+
+def timed_write(event_id, *, completed, committed=None, kind="add",
+                **fields):
+    record = {"event_id": event_id, "type": kind, "issued_at": T0,
+              "completed_at": completed, **fields}
+    if committed is not None:
+        record["committed_at"] = committed
+    return record
+
+
+def test_a_writes_commit_time_is_the_stores_own_else_its_completion():
+    """STRESS_DIMENSIONS.md, Concurrency, "What is measured" (lines
+    299-305): a late write committed after the fetch began; "the commit
+    time is the write's own (committed_at, kernel and replicated ...) or
+    the harness's completion time (native, an upper bound)"."""
+    events = [
+        # Committed before the fetch began; its reply came after it.
+        timed_write("e1", committed=T0 + 0.01, completed=T0 + 0.05),
+        # No commit time of its own: completed before the fetch began.
+        timed_write("e2", completed=T0 + 0.02),
+        timed_write("e3", completed=T0 + 0.04),
+    ]
+    p = measured_probe(events, locus="replicated")
+    assert p["late_writes"] == ["e3"]
+
+
+def test_a_write_at_the_probes_snapshot_was_accepted_before_it():
+    """STRESS_DIMENSIONS.md, Concurrency, "What is measured" (lines
+    319-321): uncovered_writes are the kernel writes "whose barrier
+    sequence is above the probe's snapshot (accepted after it)"; the
+    write holding the snapshot's own sequence was accepted before."""
+    events = [timed_write("e1", committed=T0 + 0.4, completed=T0 + 0.5,
+                    barrier_seq=6),
+              timed_write("e2", committed=T0 + 0.4, completed=T0 + 0.5,
+                    barrier_seq=7)]
+    p = measured_probe(events, locus="kernel", snapshot=6)
+    assert p["uncovered_writes"] == ["e2"]
+    assert p["late_covered"] == ["e1"]
+
+
+@pytest.mark.parametrize("kind,measure,field,miss_when", [
+    ("recall", "timing_miss", "expected_in_block", False),
+    ("recency", "stale_read", "stale_in_block", True),
+    ("contradiction", "stale_read", "stale_in_block", True),
+    ("deletion", "late_forget", "forbidden_in_block", True),
+])
+@pytest.mark.parametrize("in_block", [True, False])
+def test_a_covered_late_write_is_a_miss_only_as_the_block_shows(
+        kind, measure, field, miss_when, in_block):
+    """STRESS_DIMENSIONS.md, Concurrency, "What is measured" (lines
+    312-318): timing_miss needs the target's value missing from the
+    block; stale_read is a recency or contradiction probe "whose block
+    held the stale value"; late_forget a deletion probe "whose block held
+    the revoked value". The late write alone decides none of them."""
+    if kind == "deletion":
+        events = [timed_write("e0", committed=T0 - 5, completed=T0 - 5,
+                        fact_key="pet"),
+                  timed_write("e1", committed=T0 + 0.4, completed=T0 + 0.5,
+                        kind="revoke", fact_key="pet")]
+        target = "e0"
+    else:
+        events = [timed_write("e1", committed=T0 + 0.4, completed=T0 + 0.5,
+                        kind="update")]
+        target = "e1"
+    p = measured_probe(events, locus="replicated", kind=kind,
+                       target=target, **{field: in_block})
+    assert "e1" in p["late_covered"]
+    assert p[measure] is (in_block == miss_when)
+
+
+def test_late_rows_are_the_rows_of_late_writes_the_consumer_may_see():
+    """STRESS_DIMENSIONS.md, Concurrency, "What is measured" (lines
+    309-311): "late_rows are their rows the consumer may see": rows, not
+    writes (a revoke leaves none, a write may leave several), and not a
+    private fact's."""
+    events = [timed_write("e1", completed=T0 + 0.5, stored_rows=3),
+              timed_write("e2", completed=T0 + 0.5, kind="revoke",
+                    stored_rows=0),
+              timed_write("e3", completed=T0 + 0.5, kind="private",
+                    stored_rows=1, sharing="private")]
+    p = measured_probe(events, locus="native")
+    assert p["late_covered"] == ["e1", "e2", "e3"]
+    assert p["late_rows"] == 3
+
+
+def test_overrides_and_quota_rejections_are_counted_per_request_and_writer():
+    """STRESS_DIMENSIONS.md, wrong_user "Measured" and the checks that
+    must hold (lines 397-399, 430-431, 635-636): identity_overridden
+    counts each request the kernel bound, a chat by its injection
+    diagnostics; floods "Measured" (lines 527-529): quota_rejected "by
+    reason and writer", so a reference writer's rejection shows."""
+    overridden = {"claimed": "victim", "bound": "u"}
+    sessions = [
+        SessionRecord(session=2, writer="w1", events=[
+            {"event_id": "e1", "type": "add",
+             "identity_overridden": overridden},
+            {"event_id": "e2", "type": "add", "quota_rejected": "quota"},
+        ], flood=[{"k": 1, "memory_ids": ["m"],
+                   "identity_overridden": overridden},
+                  {"k": 2, "memory_ids": [], "quota_rejected": "duplicate"}]),
+        SessionRecord(session=3, writer="w2", events=[
+            {"event_id": "e3", "type": "add"}]),
+    ]
+    ids = ("p1", "p2", "p3")
+    outcome = SimpleNamespace(
+        sessions=sessions, misfiled_rows=[], listings=[],
+        turns=[SimpleNamespace(probe={"probe_id": i}, issued_at=T0,
+                               completed_at=T0 + 1, latency_seconds=1)
+               for i in ids])
+    results = [probe("p1", "recall", None,
+                     {"identity_overridden": overridden}),
+               probe("p2", "recency", None, {}),
+               probe("p3", "privacy", None, {})]
+    measured = stress.measures(SimpleNamespace(sessions=[]), outcome,
+                               results, locus="kernel")
+    assert measured["identity_overridden_requests"] == 2
+    assert measured["identity_overridden_chats"] == 1
+    assert measured["quota_rejected"] == {"quota": 1, "duplicate": 1}
+    assert measured["quota_rejected_by_writer"] == {"w1": 2}
+
+
+def test_memories_missing_timing_names_writers_whose_late_writes_left_no_row():
+    """STRESS_DIMENSIONS.md, Concurrency, "What is measured" (lines
+    323-327): "writers with a covered late write none of whose rows
+    reached the integration probe's block": a revoke is no write, and
+    another writer's row in the block does not excuse a writer."""
+    sessions = [
+        SessionRecord(session=1, writer="w3", events=[
+            timed_write("e3", completed=T0 - 9, committed=T0 - 9)]),
+        SessionRecord(session=6, writer="w1", events=[
+            timed_write("e1", completed=T0 + 0.5, kind="update")]),
+        SessionRecord(session=6, writer="w2", events=[
+            timed_write("e2", completed=T0 + 0.5, kind="revoke",
+                        fact_key="pet")]),
+    ]
+    outcome = SimpleNamespace(
+        sessions=sessions, misfiled_rows=None, listings=[],
+        turns=[SimpleNamespace(probe={"probe_id": "p9"}, issued_at=T0 + 0.001,
+                               completed_at=T0 + 3, latency_seconds=3)])
+    user = SimpleNamespace(sessions=[{"session": 6, "writer": "w", "events": [
+        {"event_id": i, "sharing": "shared"} for i in ("e1", "e2", "e3")]}])
+    integration = probe("p9", "integration", None, {
+        "fetch_started_at": T0 + 0.03,
+        "injected_memories": [{"memory_id": "m3",
+                               "provenance_event": "e3"}]})
+    measured = stress.measures(user, outcome, [integration],
+                               locus="replicated")
+    assert measured["probes"]["p9"]["late_covered"] == ["e1", "e2"]
+    assert measured["memories_missing_timing"] == ["w1"]
+
+
 # -- the orchestrator and the pre-flight ---------------------------------
 
 def stressed(**kwargs):
@@ -931,3 +1171,113 @@ def test_the_load_mode_runs_users_at_once_in_order():
     with patch.object(o, "run_single_trial", side_effect=trial):
         assert o._run_loaded(None, "kernel_shared") == list(range(8))
     assert peak[0] == 4
+
+
+def test_both_flood_levels_run_with_the_quota_on():
+    """STRESS_DIMENSIONS.md, flood10 and flood50, "The quota" (lines
+    487-492): the write quota "is off by default and on under the flood
+    levels", both of them; the pre-flight refuses either without it."""
+    for fault in ("flood10", "flood50"):
+        preflight(fault, enabled=True)
+        with pytest.raises(SystemExit):
+            preflight(fault)
+
+
+def test_at_n_agents_h_deviates_its_share_of_the_writers_and_consumer():
+    """STRESS_DIMENSIONS.md, Heterogeneity scales with N (lines 142-153,
+    182-185): d = round(H*N/3) of the N agents deviate, the consumer one
+    of them (it deviates at H = 2 as at every N)."""
+    o = stressed(agents=6, judge=False, heterogeneity=2, trials=6)
+    agents = tuple(agents_v1.WRITERS[6]) + ("assistant_agent",)
+    chosen = [o.trial_variants(i) for i in range(6)]
+    assert all(len(c) == round(2 * 6 / 3) for c in chosen)
+    assert chosen == [schedule_module.schedule_for(SEED, 2, i, agents)
+                      for i in range(6)]
+    assert any("assistant_agent" in c for c in chosen)
+
+
+@pytest.mark.parametrize("fault", ["wrong_user", "missing_metadata",
+                                   "flood10", "flood50"])
+def test_the_faulty_agent_is_taken_in_the_datasets_agent_order(fault):
+    """STRESS_DIMENSIONS.md, A faulty agent (lines 370-376): the
+    candidates are, for wrong_user and the floods, the writers with a
+    write event, for missing_metadata those and the consumer, "taken in
+    the dataset's agent order, rotated by a seeded offset per fault"."""
+    o = stressed(agents=6, judge=False, fault=fault, trials=5)
+    o.generator.run_id = "r1"
+    for i in range(5):
+        user = o.dataset.user_v2(i, "r1")
+        writing = {t["writer"] for t in user.sessions
+                   if any(e["type"] in history.WRITE_EVENTS
+                          for e in t["events"])}
+        candidates = [w for w in agents_v1.WRITERS[6] if w in writing]
+        if fault == "missing_metadata":
+            candidates.append("assistant_agent")
+        assert o.trial_fault(i, user)[0] == faults.faulty_agent(
+            o.fault_seed, fault, i, candidates)
+
+
+def stress_trial(tmp_path, **levels):
+    """One v2 trial through ``run_single_trial`` at the given stress
+    levels, its history run on a FakeLocus after 0.05 s: the
+    orchestrator, the TrialResult and the keywords the history got."""
+    from benchmarks.shared_memory import synth_v2
+    from tests.agents.test_history_v2 import USER_ID
+
+    path = tmp_path / "v2.jsonl"
+    synth_v2.generate(path, n=2)
+    o = stressed(dataset=str(path), trials=2, judge=False, **levels)
+    o.generator.run_id = "r1"
+    o._embed = False
+    o.preflight = {"pipeline": {"write_quota": {
+        "enabled": False, "max_writes": 4, "dedupe": True}}}
+    locus, seen = FakeLocus(), {}
+
+    def run_history_trial(user, variants=None, *, control=None,
+                          recency_session=True, **stress_kwargs):
+        seen.update(stress_kwargs)
+        time.sleep(0.05)
+        user = user.model_copy(update={"user_id": USER_ID})
+        return user, history.run_history(
+            user, locus, VariantRunner(None, "kernel"),
+            control=control), "kernel"
+
+    no_usage = {"backend_llm_tokens": None, "embedding_tokens": None}
+    pipeline = SimpleNamespace(run_history_trial=run_history_trial,
+                               method="kernel_shared")
+    with patch.object(run_evaluation, "read_backend_usage",
+                      return_value=no_usage):
+        result = o.run_single_trial(0, "kernel_shared", pipeline,
+                                    method="kernel_shared")
+    return o, result, seen
+
+
+def test_a_faulty_trial_records_its_agent_victim_and_stress(tmp_path):
+    """STRESS_DIMENSIONS.md, wrong_user (lines 379-385): the faulty
+    writer tags the next user's id; Harness (lines 604-608): TrialResult
+    records fault, faulty_agent, fault_victim and stress, the measures
+    per probe and per trial; Load mode (lines 331-336): throughput comes
+    from each trial's start and finish."""
+    o, result, seen = stress_trial(tmp_path, fault="wrong_user")
+    user = o.dataset.user_v2(0, "r1")
+    agent, victim = o.trial_fault(0, user)
+    assert agent and victim == o.dataset.user_v2(1, "r1").user_id
+    assert seen == {"fault": "wrong_user", "faulty_agent": agent,
+                    "victim_user_id": victim}
+    assert not result.failed
+    assert (result.fault, result.faulty_agent) == ("wrong_user", agent)
+    assert result.fault_victim == f"{victim}__kernel_shared"
+    measured = result.stress
+    assert measured["faulty_agent"] == agent
+    assert set(measured["probes"]) == {p["probe_id"] for p in user.probes}
+    assert measured["finished_at"] - measured["started_at"] >= 0.05
+    assert result.model_dump()["stress"] == measured
+
+
+def test_a_concurrent_trial_runs_its_history_concurrently(tmp_path):
+    """STRESS_DIMENSIONS.md, Concurrency (lines 228-250) and Harness
+    (line 599): --concurrency concurrent reaches the history, which
+    issues each write of a session as its own task."""
+    _, result, seen = stress_trial(tmp_path, concurrency="concurrent")
+    assert seen == {"concurrency": "concurrent"}
+    assert result.concurrency == "concurrent" and result.stress is not None

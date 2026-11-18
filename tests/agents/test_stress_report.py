@@ -4,6 +4,8 @@ H = 0, cross-user rows from the injected rows' provenance, and the
 concurrency and fault tables' counts, on hand-made trials."""
 import json
 
+import pytest
+
 from benchmarks.shared_memory import stress_report as report
 
 KINDS = report.JUDGE_FREE + ("integration",)
@@ -235,3 +237,177 @@ def test_a_pass_rate_prints_with_its_wilson_interval():
         f"3/4 [{rate['ci'][0]:.2f}, {rate['ci'][1]:.2f}]")
     assert 0 < rate["ci"][0] < 0.75 < rate["ci"][1] <= 1
     assert report._fmt(report._rate([])) == "-"
+
+
+def test_writes_without_row_count_the_failed_trials_too():
+    """``probe_rows`` (DEV_STATUS.md, Subtask 18, "After the runs"): each
+    write a backend stored nothing for is counted over every trial, the
+    failed included: a Mem0 write that stored nothing fails its trial by
+    the extraction check (BENCHMARK_V2.md, "Failures")."""
+    failed = trial(0, failed=True)
+    failed["sessions"] = [{"writer": "w", "events": [
+        {"event_id": "e1", "type": "add", "reported_ids": []}]}]
+    (row,) = report.probe_rows({("qwen", "native", "mem0", "n12h0"):
+                                [failed, trial(1)]})
+    assert (row["failed"], row["writes_without_row"]) == (1, 1)
+
+
+def test_the_across_n_comparison_leaves_out_a_user_with_a_failed_trial():
+    """``agent_count_rows`` (DEV_STATUS.md, Subtask 18, functional check:
+    "the users with a failed trial left out"): only users with a passing
+    trial at N = 3, 6 and 12 are compared."""
+    cells = {("qwen", "native", "mem0", f"n{n}h0"): [trial(0), trial(1)]
+             for n in (3, 6)}
+    cells[("qwen", "native", "mem0", "n12h0")] = [trial(0),
+                                                  trial(1, failed=True)]
+    (row,) = [r for r in report.agent_count_rows(cells)
+              if r["level"] == "H0 across N"]
+    assert row["users"] == 1
+    assert row["outcomes"] == row["same_outcomes"] == len(report.JUDGE_FREE)
+
+
+def test_h2_is_paired_with_h0_at_the_same_n():
+    """STRESS_DIMENSIONS.md, Agent count, "What is measured" (lines
+    204-206): each probe type "paired against the same user at H = 0 and
+    the same N"."""
+    cells = {("qwen", "kernel", "inhouse", c): [trial(0)]
+             for c in ("n6h0", "n12h0")}
+    cells[("qwen", "kernel", "inhouse", "n3h0")] = [
+        trial(0, {"recall": False})]
+    cells[("qwen", "kernel", "inhouse", "n3h2")] = [
+        trial(0, {"recall": False})]
+    (row,) = [r for r in report.agent_count_rows(cells)
+              if r["level"] == "N3 H2 vs H0"]
+    assert (row["recall"]["lost"], row["recall"]["same"]) == (0, 1)
+
+
+def concurrent_probe(**fields):
+    return dict({"writes_in_flight": [], "late_writes": [],
+                 "late_covered": [], "late_rows": 0, "uncovered_writes": [],
+                 "barrier_wait_ms": 3.0}, **fields)
+
+
+def test_the_concurrency_table_counts_the_passing_trials_probes():
+    """STRESS_DIMENSIONS.md, Concurrency, "What is measured" (lines
+    297-298): writes_in_flight are "writes issued before the probe that
+    had not completed when it was issued", late or not; a failed user's
+    probes are not scored (BENCHMARK_V2.md, "Failures")."""
+    in_flight = concurrent_probe(writes_in_flight=["e1"])
+    failed = concurrent_probe(writes_in_flight=["e2"], late_writes=["e2"],
+                              late_covered=["e2"], late_rows=1)
+    cells = {
+        ("qwen", "replicated", "inhouse", "n6h0"): [trial(0), trial(1)],
+        ("qwen", "replicated", "inhouse", "n6conc"): [
+            trial(0, stress={"probes": {"p": in_flight}}),
+            trial(1, failed=True, stress={"probes": {"p": failed}})],
+    }
+    (row,) = report.concurrency_rows(cells)
+    assert (row["probes"], row["with_writes_in_flight"],
+            row["with_late_writes"], row["late_writes"]) == (1, 1, 0, 0)
+
+
+def load_trial(index, started, finished, probes):
+    """A load-mode trial: its start and finish, and per probe
+    ``(latency_seconds, llm_ms, completion_tokens)``."""
+    t = trial(index, stress={
+        "started_at": started, "finished_at": finished,
+        "barrier_timeouts": 0,
+        "probes": {f"p{k}": {"latency_seconds": latency, "llm_ms": ms,
+                             "barrier_wait_ms": 1.0}
+                   for k, (latency, ms, _) in enumerate(probes)}})
+    t["probe_results"] = [
+        {"type": "recall", "passed": True, "diagnostics": {},
+         "token_usage": {"completion_tokens": tokens}}
+        for _, _, tokens in probes]
+    return t
+
+
+def test_the_load_table_gives_throughput_latency_and_ms_per_token():
+    """STRESS_DIMENSIONS.md, The load mode (lines 334-338): throughput
+    in users per minute, each probe's latency (p50 and p95) and the
+    stage times, and the cell's milliseconds per completion token."""
+    cells = {("qwen", "kernel", "inhouse", "n6load4"): [
+        load_trial(0, 0.0, 60.0, [(1, 100, 10), (2, 200, 10),
+                                  (3, 300, 10)]),
+        load_trial(1, 60.0, 120.0, [(4, 400, 10), (5, 500, 10)]),
+    ]}
+    (row,) = report.load_rows(cells)
+    assert (row["load"], row["users"]) == (4, 2)
+    assert row["users_per_minute"] == pytest.approx(1.0)  # 2 in 120 s
+    assert row["latency_p50_s"] == pytest.approx(3.0)
+    assert row["latency_p95_s"] == pytest.approx(4.8)
+    assert row["llm_ms_p95"] == pytest.approx(480.0)
+    assert row["ms_per_completion_token"] == pytest.approx(30.0)
+
+
+def test_flood_rows_in_block_are_averaged_over_the_cells_probes():
+    """STRESS_DIMENSIONS.md, flood10 and flood50, "Measured" (lines
+    527-528): flood_rows_in_block per probe, reported as its mean over
+    the cell's probes."""
+    stressed = {"probes": {"p1": {"flood_rows_in_block": 1},
+                           "p2": {"flood_rows_in_block": 3}}}
+    cells = {
+        ("qwen", "replicated", "inhouse", "n6h0"): [trial(0)],
+        ("qwen", "replicated", "inhouse", "n6flood10"): [
+            trial(0, stress=stressed)],
+    }
+    (row,) = report.fault_rows(cells)
+    assert row["flood_rows_in_block_per_probe"] == 2
+
+
+def test_the_checks_that_must_hold_read_kernel_cells_only():
+    """STRESS_DIMENSIONS.md, the checks that must hold (lines 633-640):
+    no covered late write, no misfiled row and the flood bound are the
+    kernel's; the agent-managed loci are predicted to break them."""
+    cells = {
+        ("qwen", "replicated", "inhouse", "n6conc"): [kernel_trial(
+            0, stress={"probes": {"p": {"late_covered": ["e1"]}},
+                       "barrier_timeouts": 0})],
+        ("qwen", "native", "inhouse", "n6wrong_user"): [kernel_trial(
+            0, stress={"misfiled_rows": 4}, faulty="w")],
+        ("qwen", "replicated", "inhouse", "n6flood10"): [kernel_trial(
+            0, stress={"flood_sessions_over_bound": 2}, faulty="w")],
+    }
+    assert [row["check"] for row in report.checks(cells)] == [
+        "every failed trial is a write the backend stored nothing for"]
+
+
+def test_the_quota_phases_keep_their_backend(tmp_path):
+    """STRESS_DIMENSIONS.md, Harness (lines 609-611): the report
+    tabulates per locus and backend; the kernel's quota phases are
+    ``kinh_q`` (in-house) and ``kmem0_q`` (Mem0)."""
+    for phase in ("kinh", "kinh_q", "kmem0", "kmem0_q"):
+        cell = "n6flood10" if phase.endswith("_q") else "n6h0"
+        path = tmp_path / "qwen" / phase / f"{cell}_kernel_shared"
+        path.mkdir(parents=True)
+        (path / "results_kernel_shared.json").write_text(json.dumps(
+            {"conditions": [{"trials": [trial(0)]}]}))
+    assert set(report.load(tmp_path)) == {
+        ("qwen", "kernel", backend, cell)
+        for backend in ("inhouse", "mem0")
+        for cell in ("n6h0", "n6flood10")}
+
+
+def test_every_judge_free_probe_type_has_its_pass_rate():
+    """BENCHMARK_V2.md, Scoring (lines 216-219): "Each probe type is
+    reported separately, as a pass rate"; the judge-free ones are
+    deletion, privacy, recall, recency and contradiction."""
+    kinds = ("deletion", "privacy", "recall", "recency", "contradiction")
+    t = {"trial_index": 0, "user_id": "u0", "failed": False,
+         "stress": {}, "judge_free": {},
+         "probe_results": [{"type": k, "passed": k != "privacy",
+                            "diagnostics": {}}
+                           for k in kinds + ("integration",)]}
+    (row,) = report.probe_rows({("qwen", "kernel", "inhouse", "n6h0"): [t]})
+    assert {k: (row[k]["k"], row[k]["n"]) for k in kinds} == {
+        k: (int(k != "privacy"), 1) for k in kinds}
+
+
+def test_the_across_n_check_is_in_house_only():
+    """STRESS_DIMENSIONS.md, the checks that must hold (lines 630-632):
+    "in-house at H = 0, every judge-free outcome is the same at N = 3, 6
+    and 12"; on Mem0 small differences are predicted (lines 165-170)."""
+    cells = {("qwen", "kernel", "mem0", f"n{n}h0"): [
+        trial(0, {"recall": n != 12}, block=str(n))] for n in (3, 6, 12)}
+    assert not [row for row in report.checks(cells)
+                if row["check"].startswith("in-house")]
