@@ -446,8 +446,10 @@ def test_an_agent_count_history_runs_writer_turns_and_lists_per_session():
     sessions = [l["after"] for l in outcome.listings
                 if l["after"].startswith("session")]
     assert sessions == [f"session {n}" for n in range(1, 7)]
-    # Each v2 session and the probes ran in a kernel session of their own.
-    assert locus.scopes.count(("open", user.user_id)) == 7
+    # Each v2 session, the probes and the decision items (revision 4)
+    # ran in a kernel session of their own.
+    assert len(user.decisions) == 2
+    assert locus.scopes.count(("open", user.user_id)) == 8
 
 
 class SlowWriter(FakeWriter):

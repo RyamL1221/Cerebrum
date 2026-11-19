@@ -1115,8 +1115,9 @@ def _probes(user, locus, runner, outcome, ids, recency_session) -> None:
 
 def _decisions(user, locus, runner, outcome, ids, recency_session) -> None:
     """The decision items (Amendment 10): after the probes, each a fresh
-    consumer turn of the probe session, in the dataset's order, writing
-    nothing (the probes' listing is taken after them)."""
+    consumer turn at the probe session's age, in the dataset's order,
+    in a kernel session of their own, writing nothing (the probes'
+    listing is taken after them)."""
     with _scope(locus, user.user_id):
         for item in user.decisions:
             agent = locus.consumer(user.user_id, item["decision_id"])
