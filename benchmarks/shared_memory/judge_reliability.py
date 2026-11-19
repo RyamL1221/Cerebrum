@@ -10,13 +10,16 @@
         --set .../calibration_v1.jsonl --judgments a.jsonl b.jsonl \\
         --md out.md --json out.json
     python -m benchmarks.shared_memory.judge_reliability directions \\
-        --run NAME ORIGINAL_ROOT --rejudged JUDGE:K:ROOT ... --md --json
+        --rejudged RUN:JUDGE:ROOT ... [--integration-only RUN ...] \\
+        --md out.md --json out.json
 
 ``build`` draws the calibration set from the judged runs, ``judge``
 judges it (resumable: a judgment already in ``--out`` is not made
 again), ``report`` computes each judge's reliability, the k rule and the
 judges' agreement, ``directions`` the two judges' agreement on the
-direction of every paired locus difference of a re-judged run.
+direction of every paired locus difference of a re-judged run (each
+root's judge at one k, the repeats its records name; a root that mixes
+two is refused).
 """
 import argparse
 import hashlib
@@ -35,6 +38,7 @@ import numpy as np
 
 from benchmarks.shared_memory.judge import (
     JUDGES,
+    PRIMARY_JUDGE,
     ClaudeJudge,
     HybridJudge,
     JudgeFailed,
@@ -238,7 +242,14 @@ def judge_set(items: List[dict], judge_name: str, repeats: int, out: Path,
     """Judge ``items`` (the first ``limit``) ``repeats`` times with the
     named judge, appending one row per judgment to ``out``; returns the
     judgments made. The primary judge's calls run through the kernel,
-    ``workers`` at a time; the second judge's go in one batch."""
+    ``workers`` at a time; the second judge's go in one batch.
+
+    Limit: the second judge's batch judges every repeat of an item that
+    lacks any, so resuming a run with some of an item's repeats on file
+    judges the others again and discards them, and their tokens are in
+    no row (``token_summary`` undercounts that run's calls and tokens).
+    The stored study was not resumed this way (its results were
+    collected with ``--batch-id``)."""
     items = items[:limit] if limit else items
     have = done_judgments(out)
     todo = [(item, r) for item in items for r in range(1, repeats + 1)
@@ -483,8 +494,7 @@ def reliability(rows: List[dict], repeats: int,
                     units, resamples),
                 "alpha_ordinal": statistics.mean(
                     v for v in (alpha(list(zip(a[s], b[s])), "ordinal")
-                                for s in range(0, a.shape[0],
-                                               max(1, a.shape[0] // 50)))
+                                for s in range(a.shape[0]))
                     if v is not None),
                 "exact": float((a == b).mean()),
                 "within_1": float((np.abs(a - b) <= 1).mean()),
@@ -544,16 +554,24 @@ def agreement(rows_a: List[dict], k_a: int, rows_b: List[dict], k_b: int,
     return out
 
 
+def judge_order(names: Iterable[str]) -> List[str]:
+    """The primary judge first, then the others by name: a pair's
+    offset is the later judge's score minus the earlier's, so second -
+    primary (METRICS.md, "Agreement between the judges")."""
+    return sorted(names, key=lambda n: (n != PRIMARY_JUDGE, n))
+
+
 def report(items: List[dict], judged: Dict[str, List[dict]],
            repeats: int, resamples: int = 2000) -> Dict[str, Any]:
-    """Every judge's reliability and k, and each pair's agreement."""
+    """Every judge's reliability and k, and each pair's agreement
+    (pairs in ``judge_order``: the offset is second - primary)."""
     out: Dict[str, Any] = {"items": len(items), "repeats": repeats,
                            "judges": {}, "agreement": {}}
     for name, rows in judged.items():
         stats = reliability(rows, repeats, resamples)
         out["judges"][name] = {"reliability": stats, "k": k_rule(stats),
                                "tokens": token_summary(rows)}
-    names = sorted(judged)
+    names = judge_order(judged)
     for a, b in itertools.combinations(names, 2):
         k_a = out["judges"][a]["k"] or max(K_VALUES)
         k_b = out["judges"][b]["k"] or max(K_VALUES)
@@ -603,9 +621,10 @@ def markdown(result: Dict[str, Any]) -> str:
                       f"{_f(t['completion_per_judgment'], 0)} per "
                       "judgment).", ""]
     for pair, a in result["agreement"].items():
+        first, second = pair.split(" vs ")
         lines += [f"## {pair}", "", f"At k = {a['k']}.", "",
                   "| dimension | units | alpha [95% CI] | Spearman | "
-                  "offset (2nd - 1st) [95% CI] | exact |",
+                  f"offset ({second} - {first}) [95% CI] | exact |",
                   "|---|---|---|---|---|---|"]
         for d in DIMENSIONS:
             r = a[d]
@@ -734,16 +753,33 @@ def direction_agreement(a: Dict[str, dict], b: Dict[str, dict]) -> dict:
                               for k in keys if k not in same]}
 
 
+def judged_k(cells, judge: str) -> Optional[int]:
+    """The k a re-judged run's judge was used at: the ``repeats`` of
+    its every record (None: no record). Two values in one run raise."""
+    ks = {record.get("repeats")
+          for trials in cells.values() for trial in trials.values()
+          for record in [(trial.get("judges") or {}).get(judge)] if record}
+    if len(ks) > 1:
+        raise ValueError(f"{judge} was used at more than one k in one "
+                         f"run: {sorted(ks, key=str)}")
+    return next(iter(ks), None)
+
+
 def directions_report(runs: Dict[str, Dict[str, Tuple[str, Path]]],
                       dimensions_of: Dict[str, Sequence[str]]) -> dict:
-    """``runs``: run name -> {judge: (judge, re-judged root)}."""
+    """``runs``: run name -> {judge: (judge, re-judged root)}. Each
+    run records the k each judge was used at (``judged_k``)."""
     out = {}
     for run, judged in runs.items():
-        per_judge = {judge: differences(load_run(root), judge,
+        loaded = {judge: load_run(root)
+                  for judge, (_, root) in judged.items()}
+        per_judge = {judge: differences(cells, judge,
                                         dimensions_of.get(run, DIMENSIONS))
-                     for judge, (_, root) in judged.items()}
-        names = sorted(per_judge)
-        out[run] = {"differences": per_judge, "agreement": {
+                     for judge, cells in loaded.items()}
+        names = judge_order(per_judge)
+        out[run] = {"k": {judge: judged_k(loaded[judge], judge)
+                          for judge in names},
+                    "differences": per_judge, "agreement": {
             f"{x} vs {y}": direction_agreement(per_judge[x], per_judge[y])
             for x, y in itertools.combinations(names, 2)}}
     return out
@@ -753,7 +789,10 @@ def directions_markdown(result: dict) -> str:
     lines = ["# Direction agreement", ""]
     for run, r in result.items():
         lines += [f"## {run}", ""]
-        judges = sorted(r["differences"])
+        judges = judge_order(r["differences"])
+        if r.get("k"):
+            lines += ["k: " + ", ".join(f"{j} {r['k'][j]}" for j in judges
+                                        if j in r["k"]) + ".", ""]
         keys = sorted(set().union(*(r["differences"][j] for j in judges)))
         if keys:
             lines += ["| difference | " + " | ".join(

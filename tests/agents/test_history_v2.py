@@ -804,7 +804,9 @@ def test_a_v2_trial_mirrors_the_integration_probe_and_judges_it(tmp_path):
     assert kwargs["query"] == trial.follow_up_query
     assert kwargs["profile"] == trial.synthetic_profile
     assert trial.input_sha256 and trial.user_id == USER_ID
-    assert trial.token_usage.total_tokens == 6 * 15
+    # The six probes and the two decision turns (Amendment 10).
+    assert len(trial.decision_results) == 2
+    assert trial.token_usage.total_tokens == 8 * 15
 
 
 def test_a_v2_trial_records_the_earlier_statements_rows(tmp_path):

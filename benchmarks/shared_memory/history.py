@@ -1117,7 +1117,10 @@ def _decisions(user, locus, runner, outcome, ids, recency_session) -> None:
     """The decision items (Amendment 10): after the probes, each a fresh
     consumer turn at the probe session's age, in the dataset's order,
     in a kernel session of their own, writing nothing (the probes'
-    listing is taken after them)."""
+    listing is taken after them). A turn's error (a consumer that
+    raised included) is recorded on the turn, which is then not
+    scored; it never fails the user, whose probes are measured
+    without the items."""
     with _scope(locus, user.user_id):
         for item in user.decisions:
             agent = locus.consumer(user.user_id, item["decision_id"])
@@ -1127,14 +1130,14 @@ def _decisions(user, locus, runner, outcome, ids, recency_session) -> None:
             try:
                 result = runner.run(CONSUMER, agent, item["question"])
             except Exception as error:
+                logger.warning("Decision item %s raised",
+                               item["decision_id"], exc_info=True)
                 turn.latency_seconds = time.perf_counter() - started
+                turn.completed_at = time.time()
                 turn.error = f"consumer raised {_described(error)}"
-                outcome.decision_turns.append(turn)
-                raise
-            _finish_turn(turn, result, ids, recency_session, started)
+            else:
+                _finish_turn(turn, result, ids, recency_session, started)
             outcome.decision_turns.append(turn)
-            if turn.error:
-                raise LocusFailure(f"{item['decision_id']}: {turn.error}")
 
 
 def _in_session(token: Optional[str], call: Callable, *args):

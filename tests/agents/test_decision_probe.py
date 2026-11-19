@@ -243,6 +243,44 @@ def test_the_history_asks_the_items_after_the_probes(records):
     assert results[0].diagnostics is not None
 
 
+def test_a_decision_turns_error_is_recorded_and_fails_nothing(records):
+    """An item whose consumer raises and one whose answer is empty: both
+    turns are recorded with their errors, unscored, and the user does
+    not fail (its probes are measured as without the items)."""
+    record = records[0]
+    user = V2UserData(
+        index=0, user_id="u0__native_inhouse",
+        profile=record["final"]["profile"],
+        task_context=record["final"]["task_context"],
+        follow_up_query=record["base"]["follow_up_query"],
+        sessions=record["sessions"], probes=record["probes"],
+        decisions=record["decisions"])
+    first, second = record["decisions"]
+    locus = managed("native",
+                    answer=lambda q: "" if q == second["question"]
+                    else "an answer")
+    consumer = locus.agents[history.CONSUMER]
+    real = consumer.run
+
+    def run_turn(question):
+        if question == first["question"]:
+            raise RuntimeError("search failed")
+        return real(question)
+    consumer.run = run_turn
+    _, outcome = run(locus, user)
+    assert outcome.failure is None
+    assert len(outcome.turns) == len(record["probes"])
+    assert all(t.error is None for t in outcome.turns)
+    assert outcome.listings[-1]["after"] == "probes"
+    raised, empty = outcome.decision_turns
+    assert raised.error == "consumer raised RuntimeError: search failed"
+    assert empty.error == "consumer returned an empty answer"
+    results = history.score_decisions(outcome)
+    assert [r.turn_error for r in results] == [raised.error, empty.error]
+    assert [r.passed for r in results] == [None, None]
+    assert decision_summary(results)["n"] == 0
+
+
 def decided(index, errors, echo=False, failed=False):
     """A trial with one decision result per entry of ``errors`` (None:
     correct), d1 first."""
@@ -302,3 +340,61 @@ def test_the_v2_analysis_reports_decisions_and_the_criteria():
                        ba.decision_rows(cells), ba.decision_criteria(cells))
     assert "## Decision probe (Amendment 10)" in text
     assert "### Functional criteria D1-D5" in text
+    # Each error as its count and share of the items scored; a turn
+    # error is counted apart, and not scored.
+    assert native["foreign_share"] == pytest.approx(1 / 4)
+    assert "| 1 (0.25) |" in text
+    errored = cell(decided(0, [None, None]))
+    errored["trials"][0]["decision_results"][1].update(
+        passed=None, turn_error="consumer returned an empty answer")
+    (row,) = ba.decision_rows({("qwen", "kernel", "inhouse", "h0"): errored})
+    assert (row["items"], row["correct"], row["turn_errors"]) == (1, 1, 1)
+
+
+def test_a_v2_trials_cost_counts_its_decision_turns(tmp_path, records):
+    """A v2 trial's assistant tokens and latency are its probe turns'
+    and its decision turns', the scope of its backend and embedding
+    usage (the kernel's /memory/cost read takes the user's every
+    call)."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from benchmarks.shared_memory import run_evaluation
+    from benchmarks.shared_memory.pipeline import VariantRunner
+    from tests.agents.test_history_v2 import USER_ID, FakeLocus, orchestrator
+
+    path = tmp_path / "v2.jsonl"
+    synth_v2.generate(path, n=1)
+    o = orchestrator(dataset=str(path))
+    o.generator.run_id = "r1"
+    o._embed = False
+    o.judge = MagicMock()
+    o.judge.evaluate.return_value = SimpleNamespace(
+        profile_usage_score=4, task_usage_score=3, integration_score=5,
+        judge_attempts=1)
+    locus = FakeLocus()
+
+    def run_history_trial(user, variants=None, *, control=None,
+                          recency_session=True):
+        user = user.model_copy(update={
+            "user_id": USER_ID, "decisions": records[0]["decisions"]})
+        outcome = history.run_history(
+            user, locus, VariantRunner(None, "kernel"), control=control)
+        outcome.backend_extraction = False
+        return user, outcome, "kernel"
+
+    pipeline = SimpleNamespace(run_history_trial=run_history_trial)
+    with patch.object(run_evaluation, "read_backend_usage",
+                      return_value={"backend_llm_tokens": None,
+                                    "embedding_tokens": None}):
+        trial = o.run_single_trial(0, "kernel_shared", pipeline,
+                                   method="kernel_shared")
+    assert trial.failed is False, trial.error_message
+    assert len(trial.probe_results) == 6
+    assert len(trial.decision_results) == 2
+    assert trial.token_usage.calls == 8
+    assert trial.token_usage.total_tokens == 8 * 15
+    turns = [*trial.probe_results, *trial.decision_results]
+    assert trial.latency_seconds == pytest.approx(
+        sum(t.latency_seconds for t in turns))
+    assert all(d.latency_seconds > 0 for d in trial.decision_results)

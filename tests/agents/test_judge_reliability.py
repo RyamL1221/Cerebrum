@@ -250,6 +250,23 @@ def test_agreement_at_each_judges_own_k():
     assert 0 < out["alpha"] < 1
 
 
+def test_the_report_puts_the_primary_judge_first():
+    """report() pairs the primary judge first, so the offset is second
+    - primary (METRICS.md): here the second judge scores 1 higher."""
+    primary = rows(np.array([[2, 2, 2]] * 6 + [[3, 3, 3]] * 6), "gpt-5.4")
+    second = rows(np.array([[3, 3, 3]] * 6 + [[4, 4, 4]] * 6),
+                  "claude-sonnet-5.5")
+    out = jr.report([{}] * 12, {"claude-sonnet-5.5": second,
+                                "gpt-5.4": primary}, 3, resamples=20)
+    (pair,) = out["agreement"]
+    assert pair == "gpt-5.4 vs claude-sonnet-5.5"
+    assert out["agreement"][pair]["profile"]["offset"]["mean"] == \
+        pytest.approx(1.0)
+    text = jr.markdown(out)
+    assert "offset (claude-sonnet-5.5 - gpt-5.4)" in text
+    assert jr.judge_order(["b", "gpt-5.4", "a"]) == ["gpt-5.4", "a", "b"]
+
+
 def rejudged(index, method, locus, value, judge="g"):
     return {"trial_index": index, "method": method, "locus": locus,
             "judges": {judge: {"llm": {"profile": value, "task": value,
@@ -321,3 +338,45 @@ def test_the_pilot_verdict_reads_the_chosen_score():
     bad = {k: {0: {**trial, "profile_usage_score": 1}}
            for k in cells}
     assert pa.keyword_consistency(bad)["inconsistent"] == 1
+
+
+def test_the_ordinal_median_alpha_is_the_mean_over_every_split():
+    """METRICS.md: the median-of-k estimate is the mean over the
+    disjoint splits, every one of them (here 280 at k = 3 of 8)."""
+    rng = np.random.default_rng(3)
+    truth = rng.integers(1, 6, size=(30, 1))
+    matrix = np.clip(truth + rng.integers(-1, 2, size=(30, 8)), 1, 5)
+    out = jr.reliability(rows(matrix), 8, resamples=10)["profile"]
+    a, b = jr.split_medians(matrix.astype(float), 3)
+    assert a.shape[0] == 280
+    every = [jr.alpha(list(zip(a[s], b[s])), "ordinal")
+             for s in range(a.shape[0])]
+    assert out["median_of_k"][3]["alpha_ordinal"] == pytest.approx(
+        float(np.mean(every)), abs=1e-12)
+
+
+def test_directions_record_each_judges_k_and_refuse_a_mixed_run(tmp_path):
+    """Each re-judged root's judge was used at one k (its records'
+    repeats), recorded and printed; a root mixing two ks is refused."""
+    def trial(i, locus, method, repeats):
+        t = rejudged(i, method, locus, 4, "gpt-5.4")
+        t["judges"]["gpt-5.4"]["repeats"] = repeats
+        return t
+
+    files = {
+        "qwen/kinh/h0_kernel_shared/results_kernel_shared.json": [
+            trial(i, "kernel", "kernel_shared", 3) for i in range(2)],
+        "qwen/agent/h0_replicated_inhouse/results_r.json": [
+            trial(i, "replicated", "replicated_inhouse", 3)
+            for i in range(2)]}
+    write_run(tmp_path / "k3", files)
+    out = jr.directions_report(
+        {"run": {"gpt-5.4": ("gpt-5.4", tmp_path / "k3")}}, {})
+    assert out["run"]["k"] == {"gpt-5.4": 3}
+    assert "k: gpt-5.4 3." in jr.directions_markdown(out)
+    files["qwen/agent/h0_replicated_inhouse/results_r.json"][1][
+        "judges"]["gpt-5.4"]["repeats"] = 1
+    write_run(tmp_path / "mixed", files)
+    with pytest.raises(ValueError, match="more than one k"):
+        jr.directions_report(
+            {"run": {"gpt-5.4": ("gpt-5.4", tmp_path / "mixed")}}, {})

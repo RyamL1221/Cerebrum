@@ -1466,10 +1466,14 @@ class EvaluationOrchestrator:
             profile_usage_score=scores.profile_usage_score,
             task_usage_score=scores.task_usage_score,
             integration_score=scores.integration_score,
+            # The probe and decision turns: the scope of the backend and
+            # embedding usage above (Amendment 10).
             token_usage=TokenUsage.of_calls(
-                [r.token_usage for r in results],
+                [r.token_usage for r in
+                 (*results, *common["decision_results"])],
                 model_name(self.assistant_llms)),
-            latency_seconds=sum(r.latency_seconds or 0.0 for r in results),
+            latency_seconds=sum(r.latency_seconds or 0.0 for r in
+                                (*results, *common["decision_results"])),
             decoding=(outcome.turns[0].result or {}).get("decoding")
             if outcome.turns else None,
             scorer=SCORER if scores is not UNJUDGED else None,

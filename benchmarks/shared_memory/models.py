@@ -481,7 +481,8 @@ class DecisionResult(BaseModel):
     Amendment 10; ``metrics.score_decision``): the item, the answer, the
     letter named, whether it passed, the error kind, which options'
     values the turn's block held, and the turn's diagnostics, tokens,
-    latency and error (a turn that failed the user is not scored)."""
+    latency and error (a turn with an error is not scored and fails
+    nothing)."""
 
     decision_id: str
     question: str
@@ -520,7 +521,10 @@ class TrialResult(BaseModel):
     injection_diagnostics: Optional[InjectionDiagnostics] = None
     written_memories: List[WrittenMemoryRecord] = []
     # Cost (Subtask 7). The assistant's call, the writers' extraction
-    # calls, and the memory backend's own LLM and embedding calls.
+    # calls, and the memory backend's own LLM and embedding calls. A v2
+    # trial's ``token_usage`` and ``latency_seconds`` are its probe
+    # turns' and its decision turns' (Amendment 10), the scope of its
+    # backend and embedding usage.
     token_usage: TokenUsage = TokenUsage()
     writer_tokens: TokenUsage = TokenUsage()
     backend_llm_tokens: TokenUsage = TokenUsage()

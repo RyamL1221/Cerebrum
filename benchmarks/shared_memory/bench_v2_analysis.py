@@ -1120,7 +1120,8 @@ READING_SECTIONS = [
 # -- the decision probe (Amendment 10) -------------------------------------------
 
 DECISION_KEYS = ["items", "correct", "accuracy", "ci_low", "ci_high",
-                 *DECISION_ERRORS, "echo_d1", "echo_d1_revoked"]
+                 *DECISION_ERRORS, "turn_errors", "echo_d1",
+                 "echo_d1_revoked"]
 
 
 def _echo_user(trial: dict) -> bool:
@@ -1134,9 +1135,10 @@ def _echo_user(trial: dict) -> bool:
 def decision_rows(cells: Dict[tuple, dict]) -> List[dict]:
     """Per cell with decision items: items scored (of trials that did
     not fail, without a turn error), correct, accuracy with its 95%
-    Wilson interval, the count of each error, and, for echo users'
-    ``d1`` items, how many there are and how many picked the revoked
-    option."""
+    Wilson interval, the count of each error and its share of the
+    items scored (``<error>_share``), the items with a turn error
+    (recorded, not scored), and, for echo users' ``d1`` items, how many
+    there are and how many picked the revoked option."""
     rows = []
     for key, cell in sorted(cells.items()):
         trials = [t for t in cell["trials"] if not t.get("failed")]
@@ -1155,10 +1157,24 @@ def decision_rows(cells: Dict[tuple, dict]) -> List[dict]:
                      "accuracy": summary["accuracy"],
                      "ci_low": ci[0], "ci_high": ci[1],
                      **{e: summary[e]["k"] for e in DECISION_ERRORS},
+                     **{f"{e}_share": summary[e]["share"]
+                        for e in DECISION_ERRORS},
+                     "turn_errors": sum(1 for r in items
+                                        if r.get("turn_error")),
                      "echo_d1": len(echo_d1),
                      "echo_d1_revoked": sum(1 for r in echo_d1
                                             if r.get("error") == "revoked")})
     return rows
+
+
+def _with_shares(row: dict) -> dict:
+    """A decision row for the table: each error as "k (share)"."""
+    out = dict(row)
+    for e in DECISION_ERRORS:
+        share = row.get(f"{e}_share")
+        out[e] = (f"{row[e]} ({share:.2f})" if share is not None
+                  else row.get(e))
+    return out
 
 
 def _pooled(rows: List[dict], pred) -> dict:
@@ -1313,10 +1329,13 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
         out += ["## Decision probe (Amendment 10)", "",
                 "Two items per user, four options each (chance 0.25), "
                 "scored exactly from the letter named. Accuracy with its "
-                "95% Wilson interval; each error's count; `echo_d1`, "
-                "echo users' d1 items, and how many picked the revoked "
+                "95% Wilson interval; each error as its count and (its "
+                "share of the items scored); `turn_errors`, items with a "
+                "turn error (recorded, not scored); `echo_d1`, echo "
+                "users' d1 items, and how many picked the revoked "
                 "option.", "",
-                table(decisions, CELL_KEYS + DECISION_KEYS), "",
+                table([_with_shares(r) for r in decisions],
+                      CELL_KEYS + DECISION_KEYS), "",
                 "### Functional criteria D1-D5", "",
                 table(decision_checks or [],
                       ["criterion", "holds", "evidence"]), ""]
