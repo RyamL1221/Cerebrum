@@ -265,9 +265,9 @@ def paired(ablated: List[dict], full: List[dict], value) -> dict:
 
 def confirmed(row: dict) -> Optional[bool]:
     """A predicted direction confirmed: the interval excludes 0 on its
-    side (a constant difference over two or more users has no interval
-    and counts by its sign). None for a reported measure, or fewer
-    than two pairs, which test nothing."""
+    side (a constant difference over two or more users has a
+    zero-width interval, so it counts by its sign). None for a reported
+    measure, or fewer than two pairs, which test nothing."""
     if not row["direction"] or row["diff"] is None or row.get("n", 0) < 2:
         return None
     ci = row["ci"] or [row["diff"], row["diff"]]
