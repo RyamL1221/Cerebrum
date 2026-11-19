@@ -227,6 +227,45 @@ def test_a_v2_run_refuses_a_kernel_url_its_agents_do_not_use(monkeypatch):
 
 # -- Subtask 19: the kernel's ablation switches ----------------------------
 
+@pytest.mark.parametrize("flags, ablation, control", [
+    ([], {}, None),
+    (["--ablate", "barrier"], {"barrier": "off"}, None),
+    (["--control", "no_delete"], {"forget_scope": "none"}, "no_delete"),
+    (["--ablate", "quota", "--control", "writer_scoped"],
+     {"quota": "off", "forget_scope": "writer"}, "writer_scoped"),
+])
+def test_a_v2_runs_preflight_checks_its_ablation_and_aliased_control(
+        monkeypatch, flags, ablation, control):
+    """``main`` gives the pre-flight the run's ablation: its ``--ablate``
+    switches and the ones an aliased ``--control`` means, so an ablated
+    or control cell refuses a kernel that does not run them (AIOS
+    docs/ABLATION.md)."""
+    checked = {}
+
+    def check_v2_settings(kernel_url, method, **kwargs):
+        checked.update(kwargs)
+        raise SystemExit("pre-flight reached")
+
+    monkeypatch.setattr(run_evaluation.config, "get_kernel_url",
+                        lambda: "http://localhost:8000")
+    monkeypatch.setattr(run_evaluation, "check_kernel_provider",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(run_evaluation, "check_kernel_mode",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(run_evaluation, "check_v2_settings",
+                        check_v2_settings)
+    monkeypatch.setattr("sys.argv", [
+        "run_evaluation", "--dataset", "pilot_v2", "--trials", "1",
+        "--method", "kernel_shared", "--provider", "in-house",
+        "--no-judge", *flags,
+    ])
+    with patch.object(run_evaluation.requests, "get",
+                      side_effect=AssertionError("no kernel call")):
+        with pytest.raises(SystemExit, match="pre-flight reached"):
+            run_evaluation.main()
+    assert checked["ablation"] == ablation
+    assert checked["control"] == control
+
 @pytest.mark.parametrize("method", KERNEL_METHODS + REPLICATED_METHODS
                          + NATIVE_METHODS)
 def test_the_kernel_must_run_the_runs_ablation(method):

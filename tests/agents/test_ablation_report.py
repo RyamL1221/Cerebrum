@@ -2,7 +2,10 @@
 19, AIOS docs/ABLATION.md, "Analysis"), on cells written as AIOS
 ``scripts/run_ablation.sh`` lays them out."""
 import json
+import math
 import re
+import tarfile
+from pathlib import Path
 
 import pytest
 
@@ -259,3 +262,103 @@ def test_the_deletion_outcome_is_split_by_echo_user(tmp_path):
     other = rows["deletion failed, other users"]
     assert (echo["n"], echo["full"], echo["ablated"]) == (2, 0.0, 1.0)
     assert (other["n"], other["ablated"]) == (3, 0.0)
+
+
+
+# Each rule at the edge the recorded runs do not reach (ABLATION.md,
+# "Functional check"): (switch, cells as (phase, condition, trials), held).
+EDGES = [
+    # One covered late write is enough.
+    ("barrier", [("kinh", "n6conc", [trial(0, stress=late(0))]),
+                 ("kinh_barrier", "n6conc", [trial(0, stress=late(1))])],
+     True),
+    # Misfiled rows without a cross-user row in a block do not hold.
+    ("identity", [("kinh", "n6wrong_user", [trial(0)]),
+                  ("kinh_identity", "n6wrong_user",
+                   [trial(0, stress={"misfiled_rows": 2})])], False),
+    # A privacy failure without its value in the block (the answer
+    # alone) is not the switch's.
+    ("visibility", [("kinh", "n6v3", [trial(0)]),
+                    ("kinh_visibility", "n6v3", [trial(0, probes=[
+                        probe("privacy", passed=False,
+                              forbidden_in_block=False)])])], False),
+    # An echo user failing deletion with no carrier left does not hold.
+    ("forget_scope", [("kinh_forget_scope", "n6h0", [
+        trial(i, probes=[probe("deletion", passed=i not in (0, 4))])
+        for i in range(5)])], False),
+    # A quota that still rejects is not off.
+    ("quota", [("kinh", "n6flood10", [trial(0, stress={
+                    "probes": {"p": {"flood_rows_in_block": 1}},
+                    "quota_rejected": {"flood": 9}})]),
+               ("kinh_quota", "n6flood10", [trial(0, stress={
+                   "probes": {"p": {"flood_rows_in_block": 6}},
+                   "quota_rejected": {"flood": 1}})])], False),
+]
+
+
+@pytest.mark.parametrize("switch, cells, held", EDGES,
+                         ids=[e[0] for e in EDGES])
+def test_each_functional_rule_at_its_edge(tmp_path, switch, cells, held):
+    for phase, condition, trials in cells:
+        write(tmp_path, phase, condition, trials)
+    (check,) = [c for c in report.functional_checks(report.load(tmp_path))
+                if c["switch"] == switch]
+    assert check["held"] is held, check
+
+
+def test_a_mem0_kernel_phase_is_the_mem0_backend(tmp_path):
+    write(tmp_path, "kmem0", "n6conc", [trial(0)])
+    write(tmp_path, "kmem0_barrier", "n6conc", [trial(0)])
+    assert set(report.load(tmp_path)) == {
+        ("qwen", "mem0", None, "n6conc", "kernel_shared"),
+        ("qwen", "mem0", "barrier", "n6conc", "kernel_shared"),
+    }
+
+
+def test_after_threshold_and_after_cap_are_read_apart():
+    """Once the cap binds (V4's k of 5 over 8 candidates) the two
+    differ."""
+    t = {"probe_results": [{"diagnostics": {"after_threshold": 8,
+                                            "after_cap": 5}}]}
+    assert (report.after_threshold(t), report.after_cap(t)) == (8, 5)
+
+# -- the recorded runs ---------------------------------------------------------
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ablation_runs"
+RESULTS = Path(__file__).resolve().parents[2] / "results"
+
+
+def same(a, b) -> bool:
+    """``a`` equals ``b``, floats to a relative 1e-9: the JSON keeps
+    every digit of an interval, and the last ones move with numpy's and
+    scipy's versions (the Markdown and the figure print them rounded)."""
+    if isinstance(a, float) or isinstance(b, float):
+        return (isinstance(a, (int, float)) and isinstance(b, (int, float))
+                and math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(map(same, a, b))
+    return a == b
+
+
+@pytest.mark.parametrize("run", ["ablation_functional_f19b",
+                                 "ablation_smoke_s19"])
+def test_the_report_reproduces_the_recorded_analyses(tmp_path, run):
+    """The functional check's and the smoke's records, trimmed to the
+    fields the report reads (``fixtures/ablation_runs/make_fixtures.py``),
+    give the table, the JSON and the figure committed with each run:
+    every reported number, interval and verdict."""
+    with tarfile.open(FIXTURES / f"{run}.tar.xz") as archive:
+        archive.extractall(tmp_path, **(
+            {"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
+    out = tmp_path / "out"
+    out.mkdir()
+    report.main([str(tmp_path / run), "--md", str(out / "analysis.md"),
+                 "--json", str(out / "analysis.json"),
+                 "--svg", str(out / "contribution.svg")])
+    for name in ("analysis.md", "contribution.svg"):
+        assert (out / name).read_text() == (RESULTS / run / name).read_text(), \
+            name
+    assert same(json.loads((out / "analysis.json").read_text()),
+                json.loads((RESULTS / run / "analysis.json").read_text()))
