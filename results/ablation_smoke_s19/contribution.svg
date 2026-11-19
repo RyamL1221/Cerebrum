@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="viz-root" width="900" height="402" viewBox="0 0 900 402" role="img" aria-label="What each kernel component is worth">
+<style>
+.viz-root { --surface-1: #fcfcfb; --text-primary: #0b0b0b;
+  --text-secondary: #52514e; --grid: #e4e3df; --series-1: #2a78d6; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    --surface-1: #1a1a19; --text-primary: #f0efec;
+    --text-secondary: #c3c2b7; --grid: #3a3a37; --series-1: #3987e5; }
+}
+:root[data-theme="dark"] .viz-root { --surface-1: #1a1a19;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --grid: #3a3a37;
+  --series-1: #3987e5; }
+.viz-root text { font-family: -apple-system, "Helvetica Neue", Arial,
+  sans-serif; }
+.label { font-size: 13px; fill: var(--text-primary); }
+.sub { font-size: 11px; fill: var(--text-secondary); }
+.value { font-size: 12px; fill: var(--text-primary);
+  font-variant-numeric: tabular-nums; }
+.title { font-size: 15px; font-weight: 600; fill: var(--text-primary); }
+.zero { stroke: var(--text-secondary); stroke-width: 1; }
+.track { stroke: var(--grid); stroke-width: 1; }
+.bar { fill: var(--series-1); }
+.whisker { stroke: var(--text-primary); stroke-width: 2;
+  stroke-linecap: round; }
+</style>
+<rect width="900" height="402" fill="var(--surface-1)"/>
+<text class="title" x="16" y="24">What each kernel component is worth</text>
+<text class="sub" x="16" y="42">Paired difference, component removed minus full kernel (95% interval); each row on its own axis</text>
+<text class="label" x="16" y="75.0">barrier: off</text>
+<text class="sub" x="16" y="91.0">covered late writes per user (n6conc, n 30)</text>
+<line class="track" x1="330" x2="630" y1="79.0" y2="79.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="67.0" y2="91.0"/>
+<g><title>barrier: off, covered late writes per user (n6conc): full 0.00, ablated 18.10, difference +18.10 [+16.37, +19.83]</title><rect x="330" y="58.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,73.0 H595.5 Q599.5,73.0 599.5,77.0 V81.0 Q599.5,85.0 595.5,85.0 H480.0 Z"/>
+<line class="whisker" x1="588.1" x2="610.9" y1="79.0" y2="79.0"/><line class="whisker" x1="588.1" x2="588.1" y1="74.0" y2="84.0"/><line class="whisker" x1="610.9" x2="610.9" y1="74.0" y2="84.0"/>
+</g>
+<text class="value" x="642" y="83.0">+18.10 [+16.37, +19.83]</text>
+<text class="label" x="16" y="121.0">identity: claim</text>
+<text class="sub" x="16" y="137.0">misfiled rows per user (n6wrong_user, n 30)</text>
+<line class="track" x1="330" x2="630" y1="125.0" y2="125.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="113.0" y2="137.0"/>
+<g><title>identity: claim, misfiled rows per user (n6wrong_user): full 0.00, ablated 4.03, difference +4.03 [+3.22, +4.85]</title><rect x="330" y="104.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,119.0 H584.8 Q588.8,119.0 588.8,123.0 V127.0 Q588.8,131.0 584.8,131.0 H480.0 Z"/>
+<line class="whisker" x1="566.8" x2="610.9" y1="125.0" y2="125.0"/><line class="whisker" x1="566.8" x2="566.8" y1="120.0" y2="130.0"/><line class="whisker" x1="610.9" x2="610.9" y1="120.0" y2="130.0"/>
+</g>
+<text class="value" x="642" y="129.0">+4.03 [+3.22, +4.85]</text>
+<text class="label" x="16" y="167.0">forget_scope: writer</text>
+<text class="sub" x="16" y="183.0">carriers left per user (n6h0, n 30)</text>
+<line class="track" x1="330" x2="630" y1="171.0" y2="171.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="159.0" y2="183.0"/>
+<g><title>forget_scope: writer, carriers left per user (n6h0): full 0.00, ablated 0.67, difference +0.67 [+0.31, +1.02]</title><rect x="330" y="150.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,165.0 H561.2 Q565.2,165.0 565.2,169.0 V173.0 Q565.2,177.0 561.2,177.0 H480.0 Z"/>
+<line class="whisker" x1="519.4" x2="610.9" y1="171.0" y2="171.0"/><line class="whisker" x1="519.4" x2="519.4" y1="166.0" y2="176.0"/><line class="whisker" x1="610.9" x2="610.9" y1="166.0" y2="176.0"/>
+</g>
+<text class="value" x="642" y="175.0">+0.67 [+0.31, +1.02]</text>
+<text class="label" x="16" y="213.0">quota: off</text>
+<text class="sub" x="16" y="229.0">flood rows in the block per probe (n6flood10, n 30)</text>
+<line class="track" x1="330" x2="630" y1="217.0" y2="217.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="205.0" y2="229.0"/>
+<g><title>quota: off, flood rows in the block per probe (n6flood10): full 1.71, ablated 6.43, difference +4.72 [+4.10, +5.34]</title><rect x="330" y="196.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,211.0 H591.7 Q595.7,211.0 595.7,215.0 V219.0 Q595.7,223.0 591.7,223.0 H480.0 Z"/>
+<line class="whisker" x1="580.5" x2="610.9" y1="217.0" y2="217.0"/><line class="whisker" x1="580.5" x2="580.5" y1="212.0" y2="222.0"/><line class="whisker" x1="610.9" x2="610.9" y1="212.0" y2="222.0"/>
+</g>
+<text class="value" x="642" y="221.0">+4.72 [+4.10, +5.34]</text>
+<text class="label" x="16" y="259.0">quota: off</text>
+<text class="sub" x="16" y="275.0">profile facts in the block (n6flood10, n 30)</text>
+<line class="track" x1="330" x2="630" y1="263.0" y2="263.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="251.0" y2="275.0"/>
+<g><title>quota: off, profile facts in the block (n6flood10): full 1.00, ablated 0.77, difference -0.23 [-0.38, -0.07]</title><rect x="330" y="242.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,257.0 H406.5 Q402.5,257.0 402.5,261.0 V265.0 Q402.5,269.0 406.5,269.0 H480.0 Z"/>
+<line class="whisker" x1="349.1" x2="456.0" y1="263.0" y2="263.0"/><line class="whisker" x1="349.1" x2="349.1" y1="258.0" y2="268.0"/><line class="whisker" x1="456.0" x2="456.0" y1="258.0" y2="268.0"/>
+</g>
+<text class="value" x="642" y="267.0">-0.23 [-0.38, -0.07]</text>
+<text class="label" x="16" y="305.0">quota: off</text>
+<text class="sub" x="16" y="321.0">flood rows in the block per probe (n6flood50, n 30)</text>
+<line class="track" x1="330" x2="630" y1="309.0" y2="309.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="297.0" y2="321.0"/>
+<g><title>quota: off, flood rows in the block per probe (n6flood50): full 1.82, ablated 10.03, difference +8.21 [+7.50, +8.92]</title><rect x="330" y="288.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,303.0 H596.5 Q600.5,303.0 600.5,307.0 V311.0 Q600.5,315.0 596.5,315.0 H480.0 Z"/>
+<line class="whisker" x1="590.1" x2="610.9" y1="309.0" y2="309.0"/><line class="whisker" x1="590.1" x2="590.1" y1="304.0" y2="314.0"/><line class="whisker" x1="610.9" x2="610.9" y1="304.0" y2="314.0"/>
+</g>
+<text class="value" x="642" y="313.0">+8.21 [+7.50, +8.92]</text>
+<text class="label" x="16" y="351.0">quota: off</text>
+<text class="sub" x="16" y="367.0">profile facts in the block (n6flood50, n 30)</text>
+<line class="track" x1="330" x2="630" y1="355.0" y2="355.0"/>
+<line class="zero" x1="480.0" x2="480.0" y1="343.0" y2="367.0"/>
+<g><title>quota: off, profile facts in the block (n6flood50): full 1.00, ablated 0.47, difference -0.53 [-0.72, -0.34]</title><rect x="330" y="334.0" width="300" height="42" fill="transparent"/>
+<path class="bar" d="M480.0,349.0 H387.5 Q383.5,349.0 383.5,353.0 V357.0 Q383.5,361.0 387.5,361.0 H480.0 Z"/>
+<line class="whisker" x1="349.1" x2="417.8" y1="355.0" y2="355.0"/><line class="whisker" x1="349.1" x2="349.1" y1="350.0" y2="360.0"/><line class="whisker" x1="417.8" x2="417.8" y1="350.0" y2="360.0"/>
+</g>
+<text class="value" x="642" y="359.0">-0.53 [-0.72, -0.34]</text>
+</svg>

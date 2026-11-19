@@ -1,0 +1,747 @@
+{
+  "rows": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "covered late writes per user",
+      "primary": true,
+      "direction": 1,
+      "n": 30,
+      "full": 0.0,
+      "ablated": 18.1,
+      "diff": 18.1,
+      "ci": [
+        16.37247904208915,
+        19.827520957910853
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "stale reads per user",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 0.0,
+      "ablated": 0.23333333333333334,
+      "diff": 0.23333333333333334,
+      "ci": [
+        -0.0004421772969608051,
+        0.4671088439636275
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "timing misses per user",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 0.0,
+      "ablated": 0.1,
+      "diff": 0.1,
+      "ci": [
+        -0.013936883013668952,
+        0.21393688301366898
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 0,
+      "n": 30,
+      "full": 0.8666666666666667,
+      "ablated": 0.7666666666666667,
+      "diff": -0.1,
+      "ci": [
+        -0.2503250583594583,
+        0.0503250583594583
+      ],
+      "confirmed": null
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6wrong_user",
+      "measure": "misfiled rows per user",
+      "primary": true,
+      "direction": 1,
+      "n": 30,
+      "full": 0.0,
+      "ablated": 4.033333333333333,
+      "diff": 4.033333333333333,
+      "ci": [
+        3.215927425333927,
+        4.8507392413327395
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6wrong_user",
+      "measure": "cross-user rows in the blocks",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 0.0,
+      "ablated": 12.233333333333333,
+      "diff": 12.233333333333333,
+      "ci": [
+        8.42824913200131,
+        16.038417534665356
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6wrong_user",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 0.8666666666666667,
+      "ablated": 1.5333333333333334,
+      "diff": 0.6666666666666666,
+      "ci": [
+        0.48763212754172514,
+        0.8457012057916081
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "value": "writer",
+      "condition": "n6h0",
+      "measure": "carriers left per user",
+      "primary": true,
+      "direction": 1,
+      "n": 30,
+      "full": 0.0,
+      "ablated": 0.6666666666666666,
+      "diff": 0.6666666666666666,
+      "ci": [
+        0.30859758841678364,
+        1.0247357449165495
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "value": "writer",
+      "condition": "n6h0",
+      "measure": "deletion failed, echo users",
+      "primary": false,
+      "direction": 1,
+      "n": 10,
+      "full": 0.1,
+      "ablated": 1.0,
+      "diff": 0.9,
+      "ci": [
+        0.6737842837201795,
+        1.1262157162798205
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "value": "writer",
+      "condition": "n6h0",
+      "measure": "deletion failed, other users",
+      "primary": false,
+      "direction": 0,
+      "n": 20,
+      "full": 0.0,
+      "ablated": 0.0,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": null
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "flood rows in the block per probe",
+      "primary": true,
+      "direction": 1,
+      "n": 30,
+      "full": 1.711111111111111,
+      "ablated": 6.433333333333334,
+      "diff": 4.722222222222222,
+      "ci": [
+        4.100666030205379,
+        5.343778414239066
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "profile facts in the block",
+      "primary": true,
+      "direction": -1,
+      "n": 30,
+      "full": 1.0,
+      "ablated": 0.7722222222222223,
+      "diff": -0.22777777777777777,
+      "ci": [
+        -0.38495077563630586,
+        -0.07060477991924968
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 0.8333333333333334,
+      "ablated": 1.4666666666666666,
+      "diff": 0.6333333333333333,
+      "ci": [
+        0.31583083460616695,
+        0.9508358320604997
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "flood writes accepted",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 3.1333333333333333,
+      "ablated": 17.666666666666668,
+      "diff": 14.533333333333333,
+      "ci": [
+        12.875740334242003,
+        16.190926332424663
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "flood rows in the block per probe",
+      "primary": true,
+      "direction": 1,
+      "n": 30,
+      "full": 1.8166666666666667,
+      "ablated": 10.027777777777779,
+      "diff": 8.21111111111111,
+      "ci": [
+        7.500790339322549,
+        8.921431882899675
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "profile facts in the block",
+      "primary": true,
+      "direction": -1,
+      "n": 30,
+      "full": 1.0,
+      "ablated": 0.4722222222222222,
+      "diff": -0.5277777777777778,
+      "ci": [
+        -0.7156100489713386,
+        -0.339945506584217
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 0.8333333333333334,
+      "ablated": 1.9,
+      "diff": 1.0666666666666667,
+      "ci": [
+        0.6752396741962043,
+        1.458093659137129
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "flood writes accepted",
+      "primary": false,
+      "direction": 1,
+      "n": 30,
+      "full": 3.2666666666666666,
+      "ablated": 88.33333333333333,
+      "diff": 85.06666666666666,
+      "ci": [
+        77.09413983343231,
+        93.03919349990102
+      ],
+      "confirmed": true
+    }
+  ],
+  "outcomes": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "condition": "n6conc",
+      "deletion": {
+        "lost": 2,
+        "gained": 0,
+        "same": 28,
+        "p": 0.5
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 3,
+        "gained": 0,
+        "same": 27,
+        "p": 0.25
+      },
+      "contradiction": {
+        "lost": 3,
+        "gained": 0,
+        "same": 27,
+        "p": 0.25
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 9,
+        "gained": 0,
+        "same": 21,
+        "p": 0.00390625
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6wrong_user",
+      "deletion": {
+        "lost": 1,
+        "gained": 1,
+        "same": 28,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 1,
+        "gained": 0,
+        "same": 29,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 5,
+        "gained": 0,
+        "same": 25,
+        "p": 0.0625
+      },
+      "recency": {
+        "lost": 6,
+        "gained": 0,
+        "same": 24,
+        "p": 0.03125
+      },
+      "contradiction": {
+        "lost": 6,
+        "gained": 0,
+        "same": 24,
+        "p": 0.03125
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 29,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 29,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 30,
+        "p": 1.0
+      }
+    }
+  ],
+  "functional_checks": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "rule": "a covered late write; the full kernel none",
+      "held": true,
+      "seen": "543 ablated, 0 full"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "rule": "wrong_user: misfiled rows and a cross-user row; the full kernel neither",
+      "held": true,
+      "seen": "121 misfiled and 367 cross-user rows ablated, 0 full"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "rule": "echo users keep a carrier and fail deletion; the others pass",
+      "held": true,
+      "seen": "echo users [0, 4, 8, 9, 13, 17, 18, 22, 26, 27]: carriers [2, 2, 2, 2, 2, 2, 2, 2, 2, 2], deletion failed [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]; others failed [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "rule": "n6flood10: no quota rejection, more flood rows in the blocks than the full kernel's",
+      "held": true,
+      "seen": "0 rejected; 193.0 vs 51.3 flood rows per probe, summed over users"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "rule": "n6flood50: no quota rejection, more flood rows in the blocks than the full kernel's",
+      "held": true,
+      "seen": "0 rejected; 300.8 vs 54.5 flood rows per probe, summed over users"
+    }
+  ],
+  "smoke_checks": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "condition": "n6conc",
+      "measure": "covered late writes per user",
+      "held": true,
+      "seen": "+18.10 [+16.37, +19.83]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6wrong_user",
+      "measure": "misfiled rows per user",
+      "held": true,
+      "seen": "+4.03 [+3.22, +4.85]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "condition": "n6h0",
+      "measure": "carriers left per user",
+      "held": true,
+      "seen": "+0.67 [+0.31, +1.02]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "measure": "flood rows in the block per probe",
+      "held": true,
+      "seen": "+4.72 [+4.10, +5.34]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "measure": "profile facts in the block",
+      "held": true,
+      "seen": "-0.23 [-0.38, -0.07]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "measure": "flood rows in the block per probe",
+      "held": true,
+      "seen": "+8.21 [+7.50, +8.92]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "measure": "profile facts in the block",
+      "held": true,
+      "seen": "-0.53 [-0.72, -0.34]"
+    }
+  ],
+  "record_checks": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6conc",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6flood10",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6flood50",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6wrong_user",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "condition": "n6conc",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6wrong_user",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "method": "kernel_shared",
+      "trials": 30,
+      "succeeded": 30,
+      "wrong_record": [],
+      "held": true
+    }
+  ]
+}

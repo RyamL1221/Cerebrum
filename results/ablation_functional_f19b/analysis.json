@@ -1,0 +1,1635 @@
+{
+  "rows": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "covered late writes per user",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 17.0,
+      "diff": 17.0,
+      "ci": [
+        11.04518865605188,
+        22.95481134394812
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "stale reads per user",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 0.0,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "timing misses per user",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 0.0,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "value": "off",
+      "condition": "n6conc",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 0,
+      "n": 5,
+      "full": 0.6,
+      "ablated": 0.6,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": null
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6wrong_user",
+      "measure": "misfiled rows per user",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 5.4,
+      "diff": 5.4,
+      "ci": [
+        2.045208615073345,
+        8.754791384926655
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6wrong_user",
+      "measure": "cross-user rows in the blocks",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 17.6,
+      "diff": 17.6,
+      "ci": [
+        -1.4262472112979196,
+        36.62624721129792
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6wrong_user",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.6,
+      "ablated": 1.4,
+      "diff": 0.8,
+      "ci": [
+        0.24471097896044147,
+        1.3552890210395585
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6v2",
+      "measure": "profile facts in the block",
+      "primary": true,
+      "direction": -1,
+      "n": 5,
+      "full": 1.0,
+      "ablated": 0.03333333333333333,
+      "diff": -0.9666666666666667,
+      "ci": [
+        -1.0592148368399263,
+        -0.8741184964934068
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "value": "claim",
+      "condition": "n6v2",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.6,
+      "ablated": 1.4,
+      "diff": 0.8,
+      "ci": [
+        0.24471097896044147,
+        1.3552890210395585
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "visibility",
+      "value": "off",
+      "condition": "n6v3",
+      "measure": "privacy probe failed",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 1.0,
+      "diff": 1.0,
+      "ci": [
+        1.0,
+        1.0
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "visibility",
+      "value": "off",
+      "condition": "n6v3",
+      "measure": "private rows from others",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 0.8,
+      "diff": 0.8,
+      "ci": [
+        0.24471097896044147,
+        1.3552890210395585
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "value": "off",
+      "condition": "n6h0",
+      "measure": "stale value in the recency and contradiction blocks",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 2.0,
+      "diff": 2.0,
+      "ci": [
+        2.0,
+        2.0
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "value": "off",
+      "condition": "n6h0",
+      "measure": "recency failed",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 1.0,
+      "diff": 1.0,
+      "ci": [
+        1.0,
+        1.0
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "value": "off",
+      "condition": "n6h0",
+      "measure": "contradiction failed",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 0.4,
+      "diff": 0.4,
+      "ci": [
+        -0.28008738065825556,
+        1.0800873806582556
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "value": "writer",
+      "condition": "n6h0",
+      "measure": "carriers left per user",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 0.0,
+      "ablated": 0.8,
+      "diff": 0.8,
+      "ci": [
+        -0.5601747613165111,
+        2.160174761316511
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "value": "writer",
+      "condition": "n6h0",
+      "measure": "deletion failed, echo users",
+      "primary": false,
+      "direction": 1,
+      "n": 2,
+      "full": 0.5,
+      "ablated": 1.0,
+      "diff": 0.5,
+      "ci": [
+        -5.853102368087347,
+        6.853102368087347
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "value": "writer",
+      "condition": "n6h0",
+      "measure": "deletion failed, other users",
+      "primary": false,
+      "direction": 0,
+      "n": 3,
+      "full": 0.0,
+      "ablated": 0.0,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": null
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "flood rows in the block per probe",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 1.3,
+      "ablated": 6.5,
+      "diff": 5.2,
+      "ci": [
+        3.229136792063727,
+        7.170863207936273
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "profile facts in the block",
+      "primary": true,
+      "direction": -1,
+      "n": 5,
+      "full": 1.0,
+      "ablated": 1.0,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.8,
+      "ablated": 1.6,
+      "diff": 0.8,
+      "ci": [
+        -0.5601747613165111,
+        2.160174761316511
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood10",
+      "measure": "flood writes accepted",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 1.8,
+      "ablated": 18.0,
+      "diff": 16.2,
+      "ci": [
+        9.665024352083673,
+        22.734975647916325
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "flood rows in the block per probe",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 1.3,
+      "ablated": 9.833333333333334,
+      "diff": 8.533333333333333,
+      "ci": [
+        5.918130990065935,
+        11.148535676600732
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "profile facts in the block",
+      "primary": true,
+      "direction": -1,
+      "n": 5,
+      "full": 1.0,
+      "ablated": 0.6333333333333333,
+      "diff": -0.3666666666666667,
+      "ci": [
+        -0.9943588961161461,
+        0.26102556278281275
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.8,
+      "ablated": 1.8,
+      "diff": 1.0,
+      "ci": [
+        -0.24166399820376405,
+        2.241663998203764
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "value": "off",
+      "condition": "n6flood50",
+      "measure": "flood writes accepted",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 1.8,
+      "ablated": 90.0,
+      "diff": 88.2,
+      "ci": [
+        59.56894052127517,
+        116.83105947872484
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_format",
+      "value": "legacy",
+      "condition": "n6h0",
+      "measure": "block tokens per probe",
+      "primary": true,
+      "direction": 0,
+      "n": 5,
+      "full": 259.3666666666667,
+      "ablated": 262.8,
+      "diff": 3.433333333333343,
+      "ci": [
+        -21.34452727232763,
+        28.211193938994317
+      ],
+      "confirmed": null
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_order",
+      "value": "similarity",
+      "condition": "n6h0",
+      "measure": "block tokens per probe",
+      "primary": true,
+      "direction": 0,
+      "n": 5,
+      "full": 259.3666666666667,
+      "ablated": 259.3666666666667,
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "confirmed": null
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "budget",
+      "value": "off",
+      "condition": "n6h0",
+      "measure": "block tokens per probe",
+      "primary": true,
+      "direction": 1,
+      "n": 5,
+      "full": 259.3666666666667,
+      "ablated": 332.2,
+      "diff": 72.83333333333334,
+      "ci": [
+        19.203685012342362,
+        126.46298165432432
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "budget",
+      "value": "off",
+      "condition": "n6h0",
+      "measure": "probes the budget bound",
+      "primary": false,
+      "direction": -1,
+      "n": 5,
+      "full": 4.8,
+      "ablated": 0.0,
+      "diff": -4.8,
+      "ci": [
+        -8.131734126237351,
+        -1.4682658737626477
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "threshold",
+      "value": 0.3,
+      "condition": "n6h0",
+      "measure": "candidates after the threshold per probe",
+      "primary": true,
+      "direction": -1,
+      "n": 5,
+      "full": 13.6,
+      "ablated": 13.333333333333334,
+      "diff": -0.2666666666666668,
+      "ci": [
+        -0.3800145634430435,
+        -0.15331876989029003
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "threshold",
+      "value": 0.3,
+      "condition": "n6h0",
+      "measure": "block tokens per probe",
+      "primary": false,
+      "direction": -1,
+      "n": 5,
+      "full": 259.3666666666667,
+      "ablated": 258.9,
+      "diff": -0.4666666666666629,
+      "ci": [
+        -1.7623410490922895,
+        0.8290077157589636
+      ],
+      "confirmed": false
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "value": "honor",
+      "condition": "n6v4",
+      "measure": "candidates after the threshold per probe",
+      "primary": true,
+      "direction": -1,
+      "n": 5,
+      "full": 13.6,
+      "ablated": 1.2333333333333334,
+      "diff": -12.366666666666667,
+      "ci": [
+        -14.649625749473834,
+        -10.083707583859496
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "value": "honor",
+      "condition": "n6v4",
+      "measure": "rows after the cap per probe",
+      "primary": false,
+      "direction": -1,
+      "n": 5,
+      "full": 13.6,
+      "ablated": 1.2333333333333334,
+      "diff": -12.366666666666667,
+      "ci": [
+        -14.649625749473834,
+        -10.083707583859496
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "value": "honor",
+      "condition": "n6v4",
+      "measure": "block tokens per probe",
+      "primary": false,
+      "direction": -1,
+      "n": 5,
+      "full": 259.3666666666667,
+      "ablated": 27.4,
+      "diff": -231.96666666666667,
+      "ci": [
+        -245.66051250004205,
+        -218.27282083329123
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "value": "honor",
+      "condition": "n6v4",
+      "measure": "profile facts in the block",
+      "primary": false,
+      "direction": -1,
+      "n": 5,
+      "full": 1.0,
+      "ablated": 0.0,
+      "diff": -1.0,
+      "ci": [
+        -1.0,
+        -1.0
+      ],
+      "confirmed": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "value": "honor",
+      "condition": "n6v4",
+      "measure": "memories_missing",
+      "primary": false,
+      "direction": 1,
+      "n": 5,
+      "full": 0.6,
+      "ablated": 4.2,
+      "diff": 3.6,
+      "ci": [
+        2.9199126193417446,
+        4.280087380658256
+      ],
+      "confirmed": true
+    }
+  ],
+  "outcomes": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "condition": "n6conc",
+      "deletion": {
+        "lost": 1,
+        "gained": 1,
+        "same": 3,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_format",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_order",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "budget",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "condition": "n6v4",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 1,
+        "gained": 0,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6v2",
+      "deletion": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 2,
+        "gained": 0,
+        "same": 3,
+        "p": 0.5
+      },
+      "recency": {
+        "lost": 1,
+        "gained": 0,
+        "same": 4,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 1,
+        "gained": 0,
+        "same": 4,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6wrong_user",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 1,
+        "gained": 0,
+        "same": 4,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 5,
+        "gained": 0,
+        "same": 0,
+        "p": 0.0625
+      },
+      "contradiction": {
+        "lost": 2,
+        "gained": 0,
+        "same": 3,
+        "p": 0.5
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "threshold",
+      "condition": "n6h0",
+      "deletion": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "visibility",
+      "condition": "n6v3",
+      "deletion": {
+        "lost": 0,
+        "gained": 1,
+        "same": 4,
+        "p": 1.0
+      },
+      "privacy": {
+        "lost": 5,
+        "gained": 0,
+        "same": 0,
+        "p": 0.0625
+      },
+      "recall": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "recency": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      },
+      "contradiction": {
+        "lost": 0,
+        "gained": 0,
+        "same": 5,
+        "p": 1.0
+      }
+    }
+  ],
+  "functional_checks": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "rule": "a covered late write; the full kernel none",
+      "held": true,
+      "seen": "85 ablated, 0 full"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "rule": "wrong_user: misfiled rows and a cross-user row; the full kernel neither",
+      "held": true,
+      "seen": "27 misfiled and 88 cross-user rows ablated, 0 full"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "rule": "V2: profile facts in the block 0 for every user",
+      "held": false,
+      "seen": "[0.0, 0.0, 0.16666666666666666, 0.0, 0.0]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "visibility",
+      "rule": "a privacy probe fails with its value in the block; the full kernel's never",
+      "held": true,
+      "seen": "5 of 5 ablated, 0 full"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "rule": "an earlier statement in every recency and contradiction block",
+      "held": true,
+      "seen": "10 of 10 blocks"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "rule": "echo users keep a carrier and fail deletion; the others pass",
+      "held": true,
+      "seen": "echo users [0, 4]: carriers [2, 2], deletion failed [1, 1]; others failed [0, 0, 0]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "rule": "n6flood10: no quota rejection, more flood rows in the blocks than the full kernel's",
+      "held": true,
+      "seen": "0 rejected; 32.5 vs 6.5 flood rows per probe, summed over users"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "rule": "n6flood50: no quota rejection, more flood rows in the blocks than the full kernel's",
+      "held": true,
+      "seen": "0 rejected; 49.2 vs 6.5 flood rows per probe, summed over users"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_format",
+      "rule": "the blocks differ from the full kernel's",
+      "held": true,
+      "seen": "30 of 30 probes differ"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_order",
+      "rule": "the blocks differ from the full kernel's",
+      "held": true,
+      "seen": "30 of 30 probes differ"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "budget",
+      "rule": "the budget binds in no probe",
+      "held": true,
+      "seen": "0 probes bound"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "threshold",
+      "rule": "after_threshold never above the full kernel's, probe by probe",
+      "held": true,
+      "seen": "probes above: []"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "rule": "the kernel's V4 block equals the replicated V4 block in every probe",
+      "held": true,
+      "seen": "30 of 30 probes equal"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "rule": "on the full kernel the V4 consumer's block equals the H = 0 block",
+      "held": true,
+      "seen": "30 of 30 probes equal"
+    }
+  ],
+  "smoke_checks": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "condition": "n6conc",
+      "measure": "covered late writes per user",
+      "held": true,
+      "seen": "+17.00 [+11.05, +22.95]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6wrong_user",
+      "measure": "misfiled rows per user",
+      "held": true,
+      "seen": "+5.40 [+2.05, +8.75]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6v2",
+      "measure": "profile facts in the block",
+      "held": true,
+      "seen": "-0.97 [-1.06, -0.87]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "visibility",
+      "condition": "n6v3",
+      "measure": "privacy probe failed",
+      "held": true,
+      "seen": "+1.00 [+1.00, +1.00]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "condition": "n6h0",
+      "measure": "stale value in the recency and contradiction blocks",
+      "held": true,
+      "seen": "+2.00 [+2.00, +2.00]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "condition": "n6h0",
+      "measure": "carriers left per user",
+      "held": false,
+      "seen": "+0.80 [-0.56, +2.16]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "measure": "flood rows in the block per probe",
+      "held": true,
+      "seen": "+5.20 [+3.23, +7.17]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "measure": "profile facts in the block",
+      "held": false,
+      "seen": "+0.00 [+0.00, +0.00]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "measure": "flood rows in the block per probe",
+      "held": true,
+      "seen": "+8.53 [+5.92, +11.15]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "measure": "profile facts in the block",
+      "held": false,
+      "seen": "-0.37 [-0.99, +0.26]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "budget",
+      "condition": "n6h0",
+      "measure": "block tokens per probe",
+      "held": true,
+      "seen": "+72.83 [+19.20, +126.46]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "threshold",
+      "condition": "n6h0",
+      "measure": "candidates after the threshold per probe",
+      "held": true,
+      "seen": "-0.27 [-0.38, -0.15]"
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "condition": "n6v4",
+      "measure": "candidates after the threshold per probe",
+      "held": true,
+      "seen": "-12.37 [-14.65, -10.08]"
+    }
+  ],
+  "record_checks": [
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6conc",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6flood10",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6flood50",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6v2",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6v3",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6v4",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "full",
+      "condition": "n6wrong_user",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "barrier",
+      "condition": "n6conc",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_format",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "block_order",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "budget",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "consumer_config",
+      "condition": "n6v4",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "forget_scope",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6v2",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "identity",
+      "condition": "n6wrong_user",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood10",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "quota",
+      "condition": "n6flood50",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "replicated",
+      "condition": "n6v4",
+      "method": "replicated_inhouse",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "supersession",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "threshold",
+      "condition": "n6h0",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    },
+    {
+      "model": "qwen",
+      "backend": "inhouse",
+      "switch": "visibility",
+      "condition": "n6v3",
+      "method": "kernel_shared",
+      "trials": 5,
+      "succeeded": 5,
+      "wrong_record": [],
+      "held": true
+    }
+  ]
+}
