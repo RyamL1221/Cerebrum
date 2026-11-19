@@ -62,6 +62,7 @@ Rules this module fixes where the spec leaves a choice:
 """
 import argparse
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -89,9 +90,12 @@ SEED = 20261108
 BASE_DATASET = "users_v1"
 FORMAT_VERSION = 2
 # Revision 2 (Amendment 2) adds the meaning checks, revision 3
-# (Amendment 3) the contradiction questions' balanced lean; a header
-# without a revision field is revision 1.
-REVISION = 3
+# (Amendment 3) the contradiction questions' balanced lean, revision 4
+# (Amendment 10) the decision items; a header without a revision field
+# is revision 1.
+REVISION = 4
+# The first revision with decision items.
+DECISION_REVISION = 4
 SESSIONS = 6
 PROBE_SESSION = SESSIONS + 1
 WRITERS = ("profile_agent", "task_agent", "calendar_agent")
@@ -1829,7 +1833,8 @@ def build_header(name: str, users: int, seed: int, model: Optional[str],
     """The file's first line (docs/BENCHMARK_V2.md, "File"). ``model``
     is the paraphrase model, None for template text. ``meta`` overrides
     ``harness_commit``, ``litellm_version`` or ``date``. ``reuse`` is
-    the reused file's ``{"sha256", "revision"}`` (Amendment 2)."""
+    the reused file's ``{"sha256", "revision"}`` (Amendment 2). The
+    decision items' rule (Amendment 10) is recorded as ``decisions``."""
     header = {
         "type": "header", "dataset": name,
         "format_version": FORMAT_VERSION, "revision": REVISION,
@@ -1853,6 +1858,7 @@ def build_header(name: str, users: int, seed: int, model: Optional[str],
         "litellm_version": _litellm_version(),
         "date": date.today().isoformat(),
         "pilot": dict(PILOT),
+        "decisions": dict(DECISIONS),
     }
     if reuse is not None:
         header["reuse"] = dict(reuse)
@@ -1997,12 +2003,48 @@ def generate(out: Path, n: int = 150, seed: int = SEED,
         reuse=None if source is None else {
             "sha256": source.sha256,
             "revision": revision_of(source.header)})
+    records = with_decisions([done[i] for i in range(n)], base.users, seed)
     tmp = out.with_name(out.name + ".tmp")
     with open(tmp, "w") as handle:
-        for record in [header] + [done[i] for i in range(n)]:
+        for record in [header] + records:
             handle.write(json.dumps(record) + "\n")
     os.replace(tmp, out)
     partial.unlink()
+    return header
+
+
+def revise(source: Path, out: Path, meta: Optional[dict] = None) -> dict:
+    """Revision 4 from a whole revision 3 file (Amendment 10): its
+    records unchanged, each given its decision items, and its header
+    updated (revision, generator, ``decisions``, and ``revised_from``,
+    the source's ``{"sha256", "revision"}``). No paraphrase call."""
+    source = Path(source)
+    text = source.read_text()
+    lines = [json.loads(line) for line in text.splitlines() if line.strip()]
+    old, users = lines[0], lines[1:]
+    if revision_of(old) != DECISION_REVISION - 1:
+        raise ValueError(f"{source} is revision {revision_of(old)}, not "
+                         f"{DECISION_REVISION - 1}")
+    if old.get("users") != len(users) or [u["index"] for u in users] != \
+            list(range(len(users))):
+        raise ValueError(f"{source} is not a whole file in index order")
+    seed = old.get("seed", SEED)
+    base = dataset_module.load(BASE_DATASET)
+    header = {**old, "revision": REVISION,
+              "generator_sha256": generator_sha256(),
+              "harness_commit": _harness_commit(),
+              "date": date.today().isoformat(),
+              "decisions": dict(DECISIONS),
+              "revised_from": {"sha256": hashlib.sha256(
+                  text.encode("utf-8")).hexdigest(),
+                  "revision": revision_of(old)}}
+    header.update(meta or {})
+    records = with_decisions(users, base.users, seed)
+    tmp = Path(out).with_name(Path(out).name + ".tmp")
+    with open(tmp, "w") as handle:
+        for record in [header] + records:
+            handle.write(json.dumps(record) + "\n")
+    os.replace(tmp, out)
     return header
 
 
@@ -2035,6 +2077,255 @@ def _build_parallel(todo, build, workers, keep) -> None:
         pool.shutdown(wait=True)
     if error is not None:
         raise error
+
+
+# ---------------------------------------------------------------------------
+# Decision items (Amendment 10, revision 4)
+# ---------------------------------------------------------------------------
+
+DECISION_ITEMS = 2
+DECISION_LETTERS = ("A", "B", "C", "D")
+DECISION_QUESTION = ("Based only on what you remember about me, which ONE "
+                     "of these statements about me is true right now?")
+DECISION_ANSWER = "Answer with the letter only."
+DECISION_SEED_RULE = ("random.Random(f'{seed}:{index}:decision:{n}'): n 0 "
+                      "for the foreign facts, n 1 and 2 for each item's "
+                      "option order")
+DECISION_KINDS = ("correct", "stale", "revoked", "private", "foreign")
+# The header's record of the items (validate_header compares it).
+DECISIONS = {"items": DECISION_ITEMS, "options": len(DECISION_LETTERS),
+             "question": DECISION_QUESTION, "answer": DECISION_ANSWER,
+             "seed_rule": DECISION_SEED_RULE}
+
+
+def neutral_statement(text: str) -> str:
+    """A private fact's statement without its privacy marker: the text
+    after the first ": ", capitalized ("Off the record: X is ..." gives
+    "X is ...")."""
+    _, sep, rest = text.partition(": ")
+    return rest[:1].upper() + rest[1:] if sep else text
+
+
+def _record_events(record: dict) -> List[Tuple[str, dict]]:
+    """(writer, event) for every event of a record, in script order."""
+    return [(s["writer"], e) for s in record["sessions"]
+            for e in s["events"]]
+
+
+def _species_of(record: dict) -> str:
+    """The user's pet species, from its pet event's text (the first one
+    when the user has none: no template of the item's slots names it)."""
+    for _, event in _record_events(record):
+        if event.get("slot") == "pet":
+            for species in SPECIES:
+                if re.search(rf"\b{species}\b", event.get("template") or ""):
+                    return species
+    return SPECIES[0]
+
+
+def _forms_of(entry: dict) -> List[str]:
+    return [entry["value"], *(entry.get("aliases") or [])]
+
+
+def _collides(entry: dict, values: Sequence[Entry]) -> bool:
+    return any(collide(form, other)
+               for form in _forms_of(entry)
+               for value, aliases in values for other in (value, *aliases))
+
+
+def foreign_candidates(previous: dict, record: dict) -> List[Tuple[str, dict]]:
+    """The previous user's facts a decision item may use as its foreign
+    option: add events of a role or filler slot that state a value no
+    later event changes, revokes or makes private, of a slot the user
+    never writes, whose value and aliases collide with none of the
+    user's. (writer, event), in script order."""
+    events = _record_events(previous)
+    targeted = {e.get("target_event") for _, e in events
+                if e.get("target_event")}
+    mine = [e for _, e in _record_events(record)]
+    mine_slots = {e.get("slot") for e in mine if e.get("slot")}
+    mine_values = script_values(mine)
+    out = []
+    for writer, event in events:
+        slot = SLOTS.get(event.get("slot") or "")
+        if (event["type"] != "add" or slot is None
+                or slot.kind not in ("role", "filler")
+                or event["event_id"] in targeted or event.get("echo_of")
+                or not event.get("value") or slot.name in mine_slots
+                or _collides(event, mine_values)):
+            continue
+        out.append((writer, event))
+    return out
+
+
+def _pool_option(record: dict, base_user: dict, used: set,
+                 rng: random.Random) -> dict:
+    """A foreign option from a pool, when the previous user has no fact
+    to give: a slot the user never writes (no species in its template),
+    a value of its pool colliding with none of the user's."""
+    mine = [e for _, e in _record_events(record)]
+    mine_slots = {e.get("slot") for e in mine if e.get("slot")}
+    mine_values = script_values(mine)
+    pools = user_pools(UserContext(base_user))
+    names = sorted(s.name for s in CATALOG
+                   if s.kind in ("role", "filler")
+                   and s.name not in mine_slots and s.name not in used
+                   and "{species}" not in s.add)
+    rng.shuffle(names)
+    for name in names:
+        slot = SLOTS[name]
+        entries = [e for e in pools.get(slot.pool, [])
+                   if not _collides(_value(e), mine_values)]
+        if entries:
+            entry = rng.choice(entries)
+            return {"kind": "foreign", "statement": slot.add.format(
+                        value=entry[0], species=SPECIES[0]),
+                    "slot": name, **_value(entry),
+                    "source": {"pool": slot.pool}}
+    raise ValueError(f"user {record['index']}: no foreign option")
+
+
+def _foreign_options(records: Sequence[dict], index: int,
+                     base_users: Sequence[dict], seed: int) -> List[dict]:
+    """The two items' foreign options: facts of two different writers
+    of the previous user where it has them (``foreign_candidates``),
+    else from a pool."""
+    record = records[index]
+    previous = records[(index - 1) % len(records)]
+    rng = random.Random(f"{seed}:{index}:decision:0")
+    by_writer: Dict[str, List[dict]] = {}
+    for writer, event in foreign_candidates(previous, record):
+        by_writer.setdefault(writer, []).append(event)
+    writers = sorted(by_writer)
+    rng.shuffle(writers)
+    chosen: List[dict] = []
+    options: List[dict] = []
+    for n in range(DECISION_ITEMS):
+        order = writers[n:] + writers[:n]
+        pick = None
+        for writer in order:
+            left = [e for e in by_writer[writer] if e not in chosen]
+            if left:
+                pick = rng.choice(left)
+                break
+        if pick is None:
+            options.append(_pool_option(
+                record, base_users[index],
+                {o["slot"] for o in options}, rng))
+            continue
+        chosen.append(pick)
+        options.append({"kind": "foreign", "statement": pick["template"],
+                        "slot": pick["slot"], "value": pick["value"],
+                        "aliases": list(pick.get("aliases") or []),
+                        "source": {"user": previous["index"],
+                                   "event": pick["event_id"]}})
+    return options
+
+
+def decision_items(records: Sequence[dict], index: int,
+                   base_users: Sequence[dict], seed: int = SEED
+                   ) -> List[dict]:
+    """User ``index``'s two decision items (Amendment 10), from the
+    records of the whole file (``records[i]`` is user i; the previous
+    user of user 0 is the file's last)."""
+    record = records[index]
+    probe = {p["type"]: p for p in record["probes"]}
+    species = _species_of(record)
+    recency, contradiction = probe["recency"], probe["contradiction"]
+    deletion, privacy = probe["deletion"], probe["privacy"]
+    r_slot, c_slot = SLOTS[recency["slot"]], SLOTS[contradiction["slot"]]
+
+    def option(kind, statement, slot, entry, event):
+        return {"kind": kind, "statement": statement, "slot": slot,
+                "value": entry["value"],
+                "aliases": list(entry.get("aliases") or []),
+                "source": {"user": index, "event": event}}
+
+    def fill(template, entry):
+        return template.format(value=entry["value"], species=species)
+
+    foreign = _foreign_options(records, index, base_users, seed)
+    contents = [
+        [option("correct", fill(r_slot.add, recency["expected"][0]),
+                r_slot.name, recency["expected"][0],
+                recency["target_event"]),
+         option("stale", fill(original_template(c_slot),
+                              contradiction["forbidden"][0]),
+                c_slot.name, contradiction["forbidden"][0],
+                contradiction["source_events"][0]),
+         option("revoked", deletion["fact_sentence"], deletion["slot"],
+                deletion["forbidden"][0], deletion["target_event"]),
+         foreign[0]],
+        [option("correct", fill(original_template(c_slot),
+                                contradiction["expected"][0]),
+                c_slot.name, contradiction["expected"][0],
+                contradiction["target_event"]),
+         option("stale", fill(r_slot.add, recency["forbidden"][0]),
+                r_slot.name, recency["forbidden"][0],
+                recency["source_events"][0]),
+         option("private", neutral_statement(privacy["fact_sentence"]),
+                privacy["slot"], privacy["forbidden"][0],
+                privacy["target_event"]),
+         foreign[1]],
+    ]
+    items = []
+    for n, options in enumerate(contents, 1):
+        order = list(range(len(options)))
+        random.Random(f"{seed}:{index}:decision:{n}").shuffle(order)
+        lettered = [{"letter": letter, **options[k]}
+                    for letter, k in zip(DECISION_LETTERS, order)]
+        question = "\n".join(
+            [DECISION_QUESTION, ""]
+            + [f"{o['letter']}) {o['statement']}" for o in lettered]
+            + ["", DECISION_ANSWER])
+        items.append({
+            "decision_id": f"u{index:03d}-d{n}",
+            "question": question,
+            "options": lettered,
+            "correct": next(o["letter"] for o in lettered
+                            if o["kind"] == "correct"),
+        })
+    return items
+
+
+def decision_problems(records: Sequence[dict], base_users: Sequence[dict],
+                      seed: int = SEED,
+                      only: Optional[set] = None) -> List[str]:
+    """Every record's ``decisions`` (of the users in ``only``, else
+    all) must be the items the rule gives, with four distinct
+    statements whose values collide with each other in no form."""
+    problems = []
+    for record in records:
+        if only is not None and record["index"] not in only:
+            continue
+        i = record["index"]
+        try:
+            want = decision_items(records, i, base_users, seed)
+        except (KeyError, IndexError, ValueError) as error:
+            problems.append(f"user {i}: decision items: {error}")
+            continue
+        if record.get("decisions") != want:
+            problems.append(f"user {i}: decisions differ from the rule")
+        for item in want:
+            statements = [o["statement"] for o in item["options"]]
+            if len(set(statements)) != len(statements):
+                problems.append(f"{item['decision_id']}: two options "
+                                "state the same thing")
+            for a, b in itertools.combinations(item["options"], 2):
+                if any(collide(x, y) for x in _forms_of(a)
+                       for y in _forms_of(b)):
+                    problems.append(
+                        f"{item['decision_id']}: the {a['kind']} and "
+                        f"{b['kind']} values collide")
+    return problems
+
+
+def with_decisions(records: Sequence[dict], base_users: Sequence[dict],
+                   seed: int = SEED) -> List[dict]:
+    """The records, each with its ``decisions`` (revision 4)."""
+    return [{**record, "decisions": decision_items(
+        records, record["index"], base_users, seed)}
+        for record in records]
 
 
 # ---------------------------------------------------------------------------
@@ -2511,6 +2802,19 @@ def validate_header(header: dict, users: int, limited: bool) -> List[str]:
             and 1 <= reuse["revision"] <= revision):
         problems.append(f"header reuse is {reuse!r}, not a sha256 and a "
                         f"revision up to {revision}")
+    if revision >= DECISION_REVISION and header.get("decisions") != DECISIONS:
+        problems.append(f"header decisions is {header.get('decisions')!r}")
+    if revision < DECISION_REVISION and "decisions" in header:
+        problems.append(f"a revision {revision} header has decisions")
+    revised = header.get("revised_from")
+    if revised is not None and not (
+            isinstance(revised, dict)
+            and set(revised) == {"sha256", "revision"}
+            and isinstance(revised["sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", revised["sha256"])
+            and revised["revision"] == revision - 1):
+        problems.append(f"header revised_from is {revised!r}, not a "
+                        f"sha256 and revision {revision - 1}")
     paraphrase = header.get("paraphrase") or {}
     if paraphrase.get("seed_rule") != PARAPHRASE_SEED_RULE:
         problems.append("header paraphrase seed_rule differs")
@@ -2628,9 +2932,23 @@ def check(spec: str, reproduce: bool = True) -> dict:
         problems.extend(validate_user(record, base.users[record["index"]],
                                       seed, reproduce=reproduce))
     problems.extend(lean_assignment_problems(ds.users))
+    if revision_of(ds.header) >= DECISION_REVISION:
+        # Each item draws on the previous user, so the whole file.
+        whole = [json.loads(line) for line in
+                 Path(ds.path).read_text().splitlines()[1:]
+                 if line.strip()]
+        problems.extend(decision_problems(
+            whole, base.users, seed, only={r["index"] for r in ds.users}))
+    else:
+        problems.extend(f"user {r['index']}: decisions in a revision "
+                        f"{revision_of(ds.header)} file"
+                        for r in ds.users if "decisions" in r)
     summary = {**ds.describe(), "format_version": ds.version,
                "revision": revision_of(ds.header),
                "reuse": ds.header.get("reuse"),
+               "revised_from": ds.header.get("revised_from"),
+               "decision_items": sum(len(r.get("decisions") or [])
+                                     for r in ds.users),
                **summarize(ds.users)}
     summary["generator_sha256_matches"] = (
         ds.header.get("generator_sha256") == generator_sha256())
@@ -2661,6 +2979,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     gen.add_argument("--reuse", type=Path, default=None,
                      help="an earlier revision (a path or a name) whose "
                           "utterances that pass every check are kept")
+    rev = sub.add_parser(
+        "revise", help="revision 4 from a whole revision 3 file: the "
+                       "decision items added, nothing else changed")
+    rev.add_argument("--source", type=Path, required=True)
+    rev.add_argument("--out", type=Path, required=True)
     chk = sub.add_parser("check", help="validate a v2 dataset")
     chk.add_argument("dataset", help="users_v2, pilot_v2 or a path")
     args = parser.parse_args(argv)
@@ -2669,6 +2992,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                      "--no-paraphrase")
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
+    if args.command == "revise":
+        print(json.dumps(revise(args.source, args.out), indent=2))
+        return 0
     if args.command == "generate":
         paraphraser = (None if args.no_paraphrase
                        else LiteLLMParaphraser(args.model))

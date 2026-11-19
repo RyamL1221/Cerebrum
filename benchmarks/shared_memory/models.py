@@ -121,6 +121,19 @@ class JudgeScores(BaseModel):
     integration_reasoning: Optional[str] = None
     # LLM judge calls the scores took (HybridJudge.evaluate).
     judge_attempts: Optional[int] = None
+    # One LLM judge call (Subtask 20, METRICS.md "Recording"): its
+    # model, when it was made (UTC ISO), and its tokens
+    # (``prompt_tokens`` / ``completion_tokens``).
+    model: Optional[str] = None
+    judged_at: Optional[str] = None
+    token_usage: Optional[Dict[str, Any]] = None
+    # A batched call (the second judge): its batch and when the batch
+    # was submitted; ``judged_at`` is then when the batch ended.
+    batch_id: Optional[str] = None
+    submitted_at: Optional[str] = None
+    # HybridJudge.evaluate's full record of a judged answer: every
+    # repeat, the median LLM scores, the keyword and hybrid scores.
+    record: Optional[Dict[str, Any]] = None
 
 
 class V2UserData(BaseModel):
@@ -137,6 +150,9 @@ class V2UserData(BaseModel):
     plausible_actions: List[str] = []
     sessions: List[Dict[str, Any]] = []
     probes: List[Dict[str, Any]] = []
+    # The decision items (Amendment 10; revision 4 on), asked after the
+    # probes; none in an earlier revision.
+    decisions: List[Dict[str, Any]] = []
     # The dataset's writers: v2's three, or an agent-count dataset's
     # (AIOS docs/STRESS_DIMENSIONS.md, "Agent count"), whose sessions
     # are writer turns, several per session.
@@ -246,6 +262,10 @@ class JudgeFreeMeasures(BaseModel):
     # tool) present in the block; None without a block to check.
     profile_facts_in_block: Optional[float] = None
     profile_facts_missing: List[str] = []
+    # Fraction of the profile items an answer can name (name, language,
+    # each tool) that the consumer's answer names (Subtask 20); None
+    # without an answer.
+    profile_facts_in_answer: Optional[float] = None
     # Injected rows of another user (a leak).
     cross_user_rows: int = 0
     # Injected rows another agent wrote and did not share (a leak).
@@ -444,6 +464,9 @@ class ProbeResult(BaseModel):
     diagnostics: Optional["InjectionDiagnostics"] = None
     judge_scores: Optional[Dict[str, Any]] = None
     integration_score: Optional[int] = None
+    # Each judge's record of this probe's answer, by judge name (Subtask
+    # 20; ``judge.HybridJudge.evaluate``). None in older files.
+    judges: Optional[Dict[str, Any]] = None
     token_usage: Optional[Dict[str, Any]] = None
     latency_seconds: Optional[float] = None
 
@@ -451,6 +474,29 @@ class ProbeResult(BaseModel):
     @classmethod
     def _as_error_text(cls, value: Any) -> Optional[str]:
         return _error_text(value)
+
+
+class DecisionResult(BaseModel):
+    """One decision item as asked and scored (AIOS docs/BENCHMARK_V2.md,
+    Amendment 10; ``metrics.score_decision``): the item, the answer, the
+    letter named, whether it passed, the error kind, which options'
+    values the turn's block held, and the turn's diagnostics, tokens,
+    latency and error (a turn that failed the user is not scored)."""
+
+    decision_id: str
+    question: str
+    options: List[Dict[str, Any]] = []
+    correct: str
+    observed: str = ""
+    choice: Optional[str] = None
+    letters: List[str] = []
+    passed: Optional[bool] = None
+    error: Optional[str] = None
+    options_in_block: Optional[List[str]] = None
+    diagnostics: Optional["InjectionDiagnostics"] = None
+    token_usage: Optional[Dict[str, Any]] = None
+    latency_seconds: Optional[float] = None
+    turn_error: Optional[str] = None
 
 
 class TrialResult(BaseModel):
@@ -491,6 +537,12 @@ class TrialResult(BaseModel):
     # with no scores (Subtask 4b). None in older files.
     scorer: Optional[str] = None
     judge_attempts: Optional[int] = None
+    # Each judge's record of the judged answer, by judge name (Subtask
+    # 20, METRICS.md "Recording"): every repeat's LLM scores, reasoning,
+    # timestamp and tokens, their median (``llm``), the keyword and
+    # hybrid scores. The three ``*_score`` fields above stay the primary
+    # judge's hybrid, as before. None in older files.
+    judges: Optional[Dict[str, Any]] = None
     # Writers whose extraction never validated (Subtask 9): they stored
     # nothing, and the trial is failed and not scored. Each writer's
     # retries. Whether the memory backend extracted facts itself (Mem0
@@ -537,6 +589,8 @@ class TrialResult(BaseModel):
     ablation: Optional[Dict[str, Any]] = None
     sessions: List[SessionRecord] = []
     probe_results: List[ProbeResult] = []
+    # The decision items (Amendment 10), apart from the probes.
+    decision_results: List[DecisionResult] = []
     deleted_memory_ids: List[str] = []
     reappeared_memory_ids: List[str] = []
     revoked_value_rows: List[Dict[str, Any]] = []
@@ -659,6 +713,10 @@ class ExperimentMetadata(BaseModel):
     # before it, which sampled at the kernel default 1.0 with no seed.
     judge_temperature: Optional[float] = None
     judge_seed: Optional[int] = None
+    # The judge (Subtask 20): its name, model, repeats, prompt version
+    # and sha256, and decoding (``HybridJudge.describe``). None in older
+    # files, whose judge is named only in their provenance.
+    judge: Optional[dict] = None
     # False when the run was not judged (``--no-judge``, Subtask 10);
     # its trials carry no scores. None in older files (judged).
     judged: Optional[bool] = None

@@ -16,16 +16,26 @@ import json
 import statistics
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from benchmarks.shared_memory.bench_v2_analysis import CELLS
-from benchmarks.shared_memory.probes import mcnemar_exact, t_interval, wilson
+from benchmarks.shared_memory.metrics import (
+    JUDGE_FREE,
+    block_text as _block,
+    by_user as _by_user,
+    cross_user_rows_all_probes as cross_user_rows,
+    flag_rate as _rate,
+    judge_free_of as _judge_free,
+    paired_mean as _paired_mean,
+    paired_outcomes,
+    probe_of as _probe,
+    stress_of as _stress,
+    writes_without_row,
+)
 
-JUDGE_FREE = ("deletion", "privacy", "recall", "recency", "contradiction")
 PHASE_BACKEND = {"kinh": "inhouse", "kinh_q": "inhouse",
                  "kmem0": "mem0", "kmem0_q": "mem0"}
 FAULTS = ("wrong_user", "missing_metadata", "flood10", "flood50")
-WRITE_EVENTS = ("base", "add", "update", "contradict", "private")
 # The extraction check's failure for a write that left no row (not its
 # "no backend LLM calls recorded", a failed backend).
 EMPTY_WRITE = "backend_extraction_failed: stored no rows"
@@ -48,103 +58,6 @@ def load(root: Path) -> Dict[tuple, dict]:
         cells[(model, locus, backend, condition)] = \
             data["conditions"][0]["trials"]
     return cells
-
-
-def _rate(flags: Iterable[Optional[bool]]) -> dict:
-    flags = [f for f in flags if f is not None]
-    n, k = len(flags), sum(1 for f in flags if f)
-    if not n:
-        return {"k": 0, "n": 0, "rate": None, "ci": None}
-    low, high = wilson(k, n)
-    return {"k": k, "n": n, "rate": k / n, "ci": [low, high]}
-
-
-def _probe(trial: dict, kind: str) -> Optional[dict]:
-    return next((p for p in trial.get("probe_results") or []
-                 if p["type"] == kind), None)
-
-
-def _by_user(trials: List[dict]) -> Dict[int, dict]:
-    return {t["trial_index"]: t for t in trials if not t.get("failed")}
-
-
-def _block(probe: Optional[dict]) -> Optional[str]:
-    return ((probe or {}).get("diagnostics") or {}).get("block_text")
-
-
-def paired_outcomes(trials: List[dict], reference: List[dict],
-                    kind: str) -> dict:
-    """Users whose ``kind`` outcome changed from the reference: ``lost``
-    (passed there, failed here), ``gained``, and the exact McNemar p."""
-    here, there = _by_user(trials), _by_user(reference)
-    lost = gained = same = 0
-    for user in sorted(set(here) & set(there)):
-        a = (_probe(there[user], kind) or {}).get("passed")
-        b = (_probe(here[user], kind) or {}).get("passed")
-        if a is None or b is None:
-            continue
-        if a and not b:
-            lost += 1
-        elif b and not a:
-            gained += 1
-        else:
-            same += 1
-    return {"lost": lost, "gained": gained, "same": same,
-            "p": mcnemar_exact(lost, gained)}
-
-
-def _paired_mean(trials: List[dict], reference: List[dict], value) -> dict:
-    """The paired difference ``value(trial) - value(reference trial)``
-    over the users both have it for: mean and 95% t interval."""
-    here, there = _by_user(trials), _by_user(reference)
-    diffs = []
-    for user in sorted(set(here) & set(there)):
-        a, b = value(there[user]), value(here[user])
-        if a is not None and b is not None:
-            diffs.append(b - a)
-    if not diffs:
-        return {"n": 0, "mean": None, "ci": None}
-    low, high = t_interval(diffs)
-    return {"n": len(diffs), "mean": statistics.mean(diffs),
-            "ci": [low, high]}
-
-
-def cross_user_rows(trial: dict) -> int:
-    """Injected rows, over every probe, written for another user (a
-    leak), by the row's ``provenance_user``."""
-    count = 0
-    for probe in trial.get("probe_results") or []:
-        for row in (probe.get("diagnostics") or {}).get(
-                "injected_memories") or []:
-            owner = row.get("provenance_user")
-            if owner and owner != trial.get("user_id"):
-                count += 1
-    return count
-
-
-def writes_without_row(trial: dict) -> List[str]:
-    """The trial's write events whose reply named no row: neither
-    suppressed (a forgotten value) nor turned away by the write quota.
-    On a backend that extracts, a write it stored nothing for (Mem0:
-    "extracted no facts", known issue 32)."""
-    out = []
-    for record in trial.get("sessions") or []:
-        for event in record.get("events") or []:
-            if (event.get("type") in WRITE_EVENTS
-                    and "reported_ids" in event
-                    and not event.get("reported_ids")
-                    and not event.get("suppressed")
-                    and not event.get("quota_rejected")):
-                out.append(event.get("event_id"))
-    return out
-
-
-def _judge_free(trial: dict, key: str):
-    return (trial.get("judge_free") or {}).get(key)
-
-
-def _stress(trial: dict) -> dict:
-    return trial.get("stress") or {}
 
 
 def probe_rows(cells: Dict[tuple, dict]) -> List[dict]:

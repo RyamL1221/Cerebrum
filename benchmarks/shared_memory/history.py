@@ -139,6 +139,9 @@ class HistoryOutcome:
 
     sessions: List[SessionRecord] = field(default_factory=list)
     turns: List[ProbeTurn] = field(default_factory=list)
+    # The decision items' turns (Amendment 10), asked after the probes;
+    # each ``ProbeTurn.probe`` is the item.
+    decision_turns: List[ProbeTurn] = field(default_factory=list)
     # [{"after": "session N" | "history" | "probes", "rows": {agent:
     # [rows]}}], in order.
     listings: List[Dict[str, Any]] = field(default_factory=list)
@@ -779,6 +782,9 @@ def run_history(user: V2UserData, locus, runner, *,
                                _issue_probes(user, locus, runner))
             else:
                 _probes(user, locus, runner, outcome, ids, recency_session)
+            if user.decisions:
+                _decisions(user, locus, runner, outcome, ids,
+                           recency_session)
             outcome.listings.append(_listing(locus, "probes", ids))
             if victim_id:
                 outcome.misfiled_rows = _misfiled(locus, victim_id, uid,
@@ -806,7 +812,8 @@ def run_history(user: V2UserData, locus, runner, *,
     if outcome.failure is None:
         used = set().union(*ids.values())  # every id, every agent
         outcome.backend_llm_tokens, outcome.embedding_tokens = (
-            locus.backend_usage(outcome.turns, sorted(used)))
+            locus.backend_usage(outcome.turns + outcome.decision_turns,
+                                sorted(used)))
     return outcome
 
 
@@ -1104,6 +1111,29 @@ def _probes(user, locus, runner, outcome, ids, recency_session) -> None:
             outcome.turns.append(turn)
             if turn.error:
                 raise LocusFailure(f"{probe['probe_id']}: {turn.error}")
+
+
+def _decisions(user, locus, runner, outcome, ids, recency_session) -> None:
+    """The decision items (Amendment 10): after the probes, each a fresh
+    consumer turn of the probe session, in the dataset's order, writing
+    nothing (the probes' listing is taken after them)."""
+    with _scope(locus, user.user_id):
+        for item in user.decisions:
+            agent = locus.consumer(user.user_id, item["decision_id"])
+            turn = ProbeTurn(probe=item)
+            started = time.perf_counter()
+            turn.issued_at = time.time()
+            try:
+                result = runner.run(CONSUMER, agent, item["question"])
+            except Exception as error:
+                turn.latency_seconds = time.perf_counter() - started
+                turn.error = f"consumer raised {_described(error)}"
+                outcome.decision_turns.append(turn)
+                raise
+            _finish_turn(turn, result, ids, recency_session, started)
+            outcome.decision_turns.append(turn)
+            if turn.error:
+                raise LocusFailure(f"{item['decision_id']}: {turn.error}")
 
 
 def _in_session(token: Optional[str], call: Callable, *args):
@@ -1500,6 +1530,37 @@ def iter_turns(outcome: HistoryOutcome) -> Iterable[ProbeTurn]:
 
 
 # -- scoring -------------------------------------------------------------------
+
+def score_decisions(outcome: HistoryOutcome) -> list:
+    """Each decision turn as a ``DecisionResult`` (``metrics.
+    score_decision``); a turn with an error is recorded, not scored."""
+    from benchmarks.shared_memory.metrics import score_decision
+    from benchmarks.shared_memory.models import DecisionResult
+    from benchmarks.shared_memory.pipeline import AgentPipeline
+
+    reader = AgentPipeline(share_memory=True)
+    out = []
+    for turn in outcome.decision_turns:
+        item = turn.probe
+        recorded = {
+            "decision_id": item["decision_id"],
+            "question": item["question"],
+            "options": item["options"],
+            "correct": item["correct"],
+            "observed": turn.answer,
+            "diagnostics": reader._extract_injection_diagnostics(
+                {"injection_diagnostics": turn.diagnostics}),
+            "token_usage": (turn.result or {}).get("token_usage"),
+            "latency_seconds": turn.latency_seconds,
+            "turn_error": turn.error,
+        }
+        if not turn.error:
+            recorded.update(score_decision(
+                item, turn.answer,
+                (turn.diagnostics or {}).get("block_text")))
+        out.append(DecisionResult(**recorded))
+    return out
+
 
 def score_turns(user: V2UserData, outcome: HistoryOutcome, locus: str,
                 embed=None, k: int = 10) -> list:

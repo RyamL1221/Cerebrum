@@ -188,10 +188,12 @@ def measures(
     trial_data: SyntheticTrialData, user_id: str,
     diagnostics: Optional[InjectionDiagnostics],
     written: List[WrittenMemoryRecord],
+    answer: Optional[str] = None,
 ) -> JudgeFreeMeasures:
-    """The trial's judge-free measures (``judge_free.measure``)."""
+    """The trial's judge-free measures (``judge_free.measure``);
+    ``answer`` is the assistant's."""
     return judge_free.measure(
-        trial_data.profile, user_id, diagnostics, written
+        trial_data.profile, user_id, diagnostics, written, answer=answer
     )
 
 
@@ -498,7 +500,7 @@ class AgentPipeline:
             variants_not_applied=runner.not_applied,
             judge_free=measures(
                 trial_data, trial_data.user_id, injection_diagnostics,
-                written_records,
+                written_records, answer=assistant_response,
             ),
             **cost_fields(
                 assistant_result, [profile_result, task_result],
@@ -1450,6 +1452,7 @@ class MethodPipeline:
             variants_not_applied=runner.not_applied,
             judge_free=measures(
                 trial_data, method_user_id, diagnostics, written,
+                answer=assistant_result["result"],
             ),
             **cost_fields(
                 assistant_result, [profile_result, task_result],

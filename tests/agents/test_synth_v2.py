@@ -732,13 +732,15 @@ def paraphrasable(user):
 @pytest.fixture
 def earlier(tmp_path):
     """A paraphrased two-user file shaped like revision 1: its header
-    has no revision field."""
+    has no revision field, and nothing has decision items."""
     path = tmp_path / "revision1.jsonl"
     synth_v2.generate(path, n=2, model="fake/model",
                       paraphraser=scripted(
                           lambda r: "Honestly, " + r.text))
     header, users = read_jsonl(path)
-    del header["revision"]
+    del header["revision"], header["decisions"]
+    for user in users:
+        del user["decisions"]
     write_jsonl(path, header, users)
     return path
 
@@ -982,40 +984,46 @@ def test_the_cli_passes_reuse_to_generate(earlier, tmp_path, monkeypatch):
     assert para.calls == []
 
 
-def test_the_header_records_revision_3_and_the_file_it_reused(earlier,
-                                                              tmp_path):
+def test_the_header_records_the_revision_and_the_file_it_reused(earlier,
+                                                                tmp_path):
     fresh = synth_v2.generate(tmp_path / "fresh.jsonl", n=1)
-    assert fresh["revision"] == synth_v2.REVISION == 3
+    assert fresh["revision"] == synth_v2.REVISION == 4
+    assert fresh["decisions"] == synth_v2.DECISIONS
     assert "reuse" not in fresh
-    out = tmp_path / "revision3.jsonl"
+    out = tmp_path / "revision4.jsonl"
     header = synth_v2.generate(out, n=2, model="fake/model",
                                paraphraser=scripted(frankly), reuse=earlier)
-    assert header["revision"] == 3
+    assert header["revision"] == 4
     assert header["reuse"] == {"sha256": sha256_of(earlier), "revision": 1}
     assert synth_v2.validate_header(fresh, 1, limited=False) == []
     assert synth_v2.validate_header(header, 2, limited=False) == []
     # check reads both revisions; a rebuild from revision 2 is allowed.
     old, new = synth_v2.check(str(earlier)), synth_v2.check(str(out))
     assert old["problems"] == new["problems"] == []
-    assert (old["summary"]["revision"], new["summary"]["revision"]) == (1, 3)
+    assert (old["summary"]["revision"], new["summary"]["revision"]) == (1, 4)
     assert new["summary"]["reuse"] == header["reuse"]
     assert new["summary"]["reused_events"] == sum(
         len(paraphrasable(u)) for u in read_jsonl(earlier)[1])
     again = synth_v2.generate(tmp_path / "again.jsonl", n=2,
                               model="fake/model",
                               paraphraser=scripted(frankly), reuse=out)
-    assert again["reuse"] == {"sha256": sha256_of(out), "revision": 3}
+    assert again["reuse"] == {"sha256": sha256_of(out), "revision": 4}
     assert synth_v2.validate_header(again, 2, limited=False) == []
 
 
 @pytest.mark.parametrize("change", [
-    {"revision": 4}, {"revision": "2"}, {"revision": True},
+    {"revision": 5}, {"revision": "2"}, {"revision": True},
     {"reuse": {"sha256": "abc", "revision": 1}},
     {"reuse": {"sha256": "0" * 64}},
-    {"reuse": {"sha256": "0" * 64, "revision": 4}},
+    {"reuse": {"sha256": "0" * 64, "revision": 5}},
     {"revision": 1, "reuse": {"sha256": "0" * 64, "revision": 2}},
+    {"decisions": None},
+    {"decisions": {**synth_v2.DECISIONS, "items": 3}},
+    {"revised_from": {"sha256": "0" * 64, "revision": 2}},
+    {"revised_from": {"sha256": "abc", "revision": 3}},
 ], ids=["future", "text", "bool", "short sha", "no revision", "newer",
-        "newer than the file"])
+        "newer than the file", "no decision rule", "another decision rule",
+        "revised from two back", "revised from a short sha"])
 def test_validate_header_rejects_a_malformed_revision_or_reuse(change,
                                                                tmp_path):
     header = synth_v2.generate(tmp_path / "v2.jsonl", n=1)
@@ -1153,11 +1161,21 @@ def test_check_reports_a_lean_off_the_assignment():
         f"{leans[3]!r}"]
 
 
-def test_the_committed_users_v2_is_revision_3_with_balanced_leans():
+# The committed revision 3 (Amendment 3), from which revision 4 was
+# revised (Amendment 10); kept in repo-artifacts/Cerebrum/
+# users_v2_revisions/.
+REVISION_3_SHA256 = ("ecd3585ffb511ce1f6277eeb78587ddffb8b7ffe3316b7df7a7ce5"
+                     "2675ee00b8")
+
+
+def test_the_committed_users_v2_is_revision_4_with_balanced_leans():
     committed = dataset.load("users_v2")
-    assert committed.header["revision"] == 3
+    assert committed.header["revision"] == 4
     assert committed.header["reuse"] == {"sha256": REVISION_2_SHA256,
                                          "revision": 2}
+    assert committed.header["revised_from"] == {
+        "sha256": REVISION_3_SHA256, "revision": 3}
+    assert all(len(user["decisions"]) == 2 for user in committed.users)
     counts = synth_v2.lean_counts(committed.users)
     assert counts["all"] == {"earlier": 75, "later": 75}
     assert synth_v2.lean_counts(committed.users[:30])["all"] == {
@@ -1179,7 +1197,7 @@ def test_the_committed_users_v2_is_revision_3_with_balanced_leans():
 def test_the_committed_users_v2_was_built_by_this_generator():
     """The header names the generator that built the file by its
     SHA-256 (``generator_sha256``: ``synth_v2.py``, catalog and pools
-    included), so the rules revision 3 was built under, and the counts
+    included), so the rules its revision was built under, and the counts
     its build reports (calls, fallbacks, reused statements), are this
     file's. An edit to ``synth_v2.py`` needs a new revision."""
     committed = dataset.load("users_v2")

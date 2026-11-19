@@ -11,6 +11,12 @@ AIOS ``scripts/run_pilot_v1.sh`` writes them and reports:
 - the H = 1 per-variant breakdown;
 - the verdict, by PILOT.md's operational reading of the rule.
 
+``--score`` chooses the score the rule reads (Subtask 20, AIOS
+docs/METRICS.md, "Subtask 11's verdict on each score"): ``hybrid``, the
+stored scores, as registered; ``keyword``, the keyword score recomputed
+from each trial's record; ``llm``, a re-judge's median LLM score
+(``--judge``, from each trial's ``judges`` record).
+
     python -m benchmarks.shared_memory.pilot_analysis results/pilot_v1_hetero \\
         --markdown results/pilot_v1_hetero/analysis.md \\
         --json results/pilot_v1_hetero/analysis.json \\
@@ -28,7 +34,16 @@ from typing import Dict, List, Optional, Tuple
 from scipy import stats
 
 from benchmarks.shared_memory.cost import cell_summary, load_prices
-from benchmarks.shared_memory.judge_free import split_missing
+from benchmarks.shared_memory.metrics import (
+    cell_judge_free as judge_free,
+    hybrid_score,
+    keyword_scores,
+    missing_split,
+)
+from benchmarks.shared_memory.models import (
+    SyntheticProfile,
+    SyntheticTaskContext,
+)
 from benchmarks.shared_memory.pilot_schedule import Schedule, PATH
 
 MODELS = ("qwen", "gpt4o")
@@ -51,7 +66,6 @@ CELLS = {
     ("native", "mem0"): ("agent", "native_mem0"),
     ("native", "inhouse"): ("agent", "native_inhouse"),
 }
-LEAKS = ("cross_user_rows", "private_rows_from_others")
 
 
 # -- loading ----------------------------------------------------------------
@@ -78,6 +92,64 @@ def load(root: Path) -> Tuple[dict, dict]:
                 cells[key] = {t["trial_index"]: t for t in trials}
                 metadata[key] = data["experiment_metadata"]
     return cells, metadata
+
+
+SCORES = ("hybrid", "keyword", "llm")
+
+
+def trial_keyword_scores(trial: dict) -> Dict[str, int]:
+    """A stored trial's keyword score per dimension (METRICS.md)."""
+    return keyword_scores(
+        trial.get("assistant_response") or "",
+        SyntheticProfile(**trial["synthetic_profile"]),
+        SyntheticTaskContext(**trial["synthetic_task_context"]))
+
+
+def rescore(cells: dict, source: str, judge: Optional[str] = None) -> dict:
+    """``cells`` with each trial's three scores taken from ``source``:
+    ``hybrid`` (as stored), ``keyword`` or ``llm`` (``judge``'s median
+    LLM score; None where the trial has no complete record of it)."""
+    if source == "hybrid":
+        return cells
+    out = {}
+    for key, trials in cells.items():
+        out[key] = {}
+        for index, trial in trials.items():
+            if trial.get("failed"):
+                out[key][index] = trial
+                continue
+            if source == "keyword":
+                values = trial_keyword_scores(trial)
+            elif source == "llm":
+                record = (trial.get("judges") or {}).get(judge) or {}
+                values = record.get("llm") or {}
+            else:
+                raise ValueError(f"unknown score {source!r}")
+            out[key][index] = {**trial, **{
+                field: values.get(d) for d, field in DIMENSIONS.items()}}
+    return out
+
+
+def keyword_consistency(cells: dict) -> dict:
+    """Whether each stored hybrid score can come from the recomputed
+    keyword score: some LLM score 1-5 combines with it to the stored
+    value. Counts the scored dimensions checked and those that cannot."""
+    checked, inconsistent = 0, []
+    for key, trials in cells.items():
+        for index, trial in trials.items():
+            if trial.get("failed"):
+                continue
+            keyword = trial_keyword_scores(trial)
+            for d, field in DIMENSIONS.items():
+                stored = trial.get(field)
+                if stored is None:
+                    continue
+                checked += 1
+                if not any(hybrid_score(keyword[d], llm) == stored
+                           for llm in range(1, 6)):
+                    inconsistent.append((key, index, d))
+    return {"checked": checked, "inconsistent": len(inconsistent),
+            "examples": [str(x) for x in inconsistent[:5]]}
 
 
 def check_pairing(cells: dict, metadata: dict,
@@ -182,41 +254,6 @@ def did(cells, model, other, high, low, dimension,
     return t_interval([a[i] - b[i] for i in sorted(set(a) & set(b))])
 
 
-def missing_split(trial: dict) -> Tuple[List[str], List[str]]:
-    """``(withheld, lost)`` writers of a trial's ``memories_missing``
-    (``judge_free.split_missing``). Files written before Subtask 14 have
-    no split, so it is recomputed from their written records."""
-    free = trial.get("judge_free") or {}
-    if "memories_withheld_writers" in free:
-        return (list(free["memories_withheld_writers"]),
-                list(free.get("memories_lost_writers") or []))
-    return split_missing(free.get("memories_missing_writers") or [],
-                         trial.get("written_memories") or [])
-
-
-def judge_free(trials: List[dict]) -> dict:
-    done = [t for t in trials if not t.get("failed") and t.get("judge_free")]
-    n = len(done)
-
-    def rate(pred):
-        return sum(1 for t in done if pred(t["judge_free"])) / n if n else None
-
-    def split_rate(part):
-        return (sum(1 for t in done if missing_split(t)[part]) / n
-                if n else None)
-
-    facts = [t["judge_free"].get("profile_facts_in_block") for t in done]
-    facts = [f for f in facts if f is not None]
-    return {
-        "n": n,
-        "leak_rate": rate(lambda m: sum(m.get(k) or 0 for k in LEAKS) > 0),
-        "missing_rate": rate(lambda m: (m.get("memories_missing") or 0) > 0),
-        "withheld_rate": split_rate(0),
-        "lost_rate": split_rate(1),
-        "facts_in_block": statistics.mean(facts) if facts else None,
-    }
-
-
 def trials_of(cells, model, locus, backends=BACKENDS, levels=LEVELS):
     return [t for b in backends for h in levels
             for t in cells.get((model, locus, b, h), {}).values()]
@@ -240,6 +277,7 @@ def cell_rows(cells: dict, prices: dict) -> List[dict]:
             "leak_rate": free["leak_rate"],
             "missing_rate": free["missing_rate"],
             "facts_in_block": free["facts_in_block"],
+            "facts_in_answer": free["facts_in_answer"],
             "total_usd": summary.get("total_usd"),
             "total_tokens": summary.get("total_tokens"),
             "latency_ms": summary.get("latency_ms"),
@@ -489,7 +527,8 @@ def markdown(cells, problems, gaps, variants, verdict_, cell_table) -> str:
             table(cell_table, ["model", "locus", "backend", "level", "n",
                                "failed", "profile", "task", "integration",
                                "leak_rate", "missing_rate",
-                               "facts_in_block", "total_usd"],
+                               "facts_in_block", "facts_in_answer",
+                               "total_usd"],
                   {"total_usd": lambda v: "" if v is None else f"{v:.4f}"}),
             "", "## Kernel − replicated and kernel − native (mean [95% CI])",
             ""]
@@ -557,6 +596,11 @@ def main(argv=None) -> int:
     parser.add_argument("--markdown")
     parser.add_argument("--json")
     parser.add_argument("--csv-dir")
+    parser.add_argument("--score", choices=SCORES, default="hybrid",
+                        help="the score the rule reads (default: the "
+                             "stored hybrid, as registered)")
+    parser.add_argument("--judge", default="gpt-5.4",
+                        help="with --score llm: whose record to read")
     parser.add_argument(
         "--missing-split", metavar="PATH.md",
         help="also write the withheld / lost split of memories_missing "
@@ -567,6 +611,14 @@ def main(argv=None) -> int:
     schedule = Schedule(args.schedule)
     cells, metadata = load(root)
     problems = check_pairing(cells, metadata, schedule)
+    if args.score == "keyword":
+        consistency = keyword_consistency(cells)
+        if consistency["inconsistent"]:
+            problems.append(
+                f"{consistency['inconsistent']} of {consistency['checked']} "
+                "stored scores cannot come from the recomputed keyword "
+                f"score: {consistency['examples']}")
+    cells = rescore(cells, args.score, args.judge)
     expected = len(MODELS) * len(CELLS) * len(LEVELS)
     if len(cells) < expected:
         problems.insert(0, f"{len(cells)} of {expected} cells present")

@@ -63,9 +63,11 @@ from benchmarks.shared_memory.conditions import (
 )
 from benchmarks.shared_memory.judge import (
     JUDGE_PROMPT_VERSION,
+    JUDGES,
     SCORER,
     HybridJudge,
     judge_prompt_sha256,
+    make_judge,
 )
 from benchmarks.shared_memory.dataset import (
     AGENT_COUNTS,
@@ -145,6 +147,15 @@ def with_decoding(llms: list | None, decoding: dict | None) -> list | None:
         return llms
     extra = {k: v for k, v in decoding.items() if v is not None}
     return [dict(entry, **extra) for entry in llms]
+
+
+def _odd_repeats(text: str) -> int:
+    """``--judge-repeats``: a positive odd count."""
+    value = int(text)
+    if value < 1 or value % 2 == 0:
+        raise argparse.ArgumentTypeError(
+            f"judge repeats must be odd and positive, got {value}")
+    return value
 
 
 def _parse_model_arg(model_str: str | None) -> list | None:
@@ -461,6 +472,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--judge",
+        choices=sorted(JUDGES),
+        default=None,
+        help=(
+            "A named judge (AIOS docs/METRICS.md, 'The judges'): the "
+            "primary gpt-5.4 or the second claude-sonnet-5.5. Overrides "
+            "--judge-model."
+        ),
+    )
+    parser.add_argument(
+        "--judge-repeats",
+        type=_odd_repeats,
+        default=1,
+        help=(
+            "Judge each answer k times (odd) and score the median of the "
+            "k LLM scores; each repeat is recorded (METRICS.md)."
+        ),
+    )
+    parser.add_argument(
         "--run-id",
         type=str,
         default=None,
@@ -686,6 +716,8 @@ class EvaluationOrchestrator:
         assistant_llms: list | None = None,
         judge_llms: list | None = None,
         kernel_url: str | None = None,
+        judge_name: str | None = None,
+        judge_repeats: int = 1,
         run_id: str | None = None,
         kernel_logs_path: str | None = None,
         dataset: str = RANDOM,
@@ -845,7 +877,10 @@ class EvaluationOrchestrator:
         self.generator = SyntheticDataGenerator(llms=self.assistant_llms, run_id=self.run_id)
         self.generator.kernel_url = resolved_url
 
-        self.judge = HybridJudge(llms=self.judge_llms)
+        # The judge (Subtask 20): a named one (``--judge``) or the
+        # kernel judge on ``judge_llms``, judging each answer
+        # ``judge_repeats`` times.
+        self.judge = make_judge(judge_name, self.judge_llms, judge_repeats)
         self.judge.llm_judge.kernel_url = resolved_url
 
         self.writer = ResultsWriter(output_dir=output_dir, write_csv=write_csv)
@@ -1152,6 +1187,8 @@ class EvaluationOrchestrator:
                 **common,
             )
         attempts = getattr(scores, "judge_attempts", None)
+        judges = ({self.judge.name: scores.record}
+                  if getattr(scores, "record", None) else None)
 
         # Read after judging, so the kernel's background conversation
         # write (and its embedding call) has finished.
@@ -1209,6 +1246,7 @@ class EvaluationOrchestrator:
             profile_usage_score=scores.profile_usage_score,
             task_usage_score=scores.task_usage_score,
             integration_score=scores.integration_score,
+            judges=judges,
             memory_counts=MemoryCounts.of(pipeline_result.written_memories),
             retrieved_context_count=pipeline_result.retrieved_context_count,
             latency_seconds=pipeline_result.latency_seconds,
@@ -1357,6 +1395,7 @@ class EvaluationOrchestrator:
         results = history.score_turns(user, outcome, locus,
                                       embed=self._embedder())
         common["probe_results"] = results
+        common["decision_results"] = history.score_decisions(outcome)
         common["fault_victim"] = (f"{victim}__{pipeline.method}"
                                   if victim else None)
         pipeline_settings = (getattr(self, "preflight", None) or {}).get(
@@ -1391,6 +1430,8 @@ class EvaluationOrchestrator:
                 "integration_score": scores.integration_score,
             }
             integration.integration_score = scores.integration_score
+            if getattr(scores, "record", None):
+                integration.judges = {self.judge.name: scores.record}
         # Read after the probes (and the judge), so the kernel's last
         # background conversation write is counted.
         backend = {"backend_llm_tokens": outcome.backend_llm_tokens,
@@ -1420,7 +1461,7 @@ class EvaluationOrchestrator:
             injection_diagnostics=integration.diagnostics,
             judge_free=judge_free_measures.measure(
                 user.profile, user.user_id, integration.diagnostics,
-                outcome.written,
+                outcome.written, answer=integration.observed,
             ),
             profile_usage_score=scores.profile_usage_score,
             task_usage_score=scores.task_usage_score,
@@ -1433,6 +1474,7 @@ class EvaluationOrchestrator:
             if outcome.turns else None,
             scorer=SCORER if scores is not UNJUDGED else None,
             judge_attempts=attempts if isinstance(attempts, int) else None,
+            judges=integration.judges,
             **backend,
         )
         if silent:
@@ -1508,6 +1550,7 @@ class EvaluationOrchestrator:
             decoding=self.decoding,
             judge_temperature=self.judge.temperature,
             judge_seed=self.judge.seed,
+            judge=self.judge.describe(),
             judged=getattr(self, "judged", True),
             heterogeneity=self._heterogeneity_metadata(),
             run_settings=self._run_settings(),
@@ -1612,6 +1655,7 @@ class EvaluationOrchestrator:
             decoding=self.decoding,
             judge_temperature=self.judge.temperature,
             judge_seed=self.judge.seed,
+            judge=self.judge.describe(),
             judged=getattr(self, "judged", True),
             heterogeneity=self._heterogeneity_metadata(),
             run_settings=self._run_settings(),
@@ -1698,6 +1742,8 @@ def main():
         method=args.method,
         assistant_llms=_parse_model_arg(args.assistant_model),
         judge_llms=_parse_model_arg(args.judge_model),
+        judge_name=args.judge,
+        judge_repeats=args.judge_repeats,
         run_id=args.run_id,
         kernel_logs_path=args.kernel_logs,
         dataset=args.dataset,

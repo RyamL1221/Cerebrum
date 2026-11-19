@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from typing import Dict, List, Optional, Tuple
+from benchmarks.shared_memory.metrics import LEAKS
 
 LOCUS_BACKEND = {
     "replicated_mem0": ("replicated", "mem0"),
@@ -29,7 +30,6 @@ LOCUS_BACKEND = {
     "replicated_amem": ("replicated", "amem"),
     "native_amem": ("native", "amem"),
 }
-LEAKS = ("cross_user_rows", "private_rows_from_others")
 DELTAS = ("memories_missing", "raw_payload_rows")
 COLUMNS = (
     "locus", "backend", "level", "trial_index", "variants",

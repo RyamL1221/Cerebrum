@@ -23,15 +23,28 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional
 from benchmarks.shared_memory.ablation import SWITCHES, trial_ablation
 from benchmarks.shared_memory.bench_v2_analysis import CELLS
 from benchmarks.shared_memory.probes import t_interval
-from benchmarks.shared_memory.stress_report import (
+from benchmarks.shared_memory.metrics import (
     JUDGE_FREE,
-    _block,
-    _by_user,
-    _judge_free,
-    _probe,
-    _stress,
-    cross_user_rows,
+    after_cap,
+    after_threshold,
+    block_text as _block,
+    block_tokens_known as block_tokens,
+    budget_bound_probes as budget_bound,
+    by_user as _by_user,
+    carriers_left,
+    covered_late_writes,
+    cross_user_rows_all_probes as cross_user_rows,
+    failed_outcome as _failed,
+    flood_rows_per_probe,
+    flood_writes_accepted,
+    judge_free_of as _judge_free,
+    misfiled_rows,
     paired_outcomes,
+    probe_of as _probe,
+    stale_in_block,
+    stale_reads,
+    stress_of as _stress,
+    timing_misses,
 )
 from benchmarks.shared_memory.synth_v2 import is_echo_user
 
@@ -65,82 +78,9 @@ def load(root: Path) -> Dict[tuple, List[dict]]:
 
 # -- the measures, per trial ---------------------------------------------------
 
-def _probe_stress(trial: dict) -> List[dict]:
-    return list((_stress(trial).get("probes") or {}).values())
-
-
-def _diagnostics(trial: dict) -> List[dict]:
-    return [p.get("diagnostics") or {}
-            for p in trial.get("probe_results") or []]
-
-
-def _mean(values: List[float]) -> Optional[float]:
-    values = [v for v in values if v is not None]
-    return statistics.mean(values) if values else None
-
-
-def _failed(kind: str) -> Callable[[dict], Optional[int]]:
-    def value(trial):
-        passed = (_probe(trial, kind) or {}).get("passed")
-        return None if passed is None else int(not passed)
-    return value
-
-
-def covered_late_writes(t):
-    return sum(len(p.get("late_covered") or []) for p in _probe_stress(t))
-
-
-def stale_reads(t):
-    return sum(1 for p in _probe_stress(t) if p.get("stale_read"))
-
-
-def timing_misses(t):
-    return sum(1 for p in _probe_stress(t) if p.get("timing_miss"))
-
-
-def misfiled_rows(t):
-    return _stress(t).get("misfiled_rows") or 0
-
-
-def stale_in_block(t):
-    """Recency and contradiction probes whose block held the earlier
-    statement's value."""
-    return sum(1 for kind in ("recency", "contradiction")
-               if (_probe(t, kind) or {}).get("stale_in_block"))
-
-
-def carriers_left(t):
-    return len(t.get("revoked_value_rows") or [])
-
-
-def flood_rows_per_probe(t):
-    return _mean([p.get("flood_rows_in_block") or 0
-                  for p in _probe_stress(t)])
-
-
-def block_tokens(t):
-    return _mean([d.get("tokens_estimated") for d in _diagnostics(t)])
-
-
-def budget_bound(t):
-    return sum(1 for p in t.get("probe_results") or []
-               if p.get("budget_bound"))
-
-
-def after_threshold(t):
-    return _mean([d.get("after_threshold") for d in _diagnostics(t)])
-
-
-def after_cap(t):
-    return _mean([d.get("after_cap") for d in _diagnostics(t)])
-
 
 def jf(key: str) -> Callable[[dict], Any]:
     return lambda t: _judge_free(t, key)
-
-
-def flood_writes_accepted(t):
-    return _stress(t).get("flood_writes_accepted") or 0
 
 
 def deletion_failed_of(echo: bool) -> Callable[[dict], Optional[int]]:

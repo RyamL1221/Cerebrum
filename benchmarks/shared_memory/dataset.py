@@ -129,6 +129,7 @@ class Dataset:
             plausible_actions=user["base"].get("plausible_actions", []),
             sessions=user["sessions"],
             probes=user["probes"],
+            decisions=user.get("decisions") or [],
             writers=list(self.header.get("writers")
                          or ["profile_agent", "task_agent",
                              "calendar_agent"]),

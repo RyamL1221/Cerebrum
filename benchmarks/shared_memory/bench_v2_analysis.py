@@ -36,10 +36,19 @@ from typing import Dict, List, Optional
 
 from benchmarks.shared_memory.models import EMPTY_WRITE_IS_LOSS
 from benchmarks.shared_memory.probes import (
-    match_entry, mcnemar_exact, row_source, t_interval, wilson,
+    match_entry, mcnemar_exact, row_source, t_interval,
+)
+from benchmarks.shared_memory.metrics import (
+    BLOCK,
+    DECISION_ERRORS,
+    JUDGE_FREE,
+    decision_summary,
+    block_size as _block_size,
+    block_text as _block,
+    pass_rate as _rate,
+    probes_of as _probes,
 )
 
-JUDGE_FREE = ("deletion", "privacy", "recall", "recency", "contradiction")
 REAL_CONDITIONS = ("h0", "h2")
 CONTROL_OF = {"recall": "no_memory", "recency": "no_memory",
               "contradiction": "no_memory", "deletion": "no_delete",
@@ -88,46 +97,9 @@ def load(root: Path) -> Dict[tuple, dict]:
     return cells
 
 
-def _rate(passed: int, n: int) -> dict:
-    if not n:
-        return {"passed": passed, "n": n, "rate": None, "ci_low": None,
-                "ci_high": None}
-    low, high = wilson(passed, n)
-    return {"passed": passed, "n": n, "rate": passed / n, "ci_low": low,
-            "ci_high": high}
-
-
-def _probes(trials: List[dict], kind: str, echo: Optional[bool] = None):
-    out = []
-    for trial in trials:
-        if trial.get("failed"):
-            continue
-        for probe in trial.get("probe_results") or []:
-            if probe["type"] != kind:
-                continue
-            if echo is not None and bool(probe.get("echo_event")) != echo:
-                continue
-            out.append(probe)
-    return out
-
-
 # Every table's standard columns (Subtask 17): the mean block a row's
 # probes saw, in tokens and in rows, so a difference between loci can be
 # read against what each injected.
-BLOCK = ["block_tokens", "block_rows"]
-
-
-def _block_size(probes: List[dict]) -> dict:
-    """The mean block of ``probes``: ``block_tokens`` (the diagnostics'
-    ``tokens_estimated``) and ``block_rows`` (injected rows); None for
-    no probe."""
-    if not probes:
-        return dict.fromkeys(BLOCK)
-    diagnostics = [p.get("diagnostics") or {} for p in probes]
-    return {"block_tokens": statistics.fmean(
-                d.get("tokens_estimated") or 0 for d in diagnostics),
-            "block_rows": statistics.fmean(
-                len(d.get("injected_memories") or []) for d in diagnostics)}
 
 
 def _cell_probes(cell: dict, kind: Optional[str] = None) -> List[dict]:
@@ -565,10 +537,6 @@ def _key(model, locus, backend, condition) -> dict:
 
 def _carries(text: Optional[str], entries) -> bool:
     return any(match_entry(text, entry) for entry in entries or [])
-
-
-def _block(probe: dict) -> Optional[str]:
-    return (probe.get("diagnostics") or {}).get("block_text")
 
 
 def exposure_rows(cells: Dict[tuple, dict]) -> List[dict]:
@@ -1149,6 +1117,122 @@ READING_SECTIONS = [
 ]
 
 
+# -- the decision probe (Amendment 10) -------------------------------------------
+
+DECISION_KEYS = ["items", "correct", "accuracy", "ci_low", "ci_high",
+                 *DECISION_ERRORS, "echo_d1", "echo_d1_revoked"]
+
+
+def _echo_user(trial: dict) -> bool:
+    """Whether the trial's user has an echo: its deletion probe names
+    an echo event."""
+    deletion = next((p for p in trial.get("probe_results") or []
+                     if p["type"] == "deletion"), None)
+    return bool((deletion or {}).get("echo_event"))
+
+
+def decision_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per cell with decision items: items scored (of trials that did
+    not fail, without a turn error), correct, accuracy with its 95%
+    Wilson interval, the count of each error, and, for echo users'
+    ``d1`` items, how many there are and how many picked the revoked
+    option."""
+    rows = []
+    for key, cell in sorted(cells.items()):
+        trials = [t for t in cell["trials"] if not t.get("failed")]
+        items = [r for t in trials for r in t.get("decision_results") or []]
+        if not items:
+            continue
+        summary = decision_summary(items)
+        echo_d1 = [r for t in trials if _echo_user(t)
+                   for r in t.get("decision_results") or []
+                   if r["decision_id"].endswith("-d1")
+                   and r.get("passed") is not None
+                   and not r.get("turn_error")]
+        ci = summary["ci"] or (None, None)
+        rows.append({**_key(*key), "items": summary["n"],
+                     "correct": summary["passed"],
+                     "accuracy": summary["accuracy"],
+                     "ci_low": ci[0], "ci_high": ci[1],
+                     **{e: summary[e]["k"] for e in DECISION_ERRORS},
+                     "echo_d1": len(echo_d1),
+                     "echo_d1_revoked": sum(1 for r in echo_d1
+                                            if r.get("error") == "revoked")})
+    return rows
+
+
+def _pooled(rows: List[dict], pred) -> dict:
+    picked = [r for r in rows if pred(r)]
+    out = {k: sum(r[k] for r in picked)
+           for k in ("items", "correct", *DECISION_ERRORS, "echo_d1",
+                     "echo_d1_revoked")}
+    out["cells"] = len(picked)
+    out["accuracy"] = (out["correct"] / out["items"] if out["items"]
+                       else None)
+    return out
+
+
+def decision_criteria(cells: Dict[tuple, dict]) -> List[dict]:
+    """Amendment 10's functional criteria D1-D5 over the cells present:
+    ``holds`` True or False, None when a criterion's cells are absent."""
+    rows = decision_rows(cells)
+
+    def loci_of(cond):
+        return {(r["model"], r["locus"], r["backend"])
+                for r in rows if r["condition"] == cond}
+
+    def at(cond, loci=None, locus=None):
+        return _pooled(rows, lambda r: r["condition"] == cond
+                       and (loci is None or (r["model"], r["locus"],
+                                             r["backend"]) in loci)
+                       and (locus is None or r["locus"] in locus))
+
+    out = []
+    full = at("h0")
+    out.append({"criterion": "D1 full system: pooled accuracy >= 0.6",
+                "holds": None if not full["items"]
+                else full["accuracy"] >= 0.6,
+                "evidence": f"{full['correct']} of {full['items']} over "
+                            f"{full['cells']} cells"})
+    floor = at("no_memory")
+    out.append({"criterion": "D2 no_memory: pooled accuracy in "
+                             "[0.10, 0.45]",
+                "holds": None if not floor["items"]
+                else 0.10 <= floor["accuracy"] <= 0.45,
+                "evidence": f"{floor['correct']} of {floor['items']} over "
+                            f"{floor['cells']} cells"})
+    ns_loci = loci_of("no_supersession")
+    ns, ns_full = at("no_supersession"), at("h0", ns_loci)
+    out.append({"criterion": "D3 no_supersession: more stale errors than "
+                             "the same loci's full system",
+                "holds": None if not ns["items"] or not ns_full["items"]
+                else ns["stale"] > ns_full["stale"],
+                "evidence": f"stale {ns['stale']} of {ns['items']} vs "
+                            f"{ns_full['stale']} of {ns_full['items']}"})
+    ws_loci = loci_of("writer_scoped")
+    ws, ws_full = at("writer_scoped"), at("h0", ws_loci)
+    out.append({"criterion": "D4 writer_scoped: >= 1 revoked error among "
+                             "echo users' d1 items, 0 in the full system",
+                "holds": None if not ws["echo_d1"] or not ws_full["echo_d1"]
+                else ws["echo_d1_revoked"] >= 1
+                and ws_full["echo_d1_revoked"] == 0,
+                "evidence": f"revoked {ws['echo_d1_revoked']} of "
+                            f"{ws['echo_d1']} vs "
+                            f"{ws_full['echo_d1_revoked']} of "
+                            f"{ws_full['echo_d1']}"})
+    agents = at("wrong_user", locus=("replicated", "native"))
+    kernel = at("wrong_user", locus=("kernel",))
+    out.append({"criterion": "D5 wrong_user: >= 1 foreign error in the "
+                             "replicated and native cells, 0 in the "
+                             "kernel's",
+                "holds": None if not agents["items"] or not kernel["items"]
+                else agents["foreign"] >= 1 and kernel["foreign"] == 0,
+                "evidence": f"foreign {agents['foreign']} of "
+                            f"{agents['items']} vs {kernel['foreign']} of "
+                            f"{kernel['items']}"})
+    return out
+
+
 def _fmt(value) -> str:
     if value is None:
         return ""
@@ -1166,10 +1250,13 @@ def table(rows: List[dict], keys: List[str]) -> str:
 
 
 def markdown(cells, rows, binding, checks, contrasts, integration,
-             extra: Optional[Dict[str, List[dict]]] = None) -> str:
+             extra: Optional[Dict[str, List[dict]]] = None,
+             decisions: Optional[List[dict]] = None,
+             decision_checks: Optional[List[dict]] = None) -> str:
     """The report: the pass matrix and the cap and budget table, then
-    the criteria, the contrasts, the integration rows and the readings
-    (``extra``, as :func:`readings` returns them) when given."""
+    the criteria, the contrasts, the integration rows, the readings
+    (``extra``, as :func:`readings` returns them) and the decision
+    probe's rows and criteria, each when given."""
     out = ["# Benchmark v2 analysis", "",
            f"{len(cells)} cells, "
            f"{sum(len(c['trials']) for c in cells.values())} user-trials, "
@@ -1222,6 +1309,17 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
         if found:
             out += [f"## {title}", "", note, "",
                     table(found, CELL_KEYS + keys + BLOCK), ""]
+    if decisions:
+        out += ["## Decision probe (Amendment 10)", "",
+                "Two items per user, four options each (chance 0.25), "
+                "scored exactly from the letter named. Accuracy with its "
+                "95% Wilson interval; each error's count; `echo_d1`, "
+                "echo users' d1 items, and how many picked the revoked "
+                "option.", "",
+                table(decisions, CELL_KEYS + DECISION_KEYS), "",
+                "### Functional criteria D1-D5", "",
+                table(decision_checks or [],
+                      ["criterion", "holds", "evidence"]), ""]
     return "\n".join(out) + "\n"
 
 
@@ -1240,17 +1338,23 @@ def main(argv=None) -> int:
     contrasts = [r for m in models for r in contrast_rows(cells, m)]
     integration = integration_rows(cells)
     extra = readings(cells)
+    decisions = decision_rows(cells)
+    decision_checks = decision_criteria(cells) if decisions else []
     text = markdown(cells, rows, binding, checks, contrasts, integration,
-                    extra)
+                    extra, decisions, decision_checks)
     print(text)
     if args.markdown:
         Path(args.markdown).write_text(text)
     if args.json:
-        Path(args.json).write_text(json.dumps({
+        data = {
             "rows": rows, "binding": binding, "criteria": checks,
             "contrasts": contrasts, "integration": integration,
             "readings": extra,
-        }, indent=1, default=str))
+        }
+        if decisions:
+            data.update(decisions=decisions,
+                        decision_criteria=decision_checks)
+        Path(args.json).write_text(json.dumps(data, indent=1, default=str))
     return 0
 
 

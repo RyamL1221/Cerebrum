@@ -44,6 +44,25 @@ def contains(text: str, item: str) -> bool:
     return re.search(pattern, text or "", re.IGNORECASE) is not None
 
 
+def answer_profile_items(profile: SyntheticProfile) -> List[str]:
+    """The profile items an answer can name: the user's name, language
+    and each preferred tool (a response style is shown, not named)."""
+    items = [profile.user_name, profile.preferred_language,
+             *profile.preferred_tools]
+    return [item for item in items if item and item.strip()]
+
+
+def profile_facts_in_answer(profile: SyntheticProfile,
+                            answer: Optional[str]) -> Optional[float]:
+    """The share of ``answer_profile_items`` the answer names, with
+    ``profile_facts_in_block``'s matcher (:func:`contains`). None
+    without an answer or an item (Subtask 20, AIOS docs/METRICS.md)."""
+    items = answer_profile_items(profile)
+    if answer is None or not items:
+        return None
+    return sum(1 for item in items if contains(answer, item)) / len(items)
+
+
 def block_rows(block_text: str) -> List[str]:
     """The bullet rows of a block in any format (compact, legacy,
     native), without bullet or legacy timestamp."""
@@ -103,9 +122,11 @@ def measure(
     diagnostics: Optional[InjectionDiagnostics],
     written: Iterable[WrittenMemoryRecord],
     consumer: str = CONSUMER,
+    answer: Optional[str] = None,
 ) -> JudgeFreeMeasures:
     """The trial's measures. ``trial_user_id`` is the reference id the
-    trial's provenance names (the method-scoped user id)."""
+    trial's provenance names (the method-scoped user id); ``answer``,
+    the consumer's answer the judge scores."""
     injected = list(diagnostics.injected_memories) if diagnostics else []
     block_text = diagnostics.block_text if diagnostics else None
 
@@ -147,6 +168,7 @@ def measure(
     return JudgeFreeMeasures(
         profile_facts_in_block=facts,
         profile_facts_missing=missing_facts,
+        profile_facts_in_answer=profile_facts_in_answer(profile, answer),
         cross_user_rows=cross_user,
         private_rows_from_others=private_from_others,
         memories_missing=len(missing),

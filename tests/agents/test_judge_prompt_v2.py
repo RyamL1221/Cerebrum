@@ -15,6 +15,7 @@ from benchmarks.shared_memory.judge import (
     LLMJudge,
     judge_prompt_sha256,
 )
+from benchmarks.shared_memory.metrics import DIMENSIONS, keyword_scores
 from benchmarks.shared_memory.models import (
     ConditionResults,
     ExperimentMetadata,
@@ -237,4 +238,14 @@ def test_hybrid_evaluate_matches_combine(value):
         scores = hybrid.evaluate("q", "Use vim.", PROFILE, TASK)
     expected = HybridJudge.combine("Use vim.", PROFILE, TASK,
                                    llm_scores(value))
-    assert scores == expected.model_copy(update={"judge_attempts": 1})
+    # At one repeat the scores are the hybrid, as before Subtask 20; the
+    # record keeps the halves apart (METRICS.md).
+    assert scores.model_copy(update={"record": None}) == \
+        expected.model_copy(update={"judge_attempts": 1})
+    assert scores.record["llm"] == {d: value for d in DIMENSIONS}
+    assert scores.record["keyword"] == keyword_scores("Use vim.", PROFILE,
+                                                      TASK)
+    assert scores.record["hybrid"] == {
+        "profile": scores.profile_usage_score,
+        "task": scores.task_usage_score,
+        "integration": scores.integration_score}
