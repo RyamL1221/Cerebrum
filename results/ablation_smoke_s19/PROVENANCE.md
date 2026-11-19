@@ -20,9 +20,9 @@ judge-free and whose mechanism is not definitional. Result: AIOS
   budget, supersession `exclude`; the write quota on (`max_writes` 4,
   dedupe) for the floods and off for the others, each on a fresh kernel.
 - **Kernel log checks** (`driver.log`): no probe turn stored; the
-  tombstone guard's warnings 0 in every phase but `kinh_barrier` (46:
-  rows a read met after a forget recorded its tombstone and before it
-  deleted them).
+  tombstone guard's warnings 0 in every phase but `kinh_barrier` (46
+  drops, of 12 rows a read met after a forget recorded its tombstone
+  and before it deleted them).
 - **Analysis**: `analysis.md`, `analysis.json` and `contribution.svg`
   (`benchmarks.shared_memory.ablation_report`).
 - **Archive**: `../repo-artifacts/Cerebrum/ablation_smoke_s19` (the
