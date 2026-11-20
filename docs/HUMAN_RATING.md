@@ -77,9 +77,9 @@ judges' scores stay hidden. Raters are not told the conditions or the
 hypotheses.
 
 **Who rates.** Three raters. People who did not build or run the
-systems are preferred: they cannot know which system wrote an answer
-from its style. A rater who knows the hypotheses is named as such in
-the report.
+systems are preferred: they are less likely to tell from its style
+which system wrote an answer. A rater who knows the hypotheses is
+named as such in the report.
 
 ## The rubric
 
@@ -129,17 +129,22 @@ of one judge for one trial, and a judge used at two k.
 
 **Strata.** The cell: dataset version, locus, backend, model and H
 (`judge_reliability.cell_of`, the calibration set's cells without its
-score band). The three runs have 45 cells of 30 answers each: 36 in
-`pilot_v1_hetero`, 6 in `pilot_v1_amem`, 3 in `bench_v2_smoke_amem`.
-No score is read: unlike `calibration_v1`, which stratified by the
-stored hybrid score, the sample takes no band, so the draw does not
-depend on a judge.
+score band). The dataset version is in the cell beside locus,
+backend, model and H because a v1 answer and a v2 integration probe
+are different kinds of answer. The three runs have 45 cells of 30
+answers each: 36 in `pilot_v1_hetero`, 6 in `pilot_v1_amem`, 3 in
+`bench_v2_smoke_amem`. No score is read: unlike `calibration_v1`,
+which stratified by the stored hybrid score, the sample takes no band,
+so the draw does not depend on a judge.
 
-**Per cell.** 3 answers from each cell: 135 in all. By factor: locus
-45 each; backend 54 in-house, 54 Mem0, 27 A-MEM; model 81 Qwen, 54
-GPT-4o; H 54 at 0, 36 at 1, 45 at 2; version 126 v1, 9 v2. The cells
-weigh equally, so the factors do not (the runs' cells are not
-balanced).
+**Per cell.** 3 answers from each cell: 135 in all. Three, because
+near the threshold 135 items give an interval about ±0.05 wide at
+about 6 hours per rater; 2 per cell give about ±0.06 at about 4
+hours, 4 per cell about ±0.04 at 7 to 8 ("What the numbers buy"). By
+factor: locus 45 each; backend 54 in-house, 54 Mem0, 27 A-MEM; model
+81 Qwen, 54 GPT-4o; H 54 at 0, 36 at 1, 45 at 2; version 126 v1, 9
+v2. The cells weigh equally, so the factors do not (the runs' cells
+are not balanced).
 
 **Within a cell.** Each pick is the candidate whose user has been
 drawn least so far, ties broken by a seeded shuffle of the cell. A
@@ -243,7 +248,10 @@ point estimate reached 0.80. Three raters:
 | 0.667 | 180 | 0.122 | 0 of 60 | 0.128 | 0 of 60 |
 
 So at 135 items an alpha near 0.80 is known to about ±0.05, and a
-true alpha of 0.85 reached the threshold in every simulated sample.
+true alpha of 0.85 reached the threshold in every simulated sample. At
+a true 0.80 the point estimate falls on either side of the threshold
+about as often (31 and 33 of 60 at 135 items): the rule cannot tell
+0.80 from a little less.
 Two more raters buy about what 45 more items do, for more ratings: at
 alpha 0.80, five raters at 135 items (675 ratings) give an interval
 0.081 (Profile) and 0.078 (Integration) wide, three raters at 180
@@ -355,8 +363,8 @@ Two points, because one point is the step between neighbouring
 anchors, which METRICS.md's within-1 agreement counts as agreement;
 two points means the two readings of the rubric differ. For scale: on
 the 1,350 stored answers the two judges differed by 2 or more on
-Profile for 201, on Task for none and on Integration for 40 (the
-interrupted attempt's index of the trees, recounted 2026-11-20).
+Profile for 201, on Task for none and on Integration for 40 (counted
+from the two trees' records, 2026-11-20).
 
 **What is shown beside each.** Every rater's score, the median, each
 judge's score, the keyword score, the item's cell and its source trial
@@ -431,6 +439,10 @@ nothing committed; no kernel, model or network was reached:
   comma, a line break and a trailing space came back intact (trimmed).
 - The page: its script parses (`node --check`), and its rules without
   the page (the file check, each rater's order, the CSV) ran in Node.
+- The unit tests' expected values, where arithmetic did not settle
+  them (a seed's draw, a bootstrap interval, a list's order), were
+  computed by calling the module by hand on the same made-up inputs;
+  the test file itself was neither run nor imported.
 
 **Not checked.** The page has not been opened in a browser: its
 layout, its keys, its storage and its download are unverified. The
