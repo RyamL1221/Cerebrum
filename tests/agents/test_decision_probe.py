@@ -8,6 +8,7 @@ import pytest
 
 from benchmarks.shared_memory import dataset, history, synth_v2
 from benchmarks.shared_memory.metrics import (
+    decision_picks,
     decision_summary,
     letters_named,
     score_decision,
@@ -214,6 +215,73 @@ def test_the_cell_summary_counts_errors_against_scored_items():
     assert (out["n"], out["passed"], out["accuracy"]) == (3, 1, 1 / 3)
     assert out["stale"] == {"k": 2, "share": 2 / 3}
     assert out["ci"][0] < 1 / 3 < out["ci"][1]
+
+
+def picked(item, kinds, choice, correct="A", **extra):
+    """A scored decision row whose options are ``kinds`` at A-D."""
+    options = [{"letter": x, "kind": k} for x, k in zip("ABCD", kinds)]
+    kind = next((o["kind"] for o in options if o["letter"] == choice), None)
+    return {"decision_id": f"u000-{item}", "options": options,
+            "correct": correct, "choice": choice,
+            "passed": choice == correct,
+            "error": None if choice == correct else kind, **extra}
+
+
+def test_the_picks_count_each_kind_and_letter_of_the_scored_items():
+    d1 = ["correct", "stale", "revoked", "foreign"]
+    d2 = ["foreign", "correct", "stale", "private"]
+    rows = [picked("d1", d1, "D"), picked("d1", d1, "C"),
+            picked("d1", d1, "A"), picked("d2", d2, "D", correct="B"),
+            picked("d2", d2, "A", correct="B"),
+            # named no letter: scored, not picked
+            {**picked("d2", d2, None, correct="B"), "error": "no_letter"},
+            # a turn error: not scored
+            {**picked("d1", d1, "B"), "passed": None,
+             "turn_error": "raised"}]
+    out = decision_picks(rows)
+    assert (out["items"], out["no_letter"], out["multiple_letters"],
+            out["turn_errors"]) == (6, 1, 0, 1)
+    one, two, pooled = out["d1"], out["d2"], out["pooled"]
+    assert (one["items"], one["picked"]) == (3, 3)
+    assert (two["items"], two["picked"]) == (3, 2)
+    # revoked (d1) and private (d2) are both must-not-use
+    assert one["kinds"]["must_not_use"]["k"] == 1
+    assert two["kinds"]["must_not_use"]["k"] == 1
+    assert {k: v["k"] for k, v in pooled["kinds"].items()} == {
+        "correct": 1, "stale": 0, "must_not_use": 2, "foreign": 2}
+    assert pooled["kinds"]["foreign"]["share"] == pytest.approx(2 / 5)
+    low, high = pooled["kinds"]["foreign"]["ci"]
+    assert low < 2 / 5 < high
+    # letters over the picks, correct letters over every scored item
+    assert pooled["letters"] == {"A": 2, "B": 0, "C": 1, "D": 2}
+    assert two["correct_letters"] == {"A": 0, "B": 3, "C": 0, "D": 0}
+    even = decision_picks([picked("d1", d1, x, correct=x) for x in "ABCD"])
+    assert even["d1"]["letters_p"] == pytest.approx(1.0)
+    assert even["d1"]["correct_letters_p"] == pytest.approx(1.0)
+    assert even["d2"]["picked"] == 0
+    assert even["d2"]["kinds"]["foreign"] == {"k": 0, "share": None,
+                                              "ci": None}
+    assert even["d2"]["letters_p"] is None
+
+
+def test_the_v2_analysis_reports_the_picks():
+    from benchmarks.shared_memory import bench_v2_analysis as ba
+
+    d1 = ["correct", "stale", "revoked", "foreign"]
+    trial = {"decision_results": [picked("d1", d1, "D"),
+                                  picked("d1", d1, "A")]}
+    failed = {"failed": True, "decision_results": [picked("d1", d1, "B")]}
+    cells = {("qwen", "kernel", "inhouse", "no_memory"): {
+        "trials": [trial, failed], "metadata": {}}}
+    rows = ba.pick_rows(cells)
+    assert [r["item"] for r in rows] == ["d1", "d2", "pooled"]
+    assert rows[0]["picked"] == 2          # the failed trial left out
+    assert rows[1]["picked"] == 0
+    text = ba.markdown(cells, [], [], [], [], [], {},
+                       ba.decision_rows(cells), [], rows)
+    assert "### Picks by option kind and letter" in text
+    assert "| 1 (0.50) [" in text
+    assert "| 1/0/0/1 |" in text
 
 
 def test_the_history_asks_the_items_after_the_probes(records):

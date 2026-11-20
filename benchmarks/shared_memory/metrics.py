@@ -16,7 +16,8 @@ the records:
   outcomes and means, ``cross_user_rows_all_probes``,
   ``writes_without_row``, block size, the stress, flood and identity
   counts per trial, a cell's leak and missing rates);
-- the decision probe's scoring (Amendment 10).
+- the decision probe's scoring and its picks by option kind and
+  letter (Amendment 10).
 Where two rules for one idea exist, both are here under distinct names
 (METRICS.md), and recorded numbers do not change.
 """
@@ -496,6 +497,68 @@ def decision_summary(results: Iterable[Any]) -> Dict[str, Any]:
     for error in DECISION_ERRORS:
         k = sum(1 for r in scored if r.get("error") == error)
         out[error] = {"k": k, "share": k / n if n else None}
+    return out
+
+
+# The kinds of a pick (Amendment 10, "The no-memory check over every
+# user"): ``revoked`` (on d1) and ``private`` (on d2) as must-not-use.
+PICK_KINDS = ("correct", "stale", "must_not_use", "foreign")
+LETTERS = ("A", "B", "C", "D")
+
+
+def _picked_kind(row: dict) -> Optional[str]:
+    """The kind of the option a scored item's single letter names, with
+    ``revoked`` and ``private`` as ``must_not_use``; None for no pick."""
+    kind = next((o["kind"] for o in row.get("options") or []
+                 if o["letter"] == row.get("choice")), None)
+    return "must_not_use" if kind in ("revoked", "private") else kind
+
+
+def _uniform_p(counts: List[int]) -> Optional[float]:
+    """The chi-square test's p of ``counts`` against uniform; None for
+    no counts."""
+    from scipy.stats import chisquare
+
+    return float(chisquare(counts).pvalue) if sum(counts) else None
+
+
+def decision_picks(results: Iterable[Any]) -> Dict[str, Any]:
+    """Amendment 10's no-memory check over a cell's decision items. Of
+    the items scored (as :func:`decision_summary`), per item (``d1``,
+    ``d2``) and pooled: the items that named one letter (``picked``),
+    each option kind's picks among them with the share and its 95%
+    Wilson interval; the letters picked and the items' correct letters,
+    each with a chi-square test against uniform (``letters_p``,
+    ``correct_letters_p``). Also the items that named no letter or
+    several, and those with a turn error (not scored)."""
+    rows = [r if isinstance(r, dict) else r.model_dump() for r in results]
+    scored = [r for r in rows if r.get("passed") is not None
+              and not r.get("turn_error")]
+    out: Dict[str, Any] = {
+        "items": len(scored),
+        "no_letter": sum(1 for r in scored if r.get("error") == "no_letter"),
+        "multiple_letters": sum(1 for r in scored
+                                if r.get("error") == "multiple_letters"),
+        "turn_errors": sum(1 for r in rows if r.get("turn_error")),
+    }
+    for group in ("d1", "d2", "pooled"):
+        mine = [r for r in scored if group == "pooled"
+                or r["decision_id"].endswith(f"-{group}")]
+        picked = [r for r in mine if r.get("choice")]
+        n = len(picked)
+        kinds = {}
+        for kind in PICK_KINDS:
+            k = sum(1 for r in picked if _picked_kind(r) == kind)
+            kinds[kind] = {"k": k, "share": k / n if n else None,
+                           "ci": wilson(k, n)}
+        named = [sum(1 for r in picked if r["choice"] == x) for x in LETTERS]
+        correct = [sum(1 for r in mine if r.get("correct") == x)
+                   for x in LETTERS]
+        out[group] = {"items": len(mine), "picked": n, "kinds": kinds,
+                      "letters": dict(zip(LETTERS, named)),
+                      "letters_p": _uniform_p(named),
+                      "correct_letters": dict(zip(LETTERS, correct)),
+                      "correct_letters_p": _uniform_p(correct)}
     return out
 
 

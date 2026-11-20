@@ -42,6 +42,9 @@ from benchmarks.shared_memory.metrics import (
     BLOCK,
     DECISION_ERRORS,
     JUDGE_FREE,
+    LETTERS,
+    PICK_KINDS,
+    decision_picks,
     decision_summary,
     block_size as _block_size,
     block_text as _block,
@@ -1177,6 +1180,50 @@ def _with_shares(row: dict) -> dict:
     return out
 
 
+PICK_KEYS = ["item", "items", "picked", *PICK_KINDS, "letters",
+             "letters_p", "correct_letters", "correct_letters_p"]
+
+
+def pick_rows(cells: Dict[tuple, dict]) -> List[dict]:
+    """Per cell with decision items, one row per item (``d1``, ``d2``)
+    and one pooled: the picks by option kind and by letter
+    (:func:`metrics.decision_picks`), with the cell's ``no_letter``,
+    ``multiple_letters`` and turn errors on each row."""
+    rows = []
+    for key, cell in sorted(cells.items()):
+        items = [r for t in cell["trials"] if not t.get("failed")
+                 for r in t.get("decision_results") or []]
+        if not items:
+            continue
+        picks = decision_picks(items)
+        for group in ("d1", "d2", "pooled"):
+            g = picks[group]
+            rows.append({**_key(*key), "item": group, "items": g["items"],
+                         "picked": g["picked"], "kinds": g["kinds"],
+                         "letters": g["letters"],
+                         "letters_p": g["letters_p"],
+                         "correct_letters": g["correct_letters"],
+                         "correct_letters_p": g["correct_letters_p"],
+                         **{k: picks[k] for k in (
+                             "no_letter", "multiple_letters",
+                             "turn_errors")}})
+    return rows
+
+
+def _pick_cells(row: dict) -> dict:
+    """A picks row for the table: each kind as "k (share) [low, high]",
+    each letter count as "A/B/C/D"."""
+    out = dict(row)
+    for kind in PICK_KINDS:
+        k = row["kinds"][kind]
+        out[kind] = (f"{k['k']} ({k['share']:.2f}) "
+                     f"[{k['ci'][0]:.2f}, {k['ci'][1]:.2f}]"
+                     if k["share"] is not None else str(k["k"]))
+    for name in ("letters", "correct_letters"):
+        out[name] = "/".join(str(row[name][x]) for x in LETTERS)
+    return out
+
+
 def _pooled(rows: List[dict], pred) -> dict:
     picked = [r for r in rows if pred(r)]
     out = {k: sum(r[k] for r in picked)
@@ -1268,11 +1315,12 @@ def table(rows: List[dict], keys: List[str]) -> str:
 def markdown(cells, rows, binding, checks, contrasts, integration,
              extra: Optional[Dict[str, List[dict]]] = None,
              decisions: Optional[List[dict]] = None,
-             decision_checks: Optional[List[dict]] = None) -> str:
+             decision_checks: Optional[List[dict]] = None,
+             picks: Optional[List[dict]] = None) -> str:
     """The report: the pass matrix and the cap and budget table, then
     the criteria, the contrasts, the integration rows, the readings
     (``extra``, as :func:`readings` returns them) and the decision
-    probe's rows and criteria, each when given."""
+    probe's rows, criteria and picks, each when given."""
     out = ["# Benchmark v2 analysis", "",
            f"{len(cells)} cells, "
            f"{sum(len(c['trials']) for c in cells.values())} user-trials, "
@@ -1339,6 +1387,19 @@ def markdown(cells, rows, binding, checks, contrasts, integration,
                 "### Functional criteria D1-D5", "",
                 table(decision_checks or [],
                       ["criterion", "holds", "evidence"]), ""]
+    if picks:
+        out += ["### Picks by option kind and letter", "",
+                "Of the items scored, those that named one letter "
+                "(`picked`), by the kind of the option named (chance "
+                "0.25 each): count (share) [95% Wilson interval]; "
+                "`must_not_use` is `revoked` on d1 and `private` on d2. "
+                "Letters picked and the items' correct letters as "
+                "A/B/C/D, each with a chi-square test's p against "
+                "uniform.", "",
+                table([_pick_cells(r) for r in picks],
+                      CELL_KEYS + PICK_KEYS + ["no_letter",
+                                               "multiple_letters",
+                                               "turn_errors"]), ""]
     return "\n".join(out) + "\n"
 
 
@@ -1359,8 +1420,9 @@ def main(argv=None) -> int:
     extra = readings(cells)
     decisions = decision_rows(cells)
     decision_checks = decision_criteria(cells) if decisions else []
+    picks = pick_rows(cells)
     text = markdown(cells, rows, binding, checks, contrasts, integration,
-                    extra, decisions, decision_checks)
+                    extra, decisions, decision_checks, picks)
     print(text)
     if args.markdown:
         Path(args.markdown).write_text(text)
@@ -1372,7 +1434,8 @@ def main(argv=None) -> int:
         }
         if decisions:
             data.update(decisions=decisions,
-                        decision_criteria=decision_checks)
+                        decision_criteria=decision_checks,
+                        decision_picks=picks)
         Path(args.json).write_text(json.dumps(data, indent=1, default=str))
     return 0
 
