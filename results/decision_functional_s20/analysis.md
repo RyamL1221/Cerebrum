@@ -1,6 +1,6 @@
 # Benchmark v2 analysis
 
-13 cells, 65 user-trials, 0 failed.
+26 cells, 130 user-trials, 0 failed.
 
 Every table but the criteria ends with `block_tokens` and `block_rows`: the mean block, in tokens and in rows, of a set of the row's cell's probes. In the pass matrix, the row's own probes (a deletion row split by echo, its split's); in the kernel-against-replicated table, the row's probe type, per locus (all probes for `identical blocks`); in the integration table and the integration readings, the cell's integration probes; elsewhere, the row's probe type where the row names one, else all of the cell's probes. A reading's row that splits a cell's probes further (a slot, a carrier, a count of base rows) shows its set's mean, not its own.
 
@@ -45,6 +45,41 @@ Pass rates with 95% Wilson intervals; recency and contradiction also give the le
 | qwen | kernel | inhouse | wrong_user | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 4 | 5 | 246.00 | 11.80 |
 | qwen | kernel | inhouse | wrong_user | deletion (echo) | 1 | 2 | 0.50 | 0.09 | 0.91 |  |  |  | 0 | 1 | 0 | 0 | 2 | 2 | 263.00 | 12.00 |
 | qwen | kernel | inhouse | wrong_user | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 3 | 266.67 | 11.33 |
+| qwen | kernel | mem0 | h0 | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 287.80 | 12.20 |
+| qwen | kernel | mem0 | h0 | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 291.00 | 13.00 |
+| qwen | kernel | mem0 | h0 | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 288.60 | 12.80 |
+| qwen | kernel | mem0 | h0 | recency | 3 | 5 | 0.60 | 0.23 | 0.88 | 1.00 | 2 | 2 |  |  | 0 | 0 | 5 | 5 | 292.20 | 12.40 |
+| qwen | kernel | mem0 | h0 | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 5 | 5 | 286.00 | 13.20 |
+| qwen | kernel | mem0 | h0 | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 2 | 292.00 | 11.50 |
+| qwen | kernel | mem0 | h0 | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 285.00 | 12.67 |
+| qwen | kernel | mem0 | no_memory | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | recall | 0 | 5 | 0.00 | 0.00 | 0.43 |  |  |  |  |  | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | recency | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | contradiction | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 2 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 3 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 277.20 | 12.20 |
+| qwen | kernel | mem0 | no_supersession | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 290.40 | 13.40 |
+| qwen | kernel | mem0 | no_supersession | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 284.80 | 12.80 |
+| qwen | kernel | mem0 | no_supersession | recency | 3 | 5 | 0.60 | 0.23 | 0.88 | 1.00 | 2 | 2 |  |  | 0 | 0 | 5 | 5 | 286.40 | 12.20 |
+| qwen | kernel | mem0 | no_supersession | contradiction | 2 | 5 | 0.40 | 0.12 | 0.77 | 0.60 | 1 | 0 |  |  | 0 | 0 | 5 | 5 | 286.00 | 13.20 |
+| qwen | kernel | mem0 | no_supersession | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 2 | 270.50 | 11.50 |
+| qwen | kernel | mem0 | no_supersession | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 281.67 | 12.67 |
+| qwen | kernel | mem0 | writer_scoped | deletion | 4 | 5 | 0.80 | 0.38 | 0.96 |  |  |  | 1 | 1 | 0 | 0 | 5 | 5 | 286.20 | 12.40 |
+| qwen | kernel | mem0 | writer_scoped | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 289.40 | 12.40 |
+| qwen | kernel | mem0 | writer_scoped | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 270.40 | 12.20 |
+| qwen | kernel | mem0 | writer_scoped | recency | 4 | 5 | 0.80 | 0.38 | 0.96 | 1.00 | 1 | 1 |  |  | 0 | 0 | 5 | 5 | 288.60 | 12.00 |
+| qwen | kernel | mem0 | writer_scoped | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 5 | 5 | 286.80 | 12.40 |
+| qwen | kernel | mem0 | writer_scoped | deletion (echo) | 1 | 2 | 0.50 | 0.09 | 0.91 |  |  |  | 1 | 1 | 0 | 0 | 2 | 2 | 278.50 | 12.50 |
+| qwen | kernel | mem0 | writer_scoped | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 291.33 | 12.33 |
+| qwen | kernel | mem0 | wrong_user | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 287.60 | 12.00 |
+| qwen | kernel | mem0 | wrong_user | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 278.60 | 12.20 |
+| qwen | kernel | mem0 | wrong_user | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 277.80 | 12.20 |
+| qwen | kernel | mem0 | wrong_user | recency | 4 | 5 | 0.80 | 0.38 | 0.96 | 1.00 | 1 | 1 |  |  | 0 | 0 | 5 | 5 | 276.40 | 11.80 |
+| qwen | kernel | mem0 | wrong_user | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 5 | 5 | 273.80 | 12.20 |
+| qwen | kernel | mem0 | wrong_user | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 2 | 289.50 | 11.50 |
+| qwen | kernel | mem0 | wrong_user | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 286.33 | 12.33 |
 | qwen | native | inhouse | h0 | deletion | 3 | 5 | 0.60 | 0.23 | 0.88 |  |  |  | 2 | 2 | 0 | 5 |  | 5 | 197.80 | 9.20 |
 | qwen | native | inhouse | h0 | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 5 |  | 5 | 182.60 | 9.00 |
 | qwen | native | inhouse | h0 | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 5 |  | 5 | 214.00 | 9.20 |
@@ -66,6 +101,27 @@ Pass rates with 95% Wilson intervals; recency and contradiction also give the le
 | qwen | native | inhouse | wrong_user | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 4 |  | 5 | 205.60 | 9.00 |
 | qwen | native | inhouse | wrong_user | deletion (echo) | 1 | 2 | 0.50 | 0.09 | 0.91 |  |  |  | 1 | 1 | 0 | 1 |  | 2 | 214.50 | 9.00 |
 | qwen | native | inhouse | wrong_user | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 3 |  | 3 | 207.00 | 9.33 |
+| qwen | native | mem0 | h0 | deletion | 4 | 5 | 0.80 | 0.38 | 0.96 |  |  |  | 0 | 1 | 0 | 5 |  | 5 | 233.60 | 9.20 |
+| qwen | native | mem0 | h0 | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 5 |  | 5 | 230.20 | 9.80 |
+| qwen | native | mem0 | h0 | recall | 0 | 5 | 0.00 | 0.00 | 0.43 |  |  |  |  |  | 0 | 5 |  | 5 | 199.80 | 9.60 |
+| qwen | native | mem0 | h0 | recency | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 5 |  | 5 | 229.80 | 9.40 |
+| qwen | native | mem0 | h0 | contradiction | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 5 |  | 5 | 204.80 | 9.20 |
+| qwen | native | mem0 | h0 | deletion (echo) | 1 | 2 | 0.50 | 0.09 | 0.91 |  |  |  | 0 | 1 | 0 | 2 |  | 2 | 259.50 | 9.00 |
+| qwen | native | mem0 | h0 | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 3 |  | 3 | 216.33 | 9.33 |
+| qwen | native | mem0 | no_memory | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 |  | 5 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 |  | 5 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | recall | 0 | 5 | 0.00 | 0.00 | 0.43 |  |  |  |  |  | 0 | 0 |  | 5 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | recency | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 0 |  | 5 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | contradiction | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 0 |  | 5 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 |  | 2 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 |  | 3 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 5 |  | 5 | 236.20 | 9.20 |
+| qwen | native | mem0 | wrong_user | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 5 |  | 5 | 239.40 | 10.00 |
+| qwen | native | mem0 | wrong_user | recall | 0 | 5 | 0.00 | 0.00 | 0.43 |  |  |  |  |  | 0 | 5 |  | 5 | 203.00 | 9.40 |
+| qwen | native | mem0 | wrong_user | recency | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 5 |  | 5 | 246.20 | 9.40 |
+| qwen | native | mem0 | wrong_user | contradiction | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 5 |  | 5 | 215.40 | 9.40 |
+| qwen | native | mem0 | wrong_user | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 2 |  | 2 | 281.50 | 9.00 |
+| qwen | native | mem0 | wrong_user | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 3 |  | 3 | 206.00 | 9.33 |
 | qwen | replicated | inhouse | h0 | deletion | 4 | 5 | 0.80 | 0.38 | 0.96 |  |  |  | 0 | 1 | 0 | 0 | 4 | 5 | 265.20 | 11.60 |
 | qwen | replicated | inhouse | h0 | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 4 | 5 | 240.00 | 12.60 |
 | qwen | replicated | inhouse | h0 | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 4 | 5 | 264.00 | 11.60 |
@@ -101,6 +157,41 @@ Pass rates with 95% Wilson intervals; recency and contradiction also give the le
 | qwen | replicated | inhouse | wrong_user | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 3 | 5 | 235.40 | 11.40 |
 | qwen | replicated | inhouse | wrong_user | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 1 | 2 | 270.50 | 10.00 |
 | qwen | replicated | inhouse | wrong_user | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 3 | 233.33 | 11.67 |
+| qwen | replicated | mem0 | h0 | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 290.40 | 12.20 |
+| qwen | replicated | mem0 | h0 | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | h0 | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 281.20 | 12.60 |
+| qwen | replicated | mem0 | h0 | recency | 4 | 5 | 0.80 | 0.38 | 0.96 | 1.00 | 1 | 1 |  |  | 0 | 0 | 5 | 5 | 282.00 | 12.20 |
+| qwen | replicated | mem0 | h0 | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 5 | 5 | 283.00 | 12.80 |
+| qwen | replicated | mem0 | h0 | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 2 | 289.50 | 11.50 |
+| qwen | replicated | mem0 | h0 | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 291.00 | 12.67 |
+| qwen | replicated | mem0 | no_memory | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | recall | 0 | 5 | 0.00 | 0.00 | 0.43 |  |  |  |  |  | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | recency | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | contradiction | 0 | 5 | 0.00 | 0.00 | 0.43 | 0.00 | 0 | 0 |  |  | 0 | 0 | 0 | 5 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 2 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 0 | 3 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 282.80 | 12.80 |
+| qwen | replicated | mem0 | no_supersession | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 288.80 | 13.20 |
+| qwen | replicated | mem0 | no_supersession | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 281.20 | 12.80 |
+| qwen | replicated | mem0 | no_supersession | recency | 2 | 5 | 0.40 | 0.12 | 0.77 | 1.00 | 3 | 2 |  |  | 0 | 0 | 5 | 5 | 290.00 | 12.40 |
+| qwen | replicated | mem0 | no_supersession | contradiction | 2 | 5 | 0.40 | 0.12 | 0.77 | 0.80 | 2 | 0 |  |  | 0 | 0 | 5 | 5 | 287.80 | 12.80 |
+| qwen | replicated | mem0 | no_supersession | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 2 | 270.50 | 12.50 |
+| qwen | replicated | mem0 | no_supersession | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 291.00 | 13.00 |
+| qwen | replicated | mem0 | writer_scoped | deletion | 4 | 5 | 0.80 | 0.38 | 0.96 |  |  |  | 1 | 1 | 0 | 0 | 5 | 5 | 284.20 | 11.60 |
+| qwen | replicated | mem0 | writer_scoped | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 5 | 5 | 280.40 | 12.20 |
+| qwen | replicated | mem0 | writer_scoped | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 5 | 5 | 288.60 | 12.80 |
+| qwen | replicated | mem0 | writer_scoped | recency | 3 | 5 | 0.60 | 0.23 | 0.88 | 1.00 | 2 | 2 |  |  | 0 | 0 | 5 | 5 | 280.00 | 11.80 |
+| qwen | replicated | mem0 | writer_scoped | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 5 | 5 | 276.40 | 12.00 |
+| qwen | replicated | mem0 | writer_scoped | deletion (echo) | 1 | 2 | 0.50 | 0.09 | 0.91 |  |  |  | 1 | 1 | 0 | 0 | 2 | 2 | 280.50 | 10.50 |
+| qwen | replicated | mem0 | writer_scoped | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 3 | 3 | 286.67 | 12.33 |
+| qwen | replicated | mem0 | wrong_user | deletion | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 4 | 5 | 281.80 | 11.60 |
+| qwen | replicated | mem0 | wrong_user | privacy | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 4 | 5 | 277.80 | 12.60 |
+| qwen | replicated | mem0 | wrong_user | recall | 5 | 5 | 1.00 | 0.57 | 1.00 |  |  |  |  |  | 0 | 0 | 4 | 5 | 278.00 | 11.80 |
+| qwen | replicated | mem0 | wrong_user | recency | 4 | 5 | 0.80 | 0.38 | 0.96 | 1.00 | 1 | 1 |  |  | 0 | 0 | 4 | 5 | 270.20 | 12.00 |
+| qwen | replicated | mem0 | wrong_user | contradiction | 5 | 5 | 1.00 | 0.57 | 1.00 | 1.00 | 0 | 0 |  |  | 0 | 0 | 4 | 5 | 270.80 | 12.40 |
+| qwen | replicated | mem0 | wrong_user | deletion (echo) | 2 | 2 | 1.00 | 0.34 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 2 | 291.00 | 10.50 |
+| qwen | replicated | mem0 | wrong_user | deletion (no echo) | 3 | 3 | 1.00 | 0.44 | 1.00 |  |  |  | 0 | 0 | 0 | 0 | 2 | 3 | 275.67 | 12.33 |
 
 ## Cap and budget
 
@@ -111,19 +202,37 @@ Pass rates with 95% Wilson intervals; recency and contradiction also give the le
 | qwen | kernel | inhouse | no_supersession | 30 | 0 | 30 | 267.00 | 300 | 262.93 | 12.73 |
 | qwen | kernel | inhouse | writer_scoped | 30 | 0 | 24 | 275.00 | 300 | 261.37 | 11.80 |
 | qwen | kernel | inhouse | wrong_user | 30 | 0 | 24 | 275.00 | 300 | 259.37 | 11.60 |
+| qwen | kernel | mem0 | h0 | 30 | 0 | 30 | 292.00 | 300 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | no_memory | 30 | 0 | 0 | 0.00 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | 30 | 0 | 30 | 288.00 | 299 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | writer_scoped | 30 | 0 | 30 | 288.00 | 299 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | wrong_user | 30 | 0 | 30 | 286.00 | 300 | 279.37 | 11.97 |
 | qwen | native | inhouse | h0 | 30 | 30 |  | 176.00 | 283 | 198.03 | 9.17 |
 | qwen | native | inhouse | no_memory | 30 | 0 |  | 0.00 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | 30 | 24 |  | 192.00 | 332 | 210.53 | 9.13 |
+| qwen | native | mem0 | h0 | 30 | 30 |  | 225.50 | 278 | 224.07 | 9.43 |
+| qwen | native | mem0 | no_memory | 30 | 0 |  | 0.00 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | 30 | 30 |  | 227.00 | 314 | 233.33 | 9.47 |
 | qwen | replicated | inhouse | h0 | 30 | 0 | 24 | 275.00 | 300 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | no_memory | 30 | 0 | 0 | 0.00 | 0 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | 30 | 0 | 30 | 267.00 | 300 | 262.93 | 12.73 |
 | qwen | replicated | inhouse | writer_scoped | 30 | 0 | 24 | 275.00 | 300 | 261.37 | 11.80 |
 | qwen | replicated | inhouse | wrong_user | 30 | 0 | 18 | 246.50 | 300 | 243.40 | 11.30 |
+| qwen | replicated | mem0 | h0 | 30 | 0 | 30 | 289.00 | 297 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | no_memory | 30 | 0 | 0 | 0.00 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | 30 | 0 | 30 | 287.00 | 300 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | writer_scoped | 30 | 0 | 30 | 292.00 | 300 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | wrong_user | 30 | 0 | 24 | 285.00 | 300 | 276.67 | 11.93 |
 
 ## Kernel against replicated (paired over users)
 
 | model | backend | probe | pairs | kernel_only | replicated_only | p_mcnemar | kernel_block_tokens | kernel_block_rows | replicated_block_tokens | replicated_block_rows |
 |---|---|---|---|---|---|---|---|---|---|---|
+| qwen | mem0 | deletion | 5 | 0 | 0 | 1.00 | 287.80 | 12.20 | 290.40 | 12.20 |
+| qwen | mem0 | privacy | 5 | 0 | 0 | 1.00 | 291.00 | 13.00 | 287.00 | 12.60 |
+| qwen | mem0 | recall | 5 | 0 | 0 | 1.00 | 288.60 | 12.80 | 281.20 | 12.60 |
+| qwen | mem0 | recency | 5 | 0 | 1 | 1.00 | 292.20 | 12.40 | 282.00 | 12.20 |
+| qwen | mem0 | contradiction | 5 | 0 | 0 | 1.00 | 286.00 | 13.20 | 283.00 | 12.80 |
 | qwen | inhouse | deletion | 5 | 0 | 0 | 1.00 | 265.20 | 11.60 | 265.20 | 11.60 |
 | qwen | inhouse | privacy | 5 | 0 | 0 | 1.00 | 240.00 | 12.60 | 240.00 | 12.60 |
 | qwen | inhouse | recall | 5 | 0 | 0 | 1.00 | 264.00 | 11.60 | 264.00 | 11.60 |
@@ -142,11 +251,21 @@ Per kernel and replicated cell: revokes, those that went through the forget, the
 | qwen | kernel | inhouse | no_supersession | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 262.93 | 12.73 |
 | qwen | kernel | inhouse | writer_scoped | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 261.37 | 11.80 |
 | qwen | kernel | inhouse | wrong_user | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 259.37 | 11.60 |
+| qwen | kernel | mem0 | h0 | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 7 | 14 | 0 | 0 | 0 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | no_memory | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 7 | 14 | 0 | 0 | 0 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | writer_scoped | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | wrong_user | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 7 | 14 | 0 | 0 | 0 | 279.37 | 11.97 |
 | qwen | replicated | inhouse | h0 | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | no_memory | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 262.93 | 12.73 |
 | qwen | replicated | inhouse | writer_scoped | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 261.37 | 11.80 |
 | qwen | replicated | inhouse | wrong_user | 5 | 5 | 6 | 5 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 243.40 | 11.30 |
+| qwen | replicated | mem0 | h0 | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 7 | 14 | 0 | 0 | 0 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | no_memory | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | 5 | 5 | 7 | 5 | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 7 | 14 | 0 | 0 | 0 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | writer_scoped | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | wrong_user | 5 | 5 | 6 | 5 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 6 | 12 | 0 | 0 | 0 | 276.67 | 11.93 |
 
 ## Supersession (Amendment 4)
 
@@ -159,14 +278,47 @@ Per kernel and replicated cell: revokes, those that went through the forget, the
 | qwen | kernel | inhouse | no_supersession | 0 | 10 | 0 | 30 | 30 | 0 | 262.93 | 12.73 |
 | qwen | kernel | inhouse | writer_scoped | 10 | 10 | 10 | 30 | 0 | 60 | 261.37 | 11.80 |
 | qwen | kernel | inhouse | wrong_user | 10 | 10 | 10 | 30 | 0 | 60 | 259.37 | 11.60 |
+| qwen | kernel | mem0 | h0 | 10 | 10 | 10 | 30 | 0 | 60 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | no_memory | 0 | 0 | 0 | 30 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | 0 | 10 | 0 | 30 | 27 | 0 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | writer_scoped | 10 | 10 | 10 | 30 | 0 | 60 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | wrong_user | 10 | 10 | 10 | 30 | 0 | 60 | 279.37 | 11.97 |
 | qwen | native | inhouse | h0 | 0 | 10 | 0 | 30 | 26 | 0 | 198.03 | 9.17 |
 | qwen | native | inhouse | no_memory | 0 | 0 | 0 | 30 | 0 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | 0 | 5 | 0 | 30 | 20 | 0 | 210.53 | 9.13 |
+| qwen | native | mem0 | h0 | 0 | 10 | 0 | 30 | 18 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | no_memory | 0 | 0 | 0 | 30 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | 0 | 5 | 0 | 30 | 13 | 0 | 233.33 | 9.47 |
 | qwen | replicated | inhouse | h0 | 10 | 10 | 10 | 30 | 0 | 60 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | no_memory | 0 | 0 | 0 | 30 | 0 | 0 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | 0 | 10 | 0 | 30 | 30 | 0 | 262.93 | 12.73 |
 | qwen | replicated | inhouse | writer_scoped | 10 | 10 | 10 | 30 | 0 | 60 | 261.37 | 11.80 |
 | qwen | replicated | inhouse | wrong_user | 13 | 5 | 5 | 30 | 0 | 66 | 243.40 | 11.30 |
+| qwen | replicated | mem0 | h0 | 10 | 10 | 10 | 30 | 0 | 60 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | no_memory | 0 | 0 | 0 | 30 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | 0 | 10 | 0 | 30 | 28 | 0 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | writer_scoped | 10 | 10 | 10 | 30 | 0 | 60 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | wrong_user | 20 | 5 | 5 | 30 | 0 | 96 | 276.67 | 11.93 |
+
+## Writes that stored no fact (Amendments 5, 8, 9)
+
+Graphiti sometimes extracts a write's entities but no fact, and its search returns facts only: a write Graphiti stored no fact from is a lost memory, not a failed trial (and an A-MEM write that stored no note, Amendment 8, and a Mem0 write that stored nothing with no failure Mem0 swallowed, Amendment 9). `trials`: scored trials; `with_one`: scored trials with such a write; `writes_without_fact`: those writes; `probes_on_them`: probes whose target was one, and `passed_on_them`.
+
+| model | locus | backend | condition | trials | with_one | writes_without_fact | probes_on_them | passed_on_them | block_tokens | block_rows |
+|---|---|---|---|---|---|---|---|---|---|---|
+| qwen | kernel | mem0 | h0 | 5 | 0 | 0 | 0 | 0 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | no_memory | 5 | 0 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | 5 | 0 | 0 | 0 | 0 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | writer_scoped | 5 | 0 | 0 | 0 | 0 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | wrong_user | 5 | 0 | 0 | 0 | 0 | 279.37 | 11.97 |
+| qwen | native | mem0 | h0 | 5 | 0 | 0 | 0 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | no_memory | 5 | 0 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | 5 | 0 | 0 | 0 | 0 | 233.33 | 9.47 |
+| qwen | replicated | mem0 | h0 | 5 | 0 | 0 | 0 | 0 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | no_memory | 5 | 0 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | 5 | 0 | 0 | 0 | 0 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | writer_scoped | 5 | 0 | 0 | 0 | 0 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | wrong_user | 5 | 0 | 0 | 0 | 0 | 276.67 | 11.93 |
 
 ## Trial-level exposure (deletion, privacy)
 
@@ -184,12 +336,28 @@ A probe checks only its own block and answer. `exposed`: trials whose forbidden 
 | qwen | kernel | inhouse | writer_scoped | privacy | 5 | 5 | 0 | 0 | 248.20 | 13.00 |
 | qwen | kernel | inhouse | wrong_user | deletion | 5 | 4 | 1 | 0 | 265.20 | 11.60 |
 | qwen | kernel | inhouse | wrong_user | privacy | 5 | 5 | 0 | 0 | 240.00 | 12.60 |
+| qwen | kernel | mem0 | h0 | deletion | 5 | 5 | 0 | 0 | 287.80 | 12.20 |
+| qwen | kernel | mem0 | h0 | privacy | 5 | 5 | 0 | 0 | 291.00 | 13.00 |
+| qwen | kernel | mem0 | no_memory | deletion | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | privacy | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | deletion | 5 | 5 | 0 | 0 | 277.20 | 12.20 |
+| qwen | kernel | mem0 | no_supersession | privacy | 5 | 5 | 0 | 0 | 290.40 | 13.40 |
+| qwen | kernel | mem0 | writer_scoped | deletion | 5 | 4 | 2 | 1 | 286.20 | 12.40 |
+| qwen | kernel | mem0 | writer_scoped | privacy | 5 | 5 | 0 | 0 | 289.40 | 12.40 |
+| qwen | kernel | mem0 | wrong_user | deletion | 5 | 5 | 0 | 0 | 287.60 | 12.00 |
+| qwen | kernel | mem0 | wrong_user | privacy | 5 | 5 | 0 | 0 | 278.60 | 12.20 |
 | qwen | native | inhouse | h0 | deletion | 5 | 3 | 2 | 0 | 197.80 | 9.20 |
 | qwen | native | inhouse | h0 | privacy | 5 | 5 | 0 | 0 | 182.60 | 9.00 |
 | qwen | native | inhouse | no_memory | deletion | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | no_memory | privacy | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | deletion | 5 | 4 | 1 | 0 | 210.00 | 9.20 |
 | qwen | native | inhouse | wrong_user | privacy | 5 | 5 | 0 | 0 | 189.00 | 9.00 |
+| qwen | native | mem0 | h0 | deletion | 5 | 4 | 2 | 1 | 233.60 | 9.20 |
+| qwen | native | mem0 | h0 | privacy | 5 | 5 | 0 | 0 | 230.20 | 9.80 |
+| qwen | native | mem0 | no_memory | deletion | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | privacy | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | deletion | 5 | 5 | 1 | 1 | 236.20 | 9.20 |
+| qwen | native | mem0 | wrong_user | privacy | 5 | 5 | 0 | 0 | 239.40 | 10.00 |
 | qwen | replicated | inhouse | h0 | deletion | 5 | 4 | 1 | 0 | 265.20 | 11.60 |
 | qwen | replicated | inhouse | h0 | privacy | 5 | 5 | 0 | 0 | 240.00 | 12.60 |
 | qwen | replicated | inhouse | no_memory | deletion | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
@@ -200,6 +368,16 @@ A probe checks only its own block and answer. `exposed`: trials whose forbidden 
 | qwen | replicated | inhouse | writer_scoped | privacy | 5 | 5 | 0 | 0 | 248.20 | 13.00 |
 | qwen | replicated | inhouse | wrong_user | deletion | 5 | 5 | 0 | 0 | 248.20 | 11.00 |
 | qwen | replicated | inhouse | wrong_user | privacy | 5 | 5 | 0 | 0 | 223.40 | 11.80 |
+| qwen | replicated | mem0 | h0 | deletion | 5 | 5 | 0 | 0 | 290.40 | 12.20 |
+| qwen | replicated | mem0 | h0 | privacy | 5 | 5 | 0 | 0 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | no_memory | deletion | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | privacy | 5 | 5 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | deletion | 5 | 5 | 0 | 0 | 282.80 | 12.80 |
+| qwen | replicated | mem0 | no_supersession | privacy | 5 | 5 | 0 | 0 | 288.80 | 13.20 |
+| qwen | replicated | mem0 | writer_scoped | deletion | 5 | 4 | 2 | 1 | 284.20 | 11.60 |
+| qwen | replicated | mem0 | writer_scoped | privacy | 5 | 5 | 0 | 0 | 280.40 | 12.20 |
+| qwen | replicated | mem0 | wrong_user | deletion | 5 | 5 | 0 | 0 | 281.80 | 11.60 |
+| qwen | replicated | mem0 | wrong_user | privacy | 5 | 5 | 0 | 0 | 277.80 | 12.60 |
 
 ## Deletion failures by carrier
 
@@ -210,10 +388,13 @@ The sources of the block rows that held the revoked value (`other_fact` is a Mem
 | qwen | kernel | inhouse | h0 | answer only | 1 | 259.37 | 11.60 |
 | qwen | kernel | inhouse | writer_scoped | echo | 2 | 261.37 | 11.80 |
 | qwen | kernel | inhouse | wrong_user | answer only | 1 | 259.37 | 11.60 |
+| qwen | kernel | mem0 | writer_scoped | echo | 1 | 283.87 | 12.13 |
 | qwen | native | inhouse | h0 | echo | 2 | 198.03 | 9.17 |
 | qwen | native | inhouse | wrong_user | echo | 1 | 210.53 | 9.13 |
+| qwen | native | mem0 | h0 | answer only | 1 | 224.07 | 9.43 |
 | qwen | replicated | inhouse | h0 | answer only | 1 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | writer_scoped | echo | 2 | 261.37 | 11.80 |
+| qwen | replicated | mem0 | writer_scoped | echo | 1 | 284.50 | 11.97 |
 
 ## Deletion probes by what the store kept
 
@@ -227,17 +408,34 @@ The sources of the rows that still held the revoked value after the history, rig
 | qwen | kernel | inhouse | writer_scoped | echo | 2 | 0 | 261.37 | 11.80 |
 | qwen | kernel | inhouse | writer_scoped | none | 0 | 3 | 261.37 | 11.80 |
 | qwen | kernel | inhouse | wrong_user | none | 1 | 4 | 259.37 | 11.60 |
+| qwen | kernel | mem0 | h0 | none | 0 | 5 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | no_memory | none | 0 | 5 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | none | 0 | 5 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | writer_scoped | echo | 1 | 1 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | writer_scoped | none | 0 | 3 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | wrong_user | none | 0 | 5 | 279.37 | 11.97 |
 | qwen | native | inhouse | h0 | echo | 2 | 0 | 198.03 | 9.17 |
 | qwen | native | inhouse | h0 | none | 0 | 3 | 198.03 | 9.17 |
 | qwen | native | inhouse | no_memory | none | 0 | 5 | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | echo | 1 | 0 | 210.53 | 9.13 |
 | qwen | native | inhouse | wrong_user | none | 0 | 4 | 210.53 | 9.13 |
+| qwen | native | mem0 | h0 | echo | 1 | 1 | 224.07 | 9.43 |
+| qwen | native | mem0 | h0 | none | 0 | 3 | 224.07 | 9.43 |
+| qwen | native | mem0 | no_memory | none | 0 | 5 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | echo | 0 | 1 | 233.33 | 9.47 |
+| qwen | native | mem0 | wrong_user | none | 0 | 4 | 233.33 | 9.47 |
 | qwen | replicated | inhouse | h0 | none | 1 | 4 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | no_memory | none | 0 | 5 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | none | 0 | 5 | 262.93 | 12.73 |
 | qwen | replicated | inhouse | writer_scoped | echo | 2 | 0 | 261.37 | 11.80 |
 | qwen | replicated | inhouse | writer_scoped | none | 0 | 3 | 261.37 | 11.80 |
 | qwen | replicated | inhouse | wrong_user | none | 0 | 5 | 243.40 | 11.30 |
+| qwen | replicated | mem0 | h0 | none | 0 | 5 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | no_memory | none | 0 | 5 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | none | 0 | 5 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | writer_scoped | echo | 1 | 1 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | writer_scoped | none | 0 | 3 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | wrong_user | none | 0 | 5 | 276.67 | 11.93 |
 
 ## Failures: where the expected value was
 
@@ -250,17 +448,42 @@ Failed recall, recency and contradiction probes by where the expected value was:
 | qwen | kernel | inhouse | no_memory | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | kernel | inhouse | no_supersession | recency | 5 | 5 | 0 | 0 | 0 | 0 | 5 | 237.60 | 12.60 |
 | qwen | kernel | inhouse | no_supersession | contradiction | 2 | 0 | 0 | 0 | 0 | 0 | 2 | 250.40 | 13.20 |
+| qwen | kernel | mem0 | h0 | recency | 2 | 2 | 0 | 0 | 0 | 0 | 2 | 292.20 | 12.40 |
+| qwen | kernel | mem0 | no_memory | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | recency | 2 | 2 | 0 | 0 | 0 | 0 | 2 | 286.40 | 12.20 |
+| qwen | kernel | mem0 | no_supersession | contradiction | 3 | 1 | 0 | 0 | 0 | 0 | 3 | 286.00 | 13.20 |
+| qwen | kernel | mem0 | writer_scoped | recency | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 288.60 | 12.00 |
+| qwen | kernel | mem0 | wrong_user | recency | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 276.40 | 11.80 |
 | qwen | native | inhouse | h0 | recency | 3 | 3 | 0 | 0 | 0 | 0 | 3 | 191.80 | 9.40 |
 | qwen | native | inhouse | h0 | contradiction | 2 | 0 | 0 | 0 | 0 | 0 | 2 | 166.40 | 9.00 |
 | qwen | native | inhouse | no_memory | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | no_memory | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | no_memory | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | recency | 3 | 3 | 0 | 0 | 0 | 0 | 3 | 197.60 | 9.40 |
+| qwen | native | mem0 | h0 | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 199.80 | 9.60 |
+| qwen | native | mem0 | h0 | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 229.80 | 9.40 |
+| qwen | native | mem0 | h0 | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 204.80 | 9.20 |
+| qwen | native | mem0 | no_memory | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 203.00 | 9.40 |
+| qwen | native | mem0 | wrong_user | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 246.20 | 9.40 |
+| qwen | native | mem0 | wrong_user | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 215.40 | 9.40 |
 | qwen | replicated | inhouse | no_memory | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_memory | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_memory | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | recency | 5 | 5 | 0 | 0 | 0 | 0 | 5 | 237.60 | 12.60 |
 | qwen | replicated | inhouse | no_supersession | contradiction | 2 | 0 | 0 | 0 | 0 | 0 | 2 | 250.40 | 13.20 |
+| qwen | replicated | mem0 | h0 | recency | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 282.00 | 12.20 |
+| qwen | replicated | mem0 | no_memory | recall | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | recency | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | contradiction | 5 | 0 | 0 | 5 | 0 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | recency | 3 | 3 | 0 | 0 | 0 | 0 | 3 | 290.00 | 12.40 |
+| qwen | replicated | mem0 | no_supersession | contradiction | 3 | 2 | 0 | 0 | 0 | 0 | 3 | 287.80 | 12.80 |
+| qwen | replicated | mem0 | writer_scoped | recency | 2 | 2 | 0 | 0 | 0 | 0 | 2 | 280.00 | 11.80 |
+| qwen | replicated | mem0 | wrong_user | recency | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 270.20 | 12.00 |
 
 ## Contradiction by slot
 
@@ -293,6 +516,31 @@ Failed recall, recency and contradiction probes by where the expected value was:
 | qwen | kernel | inhouse | wrong_user | home_city | 1 | 1 | 1 | 259.37 | 11.60 |
 | qwen | kernel | inhouse | wrong_user | manager | 1 | 1 | 1 | 259.37 | 11.60 |
 | qwen | kernel | inhouse | wrong_user | one_on_one | 1 | 1 | 1 | 259.37 | 11.60 |
+| qwen | kernel | mem0 | h0 | client | 1 | 1 | 1 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | h0 | conference | 1 | 1 | 1 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | h0 | home_city | 1 | 1 | 1 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | h0 | manager | 1 | 1 | 1 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | h0 | one_on_one | 1 | 1 | 1 | 289.23 | 12.57 |
+| qwen | kernel | mem0 | no_memory | client | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | conference | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | home_city | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | manager | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | one_on_one | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | client | 1 | 0 | 0 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | no_supersession | conference | 1 | 0 | 0 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | no_supersession | home_city | 1 | 0 | 1 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | no_supersession | manager | 1 | 1 | 1 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | no_supersession | one_on_one | 1 | 1 | 1 | 285.63 | 12.57 |
+| qwen | kernel | mem0 | writer_scoped | client | 1 | 1 | 1 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | writer_scoped | conference | 1 | 1 | 1 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | writer_scoped | home_city | 1 | 1 | 1 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | writer_scoped | manager | 1 | 1 | 1 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | writer_scoped | one_on_one | 1 | 1 | 1 | 283.87 | 12.13 |
+| qwen | kernel | mem0 | wrong_user | client | 1 | 1 | 1 | 279.37 | 11.97 |
+| qwen | kernel | mem0 | wrong_user | conference | 1 | 1 | 1 | 279.37 | 11.97 |
+| qwen | kernel | mem0 | wrong_user | home_city | 1 | 1 | 1 | 279.37 | 11.97 |
+| qwen | kernel | mem0 | wrong_user | manager | 1 | 1 | 1 | 279.37 | 11.97 |
+| qwen | kernel | mem0 | wrong_user | one_on_one | 1 | 1 | 1 | 279.37 | 11.97 |
 | qwen | native | inhouse | h0 | client | 1 | 1 | 1 | 198.03 | 9.17 |
 | qwen | native | inhouse | h0 | conference | 1 | 0 | 0 | 198.03 | 9.17 |
 | qwen | native | inhouse | h0 | home_city | 1 | 0 | 0 | 198.03 | 9.17 |
@@ -308,6 +556,21 @@ Failed recall, recency and contradiction probes by where the expected value was:
 | qwen | native | inhouse | wrong_user | home_city | 1 | 1 | 1 | 210.53 | 9.13 |
 | qwen | native | inhouse | wrong_user | manager | 1 | 1 | 1 | 210.53 | 9.13 |
 | qwen | native | inhouse | wrong_user | one_on_one | 1 | 1 | 1 | 210.53 | 9.13 |
+| qwen | native | mem0 | h0 | client | 1 | 0 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | h0 | conference | 1 | 0 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | h0 | home_city | 1 | 0 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | h0 | manager | 1 | 0 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | h0 | one_on_one | 1 | 0 | 0 | 224.07 | 9.43 |
+| qwen | native | mem0 | no_memory | client | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | conference | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | home_city | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | manager | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | one_on_one | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | client | 1 | 0 | 0 | 233.33 | 9.47 |
+| qwen | native | mem0 | wrong_user | conference | 1 | 0 | 0 | 233.33 | 9.47 |
+| qwen | native | mem0 | wrong_user | home_city | 1 | 0 | 0 | 233.33 | 9.47 |
+| qwen | native | mem0 | wrong_user | manager | 1 | 0 | 0 | 233.33 | 9.47 |
+| qwen | native | mem0 | wrong_user | one_on_one | 1 | 0 | 0 | 233.33 | 9.47 |
 | qwen | replicated | inhouse | h0 | client | 1 | 1 | 1 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | h0 | conference | 1 | 1 | 1 | 259.37 | 11.60 |
 | qwen | replicated | inhouse | h0 | home_city | 1 | 1 | 1 | 259.37 | 11.60 |
@@ -333,6 +596,31 @@ Failed recall, recency and contradiction probes by where the expected value was:
 | qwen | replicated | inhouse | wrong_user | home_city | 1 | 1 | 1 | 243.40 | 11.30 |
 | qwen | replicated | inhouse | wrong_user | manager | 1 | 1 | 1 | 243.40 | 11.30 |
 | qwen | replicated | inhouse | wrong_user | one_on_one | 1 | 1 | 1 | 243.40 | 11.30 |
+| qwen | replicated | mem0 | h0 | client | 1 | 1 | 1 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | h0 | conference | 1 | 1 | 1 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | h0 | home_city | 1 | 1 | 1 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | h0 | manager | 1 | 1 | 1 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | h0 | one_on_one | 1 | 1 | 1 | 285.47 | 12.33 |
+| qwen | replicated | mem0 | no_memory | client | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | conference | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | home_city | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | manager | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | one_on_one | 1 | 0 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | client | 1 | 0 | 1 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | no_supersession | conference | 1 | 0 | 0 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | no_supersession | home_city | 1 | 0 | 1 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | no_supersession | manager | 1 | 1 | 1 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | no_supersession | one_on_one | 1 | 1 | 1 | 287.00 | 12.60 |
+| qwen | replicated | mem0 | writer_scoped | client | 1 | 1 | 1 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | writer_scoped | conference | 1 | 1 | 1 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | writer_scoped | home_city | 1 | 1 | 1 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | writer_scoped | manager | 1 | 1 | 1 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | writer_scoped | one_on_one | 1 | 1 | 1 | 284.50 | 11.97 |
+| qwen | replicated | mem0 | wrong_user | client | 1 | 1 | 1 | 276.67 | 11.93 |
+| qwen | replicated | mem0 | wrong_user | conference | 1 | 1 | 1 | 276.67 | 11.93 |
+| qwen | replicated | mem0 | wrong_user | home_city | 1 | 1 | 1 | 276.67 | 11.93 |
+| qwen | replicated | mem0 | wrong_user | manager | 1 | 1 | 1 | 276.67 | 11.93 |
+| qwen | replicated | mem0 | wrong_user | one_on_one | 1 | 1 | 1 | 276.67 | 11.93 |
 
 ## Recency and contradiction: the stale value in an earlier answer
 
@@ -350,12 +638,28 @@ Split by whether one of the consumer's earlier answers in the block carries the 
 | qwen | kernel | inhouse | writer_scoped | contradiction | 0 | 0 | 5 | 5 | 254.00 | 12.20 |
 | qwen | kernel | inhouse | wrong_user | recency | 0 | 0 | 5 | 5 | 253.00 | 11.40 |
 | qwen | kernel | inhouse | wrong_user | contradiction | 0 | 0 | 5 | 5 | 246.00 | 11.80 |
+| qwen | kernel | mem0 | h0 | recency | 0 | 0 | 5 | 3 | 292.20 | 12.40 |
+| qwen | kernel | mem0 | h0 | contradiction | 0 | 0 | 5 | 5 | 286.00 | 13.20 |
+| qwen | kernel | mem0 | no_memory | recency | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_memory | contradiction | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | recency | 0 | 0 | 5 | 3 | 286.40 | 12.20 |
+| qwen | kernel | mem0 | no_supersession | contradiction | 0 | 0 | 5 | 2 | 286.00 | 13.20 |
+| qwen | kernel | mem0 | writer_scoped | recency | 0 | 0 | 5 | 4 | 288.60 | 12.00 |
+| qwen | kernel | mem0 | writer_scoped | contradiction | 0 | 0 | 5 | 5 | 286.80 | 12.40 |
+| qwen | kernel | mem0 | wrong_user | recency | 0 | 0 | 5 | 4 | 276.40 | 11.80 |
+| qwen | kernel | mem0 | wrong_user | contradiction | 0 | 0 | 5 | 5 | 273.80 | 12.20 |
 | qwen | native | inhouse | h0 | recency | 0 | 0 | 5 | 2 | 191.80 | 9.40 |
 | qwen | native | inhouse | h0 | contradiction | 0 | 0 | 5 | 3 | 166.40 | 9.00 |
 | qwen | native | inhouse | no_memory | recency | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | no_memory | contradiction | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | recency | 0 | 0 | 5 | 2 | 197.60 | 9.40 |
 | qwen | native | inhouse | wrong_user | contradiction | 0 | 0 | 5 | 5 | 205.60 | 9.00 |
+| qwen | native | mem0 | h0 | recency | 0 | 0 | 5 | 0 | 229.80 | 9.40 |
+| qwen | native | mem0 | h0 | contradiction | 0 | 0 | 5 | 0 | 204.80 | 9.20 |
+| qwen | native | mem0 | no_memory | recency | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | no_memory | contradiction | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | recency | 0 | 0 | 5 | 0 | 246.20 | 9.40 |
+| qwen | native | mem0 | wrong_user | contradiction | 0 | 0 | 5 | 0 | 215.40 | 9.40 |
 | qwen | replicated | inhouse | h0 | recency | 0 | 0 | 5 | 5 | 253.00 | 11.40 |
 | qwen | replicated | inhouse | h0 | contradiction | 0 | 0 | 5 | 5 | 246.00 | 11.80 |
 | qwen | replicated | inhouse | no_memory | recency | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
@@ -366,6 +670,16 @@ Split by whether one of the consumer's earlier answers in the block carries the 
 | qwen | replicated | inhouse | writer_scoped | contradiction | 0 | 0 | 5 | 5 | 254.00 | 12.20 |
 | qwen | replicated | inhouse | wrong_user | recency | 0 | 0 | 5 | 5 | 237.20 | 11.60 |
 | qwen | replicated | inhouse | wrong_user | contradiction | 0 | 0 | 5 | 5 | 235.40 | 11.40 |
+| qwen | replicated | mem0 | h0 | recency | 0 | 0 | 5 | 4 | 282.00 | 12.20 |
+| qwen | replicated | mem0 | h0 | contradiction | 0 | 0 | 5 | 5 | 283.00 | 12.80 |
+| qwen | replicated | mem0 | no_memory | recency | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_memory | contradiction | 0 | 0 | 5 | 0 | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | recency | 0 | 0 | 5 | 2 | 290.00 | 12.40 |
+| qwen | replicated | mem0 | no_supersession | contradiction | 0 | 0 | 5 | 2 | 287.80 | 12.80 |
+| qwen | replicated | mem0 | writer_scoped | recency | 0 | 0 | 5 | 3 | 280.00 | 11.80 |
+| qwen | replicated | mem0 | writer_scoped | contradiction | 0 | 0 | 5 | 5 | 276.40 | 12.00 |
+| qwen | replicated | mem0 | wrong_user | recency | 0 | 0 | 5 | 4 | 270.20 | 12.00 |
+| qwen | replicated | mem0 | wrong_user | contradiction | 0 | 0 | 5 | 5 | 270.80 | 12.40 |
 
 ## The integration probe's block
 
@@ -378,14 +692,27 @@ Means per probe: rows, the consumer's own rows (its earlier answers) and writer 
 | qwen | kernel | inhouse | no_supersession | 5 | 10.80 | 0.00 | 10.80 | 5 | 5 | 5 | 5 |  |  | 293.60 | 10.80 |
 | qwen | kernel | inhouse | writer_scoped | 5 | 10.60 | 0.00 | 10.60 | 4 | 5 | 5 | 5 |  |  | 291.00 | 10.60 |
 | qwen | kernel | inhouse | wrong_user | 5 | 10.60 | 0.00 | 10.60 | 4 | 5 | 5 | 5 |  |  | 288.00 | 10.60 |
+| qwen | kernel | mem0 | h0 | 5 | 11.80 | 0.00 | 11.80 | 5 | 5 | 5 | 5 |  |  | 289.80 | 11.80 |
+| qwen | kernel | mem0 | no_memory | 5 | 0.00 | 0.00 | 0.00 | 0 | 0 | 0 | 0 |  |  | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | 5 | 11.60 | 0.00 | 11.60 | 5 | 5 | 5 | 5 |  |  | 289.00 | 11.60 |
+| qwen | kernel | mem0 | writer_scoped | 5 | 11.40 | 0.00 | 11.40 | 5 | 5 | 5 | 5 |  |  | 281.80 | 11.40 |
+| qwen | kernel | mem0 | wrong_user | 5 | 11.40 | 0.00 | 11.40 | 5 | 5 | 5 | 5 |  |  | 282.00 | 11.40 |
 | qwen | native | inhouse | h0 | 5 | 9.20 | 0.00 | 9.20 |  | 3 | 5 | 3 |  |  | 235.60 | 9.20 |
 | qwen | native | inhouse | no_memory | 5 | 0.00 | 0.00 | 0.00 |  | 0 | 0 | 0 |  |  | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | 5 | 9.00 | 0.00 | 9.00 |  | 3 | 3 | 2 |  |  | 242.40 | 9.00 |
+| qwen | native | mem0 | h0 | 5 | 9.40 | 0.00 | 9.40 |  | 5 | 5 | 5 |  |  | 246.20 | 9.40 |
+| qwen | native | mem0 | no_memory | 5 | 0.00 | 0.00 | 0.00 |  | 0 | 0 | 0 |  |  | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | 5 | 9.40 | 0.00 | 9.40 |  | 4 | 3 | 2 |  |  | 259.80 | 9.40 |
 | qwen | replicated | inhouse | h0 | 5 | 10.60 | 0.00 | 10.60 | 4 | 5 | 5 | 5 |  |  | 288.00 | 10.60 |
 | qwen | replicated | inhouse | no_memory | 5 | 0.00 | 0.00 | 0.00 | 0 | 0 | 0 | 0 |  |  | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | 5 | 10.80 | 0.00 | 10.80 | 5 | 5 | 5 | 5 |  |  | 293.60 | 10.80 |
 | qwen | replicated | inhouse | writer_scoped | 5 | 10.60 | 0.00 | 10.60 | 4 | 5 | 5 | 5 |  |  | 291.00 | 10.60 |
 | qwen | replicated | inhouse | wrong_user | 5 | 10.80 | 0.00 | 10.80 | 3 | 4 | 3 | 2 |  |  | 265.20 | 10.80 |
+| qwen | replicated | mem0 | h0 | 5 | 11.60 | 0.00 | 11.60 | 5 | 5 | 5 | 5 |  |  | 289.20 | 11.60 |
+| qwen | replicated | mem0 | no_memory | 5 | 0.00 | 0.00 | 0.00 | 0 | 0 | 0 | 0 |  |  | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | 5 | 11.60 | 0.00 | 11.60 | 5 | 5 | 5 | 5 |  |  | 291.40 | 11.60 |
+| qwen | replicated | mem0 | writer_scoped | 5 | 11.40 | 0.00 | 11.40 | 5 | 5 | 5 | 5 |  |  | 297.40 | 11.40 |
+| qwen | replicated | mem0 | wrong_user | 5 | 11.20 | 0.00 | 11.20 | 4 | 4 | 3 | 2 |  |  | 281.40 | 11.20 |
 
 ## Integration score by the base rows in the block
 
@@ -398,18 +725,33 @@ The judge scores the answer against the base profile and the base task context. 
 | qwen | kernel | inhouse | no_supersession | 2 | 5 |  | 293.60 | 10.80 |
 | qwen | kernel | inhouse | writer_scoped | 2 | 5 |  | 291.00 | 10.60 |
 | qwen | kernel | inhouse | wrong_user | 2 | 5 |  | 288.00 | 10.60 |
+| qwen | kernel | mem0 | h0 | 2 | 5 |  | 289.80 | 11.80 |
+| qwen | kernel | mem0 | no_memory | 0 | 5 |  | 0.00 | 0.00 |
+| qwen | kernel | mem0 | no_supersession | 2 | 5 |  | 289.00 | 11.60 |
+| qwen | kernel | mem0 | writer_scoped | 2 | 5 |  | 281.80 | 11.40 |
+| qwen | kernel | mem0 | wrong_user | 2 | 5 |  | 282.00 | 11.40 |
 | qwen | native | inhouse | h0 | 1 | 2 |  | 235.60 | 9.20 |
 | qwen | native | inhouse | h0 | 2 | 3 |  | 235.60 | 9.20 |
 | qwen | native | inhouse | no_memory | 0 | 5 |  | 0.00 | 0.00 |
 | qwen | native | inhouse | wrong_user | 0 | 1 |  | 242.40 | 9.00 |
 | qwen | native | inhouse | wrong_user | 1 | 2 |  | 242.40 | 9.00 |
 | qwen | native | inhouse | wrong_user | 2 | 2 |  | 242.40 | 9.00 |
+| qwen | native | mem0 | h0 | 2 | 5 |  | 246.20 | 9.40 |
+| qwen | native | mem0 | no_memory | 0 | 5 |  | 0.00 | 0.00 |
+| qwen | native | mem0 | wrong_user | 1 | 3 |  | 259.80 | 9.40 |
+| qwen | native | mem0 | wrong_user | 2 | 2 |  | 259.80 | 9.40 |
 | qwen | replicated | inhouse | h0 | 2 | 5 |  | 288.00 | 10.60 |
 | qwen | replicated | inhouse | no_memory | 0 | 5 |  | 0.00 | 0.00 |
 | qwen | replicated | inhouse | no_supersession | 2 | 5 |  | 293.60 | 10.80 |
 | qwen | replicated | inhouse | writer_scoped | 2 | 5 |  | 291.00 | 10.60 |
 | qwen | replicated | inhouse | wrong_user | 1 | 3 |  | 265.20 | 10.80 |
 | qwen | replicated | inhouse | wrong_user | 2 | 2 |  | 265.20 | 10.80 |
+| qwen | replicated | mem0 | h0 | 2 | 5 |  | 289.20 | 11.60 |
+| qwen | replicated | mem0 | no_memory | 0 | 5 |  | 0.00 | 0.00 |
+| qwen | replicated | mem0 | no_supersession | 2 | 5 |  | 291.40 | 11.60 |
+| qwen | replicated | mem0 | writer_scoped | 2 | 5 |  | 297.40 | 11.40 |
+| qwen | replicated | mem0 | wrong_user | 1 | 3 |  | 281.40 | 11.20 |
+| qwen | replicated | mem0 | wrong_user | 2 | 2 |  | 281.40 | 11.20 |
 
 ## Decision probe (Amendment 10)
 
@@ -422,24 +764,37 @@ Two items per user, four options each (chance 0.25), scored exactly from the let
 | qwen | kernel | inhouse | no_supersession | 10 | 5 | 0.50 | 0.24 | 0.76 | 5 (0.50) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
 | qwen | kernel | inhouse | writer_scoped | 10 | 9 | 0.90 | 0.60 | 0.98 | 0 (0.00) | 1 (0.10) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
 | qwen | kernel | inhouse | wrong_user | 10 | 10 | 1.00 | 0.72 | 1.00 | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | kernel | mem0 | h0 | 10 | 10 | 1.00 | 0.72 | 1.00 | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | kernel | mem0 | no_memory | 10 | 0 | 0.00 | 0.00 | 0.28 | 3 (0.30) | 2 (0.20) | 1 (0.10) | 4 (0.40) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
+| qwen | kernel | mem0 | no_supersession | 10 | 4 | 0.40 | 0.17 | 0.69 | 6 (0.60) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | kernel | mem0 | writer_scoped | 10 | 9 | 0.90 | 0.60 | 0.98 | 0 (0.00) | 1 (0.10) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
+| qwen | kernel | mem0 | wrong_user | 10 | 10 | 1.00 | 0.72 | 1.00 | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
 | qwen | native | inhouse | h0 | 10 | 3 | 0.30 | 0.11 | 0.60 | 7 (0.70) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
 | qwen | native | inhouse | no_memory | 10 | 0 | 0.00 | 0.00 | 0.28 | 3 (0.30) | 2 (0.20) | 1 (0.10) | 4 (0.40) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
 | qwen | native | inhouse | wrong_user | 10 | 6 | 0.60 | 0.31 | 0.83 | 1 (0.10) | 0 (0.00) | 0 (0.00) | 3 (0.30) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | native | mem0 | h0 | 10 | 4 | 0.40 | 0.17 | 0.69 | 3 (0.30) | 1 (0.10) | 0 (0.00) | 2 (0.20) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
+| qwen | native | mem0 | no_memory | 10 | 0 | 0.00 | 0.00 | 0.28 | 3 (0.30) | 2 (0.20) | 1 (0.10) | 4 (0.40) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
+| qwen | native | mem0 | wrong_user | 10 | 1 | 0.10 | 0.02 | 0.40 | 6 (0.60) | 2 (0.20) | 0 (0.00) | 1 (0.10) | 0 (0.00) | 0 (0.00) | 0 | 2 | 2 |
 | qwen | replicated | inhouse | h0 | 10 | 10 | 1.00 | 0.72 | 1.00 | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
 | qwen | replicated | inhouse | no_memory | 10 | 0 | 0.00 | 0.00 | 0.28 | 3 (0.30) | 2 (0.20) | 1 (0.10) | 4 (0.40) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
 | qwen | replicated | inhouse | no_supersession | 10 | 5 | 0.50 | 0.24 | 0.76 | 5 (0.50) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
 | qwen | replicated | inhouse | writer_scoped | 10 | 9 | 0.90 | 0.60 | 0.98 | 0 (0.00) | 1 (0.10) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
 | qwen | replicated | inhouse | wrong_user | 10 | 7 | 0.70 | 0.40 | 0.89 | 0 (0.00) | 0 (0.00) | 0 (0.00) | 3 (0.30) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | replicated | mem0 | h0 | 10 | 10 | 1.00 | 0.72 | 1.00 | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | replicated | mem0 | no_memory | 10 | 0 | 0.00 | 0.00 | 0.28 | 3 (0.30) | 2 (0.20) | 1 (0.10) | 4 (0.40) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
+| qwen | replicated | mem0 | no_supersession | 10 | 4 | 0.40 | 0.17 | 0.69 | 6 (0.60) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
+| qwen | replicated | mem0 | writer_scoped | 10 | 9 | 0.90 | 0.60 | 0.98 | 0 (0.00) | 1 (0.10) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 (0.00) | 0 | 2 | 1 |
+| qwen | replicated | mem0 | wrong_user | 10 | 6 | 0.60 | 0.31 | 0.83 | 1 (0.10) | 0 (0.00) | 0 (0.00) | 3 (0.30) | 0 (0.00) | 0 (0.00) | 0 | 2 | 0 |
 
 ### Functional criteria D1-D5
 
 | criterion | holds | evidence |
 |---|---|---|
-| D1 full system: pooled accuracy >= 0.6 | True | 23 of 30 over 3 cells |
-| D2 no_memory: pooled accuracy in [0.10, 0.45] | False | 0 of 30 over 3 cells |
-| D3 no_supersession: more stale errors than the same loci's full system | True | stale 10 of 20 vs 0 of 20 |
-| D4 writer_scoped: >= 1 revoked error among echo users' d1 items, 0 in the full system | True | revoked 2 of 4 vs 0 of 4 |
-| D5 wrong_user: >= 1 foreign error in the replicated and native cells, 0 in the kernel's | True | foreign 6 of 20 vs 0 of 10 |
+| D1 full system: pooled accuracy >= 0.6 | True | 47 of 60 over 6 cells |
+| D2 no_memory: pooled accuracy in [0.10, 0.45] | False | 0 of 60 over 6 cells |
+| D3 no_supersession: more stale errors than the same loci's full system | True | stale 22 of 40 vs 0 of 40 |
+| D4 writer_scoped: >= 1 revoked error among echo users' d1 items, 0 in the full system | True | revoked 4 of 8 vs 0 of 8 |
+| D5 wrong_user: >= 1 foreign error in the replicated and native cells, 0 in the kernel's | True | foreign 10 of 40 vs 0 of 20 |
 
 ### Picks by option kind and letter
 
@@ -462,6 +817,21 @@ Of the items scored, those that named one letter (`picked`), by the kind of the 
 | qwen | kernel | inhouse | wrong_user | d1 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 3/1/0/1 | 0.28 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
 | qwen | kernel | inhouse | wrong_user | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
 | qwen | kernel | inhouse | wrong_user | pooled | 10 | 10 | 10 (1.00) [0.72, 1.00] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 5/2/2/1 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | h0 | d1 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 3/1/0/1 | 0.28 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | h0 | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | h0 | pooled | 10 | 10 | 10 (1.00) [0.72, 1.00] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 5/2/2/1 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | no_memory | d1 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 2 (0.40) [0.12, 0.77] | 1/1/2/1 | 0.90 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | no_memory | d2 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 1/2/0/2 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | no_memory | pooled | 10 | 10 | 0 (0.00) [0.00, 0.28] | 3 (0.30) [0.11, 0.60] | 3 (0.30) [0.11, 0.60] | 4 (0.40) [0.17, 0.69] | 2/3/2/3 | 0.94 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | no_supersession | d1 | 5 | 5 | 1 (0.20) [0.04, 0.62] | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/2/1/0 | 0.53 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | no_supersession | d2 | 5 | 5 | 3 (0.60) [0.23, 0.88] | 2 (0.40) [0.12, 0.77] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 1/2/1/1 | 0.90 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | no_supersession | pooled | 10 | 10 | 4 (0.40) [0.17, 0.69] | 6 (0.60) [0.31, 0.83] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 3/4/2/1 | 0.57 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | writer_scoped | d1 | 5 | 5 | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 0 (0.00) [0.00, 0.43] | 2/1/0/2 | 0.53 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | writer_scoped | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | writer_scoped | pooled | 10 | 10 | 9 (0.90) [0.60, 0.98] | 0 (0.00) [0.00, 0.28] | 1 (0.10) [0.02, 0.40] | 0 (0.00) [0.00, 0.28] | 4/2/2/2 | 0.75 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | wrong_user | d1 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 3/1/0/1 | 0.28 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | wrong_user | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | kernel | mem0 | wrong_user | pooled | 10 | 10 | 10 (1.00) [0.72, 1.00] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 5/2/2/1 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
 | qwen | native | inhouse | h0 | d1 | 5 | 5 | 1 (0.20) [0.04, 0.62] | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/2/1/0 | 0.53 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
 | qwen | native | inhouse | h0 | d2 | 5 | 5 | 2 (0.40) [0.12, 0.77] | 3 (0.60) [0.23, 0.88] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 1/1/2/1 | 0.90 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
 | qwen | native | inhouse | h0 | pooled | 10 | 10 | 3 (0.30) [0.11, 0.60] | 7 (0.70) [0.40, 0.89] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 3/3/3/1 | 0.75 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
@@ -471,6 +841,15 @@ Of the items scored, those that named one letter (`picked`), by the kind of the 
 | qwen | native | inhouse | wrong_user | d1 | 5 | 5 | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 4/0/0/1 | 0.04 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
 | qwen | native | inhouse | wrong_user | d2 | 5 | 5 | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 0 (0.00) [0.00, 0.43] | 2 (0.40) [0.12, 0.77] | 1/1/2/1 | 0.90 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
 | qwen | native | inhouse | wrong_user | pooled | 10 | 10 | 6 (0.60) [0.31, 0.83] | 1 (0.10) [0.02, 0.40] | 0 (0.00) [0.00, 0.28] | 3 (0.30) [0.11, 0.60] | 5/1/2/2 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | native | mem0 | h0 | d1 | 5 | 5 | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 1 (0.20) [0.04, 0.62] | 1 (0.20) [0.04, 0.62] | 0/1/2/2 | 0.53 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | native | mem0 | h0 | d2 | 5 | 5 | 2 (0.40) [0.12, 0.77] | 2 (0.40) [0.12, 0.77] | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 0/0/2/3 | 0.14 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | native | mem0 | h0 | pooled | 10 | 10 | 4 (0.40) [0.17, 0.69] | 3 (0.30) [0.11, 0.60] | 1 (0.10) [0.02, 0.40] | 2 (0.20) [0.06, 0.51] | 0/1/4/5 | 0.08 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | native | mem0 | no_memory | d1 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 2 (0.40) [0.12, 0.77] | 1/1/2/1 | 0.90 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | native | mem0 | no_memory | d2 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 1/2/0/2 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | native | mem0 | no_memory | pooled | 10 | 10 | 0 (0.00) [0.00, 0.28] | 3 (0.30) [0.11, 0.60] | 3 (0.30) [0.11, 0.60] | 4 (0.40) [0.17, 0.69] | 2/3/2/3 | 0.94 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | native | mem0 | wrong_user | d1 | 5 | 5 | 1 (0.20) [0.04, 0.62] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 0/0/2/3 | 0.14 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | native | mem0 | wrong_user | d2 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0/1/1/3 | 0.28 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | native | mem0 | wrong_user | pooled | 10 | 10 | 1 (0.10) [0.02, 0.40] | 6 (0.60) [0.31, 0.83] | 2 (0.20) [0.06, 0.51] | 1 (0.10) [0.02, 0.40] | 0/1/3/6 | 0.04 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
 | qwen | replicated | inhouse | h0 | d1 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 3/1/0/1 | 0.28 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
 | qwen | replicated | inhouse | h0 | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
 | qwen | replicated | inhouse | h0 | pooled | 10 | 10 | 10 (1.00) [0.72, 1.00] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 5/2/2/1 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
@@ -486,4 +865,19 @@ Of the items scored, those that named one letter (`picked`), by the kind of the 
 | qwen | replicated | inhouse | wrong_user | d1 | 5 | 5 | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 4/0/0/1 | 0.04 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
 | qwen | replicated | inhouse | wrong_user | d2 | 5 | 5 | 3 (0.60) [0.23, 0.88] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2 (0.40) [0.12, 0.77] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
 | qwen | replicated | inhouse | wrong_user | pooled | 10 | 10 | 7 (0.70) [0.40, 0.89] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 3 (0.30) [0.11, 0.60] | 6/1/2/1 | 0.08 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | h0 | d1 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 3/1/0/1 | 0.28 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | h0 | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | h0 | pooled | 10 | 10 | 10 (1.00) [0.72, 1.00] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 5/2/2/1 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | no_memory | d1 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 2 (0.40) [0.12, 0.77] | 1/1/2/1 | 0.90 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | no_memory | d2 | 5 | 5 | 0 (0.00) [0.00, 0.43] | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 2 (0.40) [0.12, 0.77] | 1/2/0/2 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | no_memory | pooled | 10 | 10 | 0 (0.00) [0.00, 0.28] | 3 (0.30) [0.11, 0.60] | 3 (0.30) [0.11, 0.60] | 4 (0.40) [0.17, 0.69] | 2/3/2/3 | 0.94 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | no_supersession | d1 | 5 | 5 | 1 (0.20) [0.04, 0.62] | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0/2/2/1 | 0.53 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | no_supersession | d2 | 5 | 5 | 3 (0.60) [0.23, 0.88] | 2 (0.40) [0.12, 0.77] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 1/2/1/1 | 0.90 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | no_supersession | pooled | 10 | 10 | 4 (0.40) [0.17, 0.69] | 6 (0.60) [0.31, 0.83] | 0 (0.00) [0.00, 0.28] | 0 (0.00) [0.00, 0.28] | 1/4/3/2 | 0.57 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | writer_scoped | d1 | 5 | 5 | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 0 (0.00) [0.00, 0.43] | 2/1/0/2 | 0.53 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | writer_scoped | d2 | 5 | 5 | 5 (1.00) [0.57, 1.00] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 2/1/2/0 | 0.53 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | writer_scoped | pooled | 10 | 10 | 9 (0.90) [0.60, 0.98] | 0 (0.00) [0.00, 0.28] | 1 (0.10) [0.02, 0.40] | 0 (0.00) [0.00, 0.28] | 4/2/2/2 | 0.75 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | wrong_user | d1 | 5 | 5 | 4 (0.80) [0.38, 0.96] | 0 (0.00) [0.00, 0.43] | 0 (0.00) [0.00, 0.43] | 1 (0.20) [0.04, 0.62] | 4/0/0/1 | 0.04 | 3/1/0/1 | 0.28 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | wrong_user | d2 | 5 | 5 | 2 (0.40) [0.12, 0.77] | 1 (0.20) [0.04, 0.62] | 0 (0.00) [0.00, 0.43] | 2 (0.40) [0.12, 0.77] | 1/1/2/1 | 0.90 | 2/1/2/0 | 0.53 | 0 | 0 | 0 |
+| qwen | replicated | mem0 | wrong_user | pooled | 10 | 10 | 6 (0.60) [0.31, 0.83] | 1 (0.10) [0.02, 0.40] | 0 (0.00) [0.00, 0.28] | 3 (0.30) [0.11, 0.60] | 5/1/2/2 | 0.31 | 5/2/2/1 | 0.31 | 0 | 0 | 0 |
 

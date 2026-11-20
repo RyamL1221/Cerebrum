@@ -49,17 +49,43 @@ plausible-sounding without memory (harmless for paired comparisons;
 recorded in `METRICS.md`); no cue toward the answer; `foreign` options
 more plausible on both items, `d1`'s stale and `d2`'s correct and
 private options less (recorded with their direction); a position lean
-to B that costs accuracy (B is correct least often) and does not make
-the kinds' lean. 0 of 10 at 0.18 has probability 0.14: the functional
-check's D2 result fits the five users' draw; D2 stays recorded as not
-met.
+to B that costs accuracy (B is correct least often), under 0.01 and
+perhaps nothing (below), and does not make the kinds' lean. 0 of 10 at
+0.18 has probability 0.14: the functional check's D2 result fits the
+five users' draw; D2 stays recorded as not met.
+
+## Readings added on 2026-11-20
+
+For the grid's letter rule (AIOS `docs/FULL_GRID.md`, "The decision
+items"; `docs/METRICS.md`, "The items without memory"; Amendment 10,
+"The letters' size"). Checks added in reading, not stated before, from
+this record and `users_v2` revision 4, by
+`letters_reading_20261120.py` (its output beside it in the archive):
+- letters picked at Qwen's shares, whatever the item, would score
+  0.247 against these correct letters (0.244 to 0.250 with the picks
+  resampled): the lean costs under 0.01, and 300 items do not settle
+  its sign;
+- one letter throughout scores 0.22 (B) to 0.28 (A); on `pilot_v2`'s
+  30 users, whose correct letters are A 22, B 8, C 22, D 8 (p =
+  0.0045), 0.13 to 0.37;
+- correct by correct letter: A 7 of 85, B 19 of 66, C 14 of 80, D 14
+  of 69 (p = 0.012); the mean of the eight rates by item and correct
+  letter, 0.184;
+- the correct option is alone the shortest statement (in characters)
+  on 111 of 300 items and ties for it on 4; Qwen picks the shortest on
+  58 and a tied shortest on 4, where a pick blind to length would on
+  73 and 4;
+- a rule that knew each slot's role would score 0.47, and 0.97 knowing
+  the item; one prompt does not show the roles.
 
 ## Archive
 
 `../repo-artifacts/Cerebrum/decision_nomemory150_s20/` (results,
 kernel and cell logs, the driver's log, `SHA256SUMS`), copied by the
 driver through AIOS `scripts/archive_artifacts.py`: 4 files scanned,
-none holds a key value.
+none holds a key value. The readings' script and its output
+(`letters_reading_20261120.py`, `.out`) were added to it on 2026-11-20
+through the same script, and `SHA256SUMS` rewritten.
 
 Cerebrum
 `tests/agents/test_decision_probe.py::test_the_v2_analysis_reproduces_the_recorded_decision_runs`
