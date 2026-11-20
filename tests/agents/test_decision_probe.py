@@ -3,6 +3,8 @@ Amendment 10): the items revision 4 adds, their scoring, and the
 history that asks them."""
 import json
 import random
+import tarfile
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,7 @@ from benchmarks.shared_memory.metrics import (
     decision_summary,
     letters_named,
     score_decision,
+    wilson,
 )
 from benchmarks.shared_memory.models import V2UserData
 from tests.agents.test_history_v2 import managed, run
@@ -193,12 +196,26 @@ ITEM = {"decision_id": "u000-d1", "correct": "B", "options": [
     ("B or C", None, False, "multiple_letters"),
     ("A good one is B", None, False, "multiple_letters"),
     ("b", None, False, "no_letter"),
+    # a letter named twice is one letter
+    ("B. Final answer: B", "B", True, None),
+    # an option's statement is removed whatever its case
+    ("B, not our logs go to building D.", "B", True, None),
+    # a letter beside another letter is no letter
+    ("BD", None, False, "no_letter"),
 ])
 def test_a_decision_answer_is_scored_exactly(answer, choice, passed, error):
     out = score_decision(ITEM, answer, "- I live in Porto.\n- Slack it is")
     assert (out["choice"], out["passed"], out["error"]) == (
         choice, passed, error)
     assert out["options_in_block"] == ["correct", "revoked"]
+
+
+def test_the_block_holds_an_option_by_its_value_or_an_alias():
+    item = {**ITEM, "options": [
+        dict(o, aliases=["Oporto"]) if o["kind"] == "correct" else o
+        for o in ITEM["options"]]}
+    out = score_decision(item, "B", "- I moved to Oporto.")
+    assert out["options_in_block"] == ["correct"]
 
 
 def test_letters_ignore_the_options_own_text():
@@ -214,7 +231,7 @@ def test_the_cell_summary_counts_errors_against_scored_items():
     out = decision_summary(rows)
     assert (out["n"], out["passed"], out["accuracy"]) == (3, 1, 1 / 3)
     assert out["stale"] == {"k": 2, "share": 2 / 3}
-    assert out["ci"][0] < 1 / 3 < out["ci"][1]
+    assert out["ci"] == wilson(1, 3)   # of the passes
 
 
 def picked(item, kinds, choice, correct="A", **extra):
@@ -252,9 +269,13 @@ def test_the_picks_count_each_kind_and_letter_of_the_scored_items():
     assert pooled["kinds"]["foreign"]["share"] == pytest.approx(2 / 5)
     low, high = pooled["kinds"]["foreign"]["ci"]
     assert low < 2 / 5 < high
+    # each kind's interval over the items that named one letter
+    assert two["kinds"]["foreign"]["ci"] == wilson(1, 2)
     # letters over the picks, correct letters over every scored item
     assert pooled["letters"] == {"A": 2, "B": 0, "C": 1, "D": 2}
     assert two["correct_letters"] == {"A": 0, "B": 3, "C": 0, "D": 0}
+    # chi-square against uniform, 3 degrees of freedom: statistic 2.2
+    assert pooled["letters_p"] == pytest.approx(0.53195, abs=1e-5)
     even = decision_picks([picked("d1", d1, x, correct=x) for x in "ABCD"])
     assert even["d1"]["letters_p"] == pytest.approx(1.0)
     assert even["d1"]["correct_letters_p"] == pytest.approx(1.0)
@@ -280,19 +301,32 @@ def test_the_v2_analysis_reports_the_picks():
     text = ba.markdown(cells, [], [], [], [], [], {},
                        ba.decision_rows(cells), [], rows)
     assert "### Picks by option kind and letter" in text
-    assert "| 1 (0.50) [" in text
+    assert "| 1 (0.50) [0.09, 0.91] |" in text   # wilson(1, 2)
     assert "| 1/0/0/1 |" in text
 
 
-def test_the_history_asks_the_items_after_the_probes(records):
-    record = records[0]
-    user = V2UserData(
+def user_of(record):
+    return V2UserData(
         index=0, user_id="u0__native_inhouse",
         profile=record["final"]["profile"],
         task_context=record["final"]["task_context"],
         follow_up_query=record["base"]["follow_up_query"],
         sessions=record["sessions"], probes=record["probes"],
         decisions=record["decisions"])
+
+
+def patched(locus, change):
+    """``locus``'s consumer, its ``run`` wrapped by ``change(question,
+    real_run, consumer)``."""
+    consumer = locus.agents[history.CONSUMER]
+    real = consumer.run
+    consumer.run = lambda question: change(question, real, consumer)
+    return consumer
+
+
+def test_the_history_asks_the_items_after_the_probes(records):
+    record = records[0]
+    user = user_of(record)
     correct = {item["question"]: item["correct"]
                for item in record["decisions"]}
     locus = managed("native", answer=lambda q: correct.get(q, "an answer"))
@@ -309,44 +343,100 @@ def test_the_history_asks_the_items_after_the_probes(records):
     results = history.score_decisions(outcome)
     assert [r.passed for r in results] == [True, True]
     assert results[0].diagnostics is not None
+    # which options' values the turn's block held
+    assert all("correct" in r.options_in_block for r in results)
 
 
-def test_a_decision_turns_error_is_recorded_and_fails_nothing(records):
-    """An item whose consumer raises and one whose answer is empty: both
-    turns are recorded with their errors, unscored, and the user does
-    not fail (its probes are measured as without the items)."""
+@pytest.mark.parametrize("raised", [RuntimeError, ConnectionError])
+def test_a_decision_turns_error_is_recorded_and_fails_nothing(records,
+                                                              raised):
+    """An item whose consumer raises (any exception) and one whose
+    answer is empty: both turns are recorded with their errors and
+    latency, unscored, and the user does not fail (its probes are
+    measured as without the items)."""
     record = records[0]
-    user = V2UserData(
-        index=0, user_id="u0__native_inhouse",
-        profile=record["final"]["profile"],
-        task_context=record["final"]["task_context"],
-        follow_up_query=record["base"]["follow_up_query"],
-        sessions=record["sessions"], probes=record["probes"],
-        decisions=record["decisions"])
+    user = user_of(record)
     first, second = record["decisions"]
     locus = managed("native",
                     answer=lambda q: "" if q == second["question"]
                     else "an answer")
-    consumer = locus.agents[history.CONSUMER]
-    real = consumer.run
 
-    def run_turn(question):
+    def run_turn(question, real, consumer):
         if question == first["question"]:
-            raise RuntimeError("search failed")
+            raise raised("search failed")
         return real(question)
-    consumer.run = run_turn
+    patched(locus, run_turn)
     _, outcome = run(locus, user)
     assert outcome.failure is None
     assert len(outcome.turns) == len(record["probes"])
     assert all(t.error is None for t in outcome.turns)
     assert outcome.listings[-1]["after"] == "probes"
-    raised, empty = outcome.decision_turns
-    assert raised.error == "consumer raised RuntimeError: search failed"
+    failed, empty = outcome.decision_turns
+    assert failed.error == (f"consumer raised {raised.__name__}: "
+                            "search failed")
+    assert failed.latency_seconds > 0
     assert empty.error == "consumer returned an empty answer"
     results = history.score_decisions(outcome)
-    assert [r.turn_error for r in results] == [raised.error, empty.error]
+    assert [r.turn_error for r in results] == [failed.error, empty.error]
     assert [r.passed for r in results] == [None, None]
     assert decision_summary(results)["n"] == 0
+
+
+def test_a_decision_block_with_wrong_ages_is_a_turn_error(records):
+    """A decision turn gets the probes' block-age check: a block built
+    at another session is a turn error, not scored."""
+    record = records[0]
+    first = record["decisions"][0]["decision_id"]
+    locus = managed("native")
+
+    def run_turn(question, real, consumer):
+        out = real(question)
+        if consumer.probe_id == first:
+            out["injection_diagnostics"] = dict(
+                out["injection_diagnostics"], session=3)
+        return out
+    patched(locus, run_turn)
+    _, outcome = run(locus, user_of(record))
+    assert outcome.failure is None
+    assert [t.error for t in outcome.decision_turns] == [
+        "block built at session 3, not 7", None]
+    assert history.score_decisions(outcome)[0].passed is None
+
+
+def test_a_decision_turns_write_is_a_probe_write(records):
+    """The probes' listing is taken after the decision turns, so a row
+    a decision turn stored fails the user like a probe turn's."""
+    record = records[0]
+    decisions = {d["decision_id"] for d in record["decisions"]}
+    locus = managed("native")
+
+    def run_turn(question, real, consumer):
+        consumer.store_conversation = consumer.probe_id in decisions
+        return real(question)
+    patched(locus, run_turn)
+    _, outcome = run(locus, user_of(record))
+    assert outcome.failure == (
+        "probe_writes: probe turns stored 2 rows (2 assistant_agent)")
+
+
+def test_an_agent_trials_backend_usage_counts_its_decision_turns(records):
+    """Replicated and native trials' backend and embedding usage is
+    their probe turns' and their decision turns'."""
+    record = records[0]
+    locus = managed("native")
+
+    def run_turn(question, real, consumer):
+        out = real(question)
+        out["backend_usage"] = {
+            "backend_llm_tokens": {"calls": 1, "total_tokens": 10},
+            "embedding_tokens": {"calls": 1, "total_tokens": 3}}
+        return out
+    patched(locus, run_turn)
+    _, outcome = run(locus, user_of(record))
+    assert outcome.failure is None
+    turns = len(record["probes"]) + len(record["decisions"])
+    assert outcome.backend_llm_tokens.calls == turns
+    assert outcome.embedding_tokens.total_tokens == 3 * turns
 
 
 def decided(index, errors, echo=False, failed=False):
@@ -391,6 +481,8 @@ def test_the_v2_analysis_reports_decisions_and_the_criteria():
     native = rows["wrong_user/native"]
     assert (native["items"], native["correct"], native["foreign"]) == (
         4, 3, 1)   # the failed trial is left out
+    assert (native["ci_low"], native["ci_high"]) == wilson(3, 4)
+    assert rows["no_memory/kernel"]["private"] == 1
     assert rows["h0/kernel"]["echo_d1"] == 1
     assert rows["writer_scoped/kernel"]["echo_d1_revoked"] == 1
     checks = {c["criterion"][:2]: c for c in ba.decision_criteria(cells)}
@@ -412,11 +504,53 @@ def test_the_v2_analysis_reports_decisions_and_the_criteria():
     # error is counted apart, and not scored.
     assert native["foreign_share"] == pytest.approx(1 / 4)
     assert "| 1 (0.25) |" in text
+    assert ("| stale | revoked | private | foreign | no_letter "
+            "| multiple_letters | turn_errors | echo_d1 |") in text
     errored = cell(decided(0, [None, None]))
     errored["trials"][0]["decision_results"][1].update(
         passed=None, turn_error="consumer returned an empty answer")
     (row,) = ba.decision_rows({("qwen", "kernel", "inhouse", "h0"): errored})
     assert (row["items"], row["correct"], row["turn_errors"]) == (1, 1, 1)
+
+
+K, N = (("qwen", locus, "inhouse") for locus in ("kernel", "native"))
+
+
+def holds(cells):
+    """D1-D5's ``holds`` over ``{key: [trial, ...]}``."""
+    from benchmarks.shared_memory import bench_v2_analysis as ba
+
+    return {c["criterion"][:2]: c["holds"] for c in ba.decision_criteria(
+        {key: {"trials": trials, "metadata": {}}
+         for key, trials in cells.items()})}
+
+
+def test_each_decision_criterion_at_its_edge():
+    """Amendment 10's D1-D5 at their bounds: D1 holds at 0.6; D2 fails
+    below 0.10; D3 needs strictly more stale errors, against the same
+    loci's full system only; D4 and D5 fail when the full system, or
+    the kernel, has the error too, and D4 reads the same loci only."""
+    ok, stale = [None, None], ["stale", "stale"]
+    six_of_ten = [decided(i, ok) for i in range(3)] + [
+        decided(3, stale), decided(4, stale)]
+    assert holds({(*K, "h0"): six_of_ten})["D1"] is True
+    assert holds({(*K, "no_memory"): [decided(0, ["stale", "foreign"])]}
+                 )["D2"] is False
+    one = [decided(0, ["stale", None])]
+    assert holds({(*K, "h0"): one, (*K, "no_supersession"): one}
+                 )["D3"] is False
+    assert holds({(*K, "h0"): [decided(0, ok)],
+                  (*K, "no_supersession"): one,
+                  (*N, "h0"): [decided(0, stale)]})["D3"] is True
+    revoked = [decided(0, ["revoked", None], echo=True)]
+    assert holds({(*K, "h0"): revoked, (*K, "writer_scoped"): revoked}
+                 )["D4"] is False
+    assert holds({(*K, "h0"): [decided(0, ok, echo=True)],
+                  (*K, "writer_scoped"): revoked,
+                  (*N, "h0"): revoked})["D4"] is True
+    foreign = [decided(0, ["foreign", None])]
+    assert holds({(*N, "wrong_user"): foreign, (*K, "wrong_user"): foreign}
+                 )["D5"] is False
 
 
 def test_a_v2_trials_cost_counts_its_decision_turns(tmp_path, records):
@@ -437,9 +571,11 @@ def test_a_v2_trials_cost_counts_its_decision_turns(tmp_path, records):
     o.generator.run_id = "r1"
     o._embed = False
     o.judge = MagicMock()
+    o.judge.name = "gpt-5.4"
+    record = {"llm": {"profile": 4, "task": 3, "integration": 5}}
     o.judge.evaluate.return_value = SimpleNamespace(
         profile_usage_score=4, task_usage_score=3, integration_score=5,
-        judge_attempts=1)
+        judge_attempts=1, record=record)
     locus = FakeLocus()
 
     def run_history_trial(user, variants=None, *, control=None,
@@ -466,3 +602,42 @@ def test_a_v2_trials_cost_counts_its_decision_turns(tmp_path, records):
     assert trial.latency_seconds == pytest.approx(
         sum(t.latency_seconds for t in turns))
     assert all(d.latency_seconds > 0 for d in trial.decision_results)
+    # the integration probe's answer, measured (Subtask 20)
+    assert trial.judge_free.profile_facts_in_answer is not None
+    # the judge's record, on the trial and its integration probe
+    assert trial.judges == {"gpt-5.4": record}
+    (integration,) = [p for p in trial.probe_results
+                      if p.type == "integration"]
+    assert integration.judges == {"gpt-5.4": record}
+
+
+# -- the recorded runs ---------------------------------------------------------
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "decision_runs"
+RESULTS = Path(__file__).resolve().parents[2] / "results"
+
+
+@pytest.mark.parametrize("run", ["decision_functional_s20",
+                                 "decision_nomemory150_s20"])
+def test_the_v2_analysis_reproduces_the_recorded_decision_runs(tmp_path,
+                                                                run):
+    """The functional check's and the no-memory check's records, trimmed
+    to the fields the analysis reads
+    (``fixtures/decision_runs/make_fixtures.py``), give the analysis
+    committed with each run: every accuracy, interval, error count,
+    pick, chi-square p and criterion."""
+    from benchmarks.shared_memory import bench_v2_analysis as ba
+    from tests.agents.test_ablation_report import same
+
+    with tarfile.open(FIXTURES / f"{run}.tar.xz") as archive:
+        archive.extractall(tmp_path, **(
+            {"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
+    out = tmp_path / "out"
+    out.mkdir()
+    ba.main([str(tmp_path / run), "--no-criteria",
+             "--markdown", str(out / "analysis.md"),
+             "--json", str(out / "analysis.json")])
+    assert ((out / "analysis.md").read_text()
+            == (RESULTS / run / "analysis.md").read_text())
+    assert same(json.loads((out / "analysis.json").read_text()),
+                json.loads((RESULTS / run / "analysis.json").read_text()))

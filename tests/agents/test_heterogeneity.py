@@ -245,6 +245,7 @@ def test_kernel_reference_sends_shared_rendered_writes_with_provenance(
     assert kernel["chat"][0]["user_id"] == USER
     assert result.variants_applied == {}
     assert result.judge_free is not None
+    assert result.judge_free.profile_facts_in_answer is not None
 
 
 def test_kernel_v1_writer_writes_private(kernel):
@@ -418,6 +419,7 @@ def test_native_reference_injects_both_writers(native_run):
     assert measures.memories_missing == 0
     assert measures.profile_facts_in_block == 1.0
     assert measures.cross_user_rows == measures.private_rows_from_others == 0
+    assert measures.profile_facts_in_answer is not None
     assert measures.raw_payload_rows == 0
     assert block_of(chat).startswith("Relevant memories about this user:")
 

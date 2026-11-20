@@ -124,7 +124,8 @@ def test_the_second_judge_sends_the_same_prompt_without_sampling():
     (params,) = sent
     assert params["system"] == system["content"] == SYSTEM_PROMPT
     assert params["messages"] == [user]
-    assert params["thinking"] == CLAUDE_THINKING
+    assert params["thinking"] == CLAUDE_THINKING == {"type": "between_tools"}
+    assert params["max_tokens"] == 1024
     assert params["model"] == "claude-sonnet-5-5"
     assert not {"temperature", "top_p", "top_k"} & set(params)
     assert (out.profile_usage_score, out.integration_score) == (5, 4)
@@ -255,6 +256,11 @@ def test_the_second_judge_adds_its_record_and_keeps_the_scores():
     assert t.probe_results[0].integration_score == 1
     assert t.judges[SECOND_JUDGE] == out.record
     assert t.probe_results[0].judges[SECOND_JUDGE] == out.record
+    # another judge's record is kept
+    earlier = {"gpt-5.4": {"llm": {"profile": 3}}}
+    both = rejudge.apply_judgment(
+        second, v2_trial().model_copy(update={"judges": earlier}), out)
+    assert both.judges == {**earlier, SECOND_JUDGE: out.record}
     failed = rejudge.apply_judgment(second, v2_trial(), JudgeFailed(3))
     assert not failed.failed
     assert failed.judges[SECOND_JUDGE] == {
@@ -411,6 +417,11 @@ def test_the_second_judge_subset_is_30_percent_by_user_and_echo():
 
     users = judge.second_judge_users(range(150))
     assert len(users) == 45
+    # FULL_GRID.md's list, fixed before the grid runs
+    assert users == [
+        4, 5, 7, 11, 15, 16, 20, 25, 26, 27, 28, 32, 36, 38, 41, 43, 44,
+        49, 54, 56, 57, 60, 61, 62, 66, 72, 74, 78, 79, 80, 89, 90, 93, 94,
+        96, 97, 105, 106, 115, 120, 130, 134, 138, 140, 147]
     assert sum(1 for i in users if is_echo_user(i)) == 15
     assert users == judge.second_judge_users(reversed(range(150)))
     order = judge.second_judge_order()
@@ -423,3 +434,52 @@ def test_the_second_judge_subset_is_30_percent_by_user_and_echo():
     assert judge.second_judge_users([0, 1]) == [0, 1]
     with pytest.raises(ValueError, match="outside"):
         judge.second_judge_users([150])
+
+
+def test_a_collected_batch_id_goes_to_the_first_round_only():
+    """``batch_id`` collects the batch already submitted for every
+    judgment; a judgment it left incomplete goes in a new batch."""
+    seen = []
+
+    def scores(llm_judge, items, **extra):
+        seen.append((sorted(items), extra.get("batch_id")))
+        first = len(seen) == 1
+        return {key: JudgeScores(
+            profile_usage_score=4, task_usage_score=4,
+            integration_score=None if first and key == "a-1" else 4)
+            for key in items}
+
+    item = {"query": "q", "response": ANSWER, "profile": PROFILE,
+            "task_context": TASK}
+    out = judge.batch_judgments(None, {"a": item, "b": item}, 1, scores,
+                                batch_id="b1")
+    assert seen == [(["a-1", "b-1"], "b1"), (["a-1"], None)]
+    assert not isinstance(out["a"][1], JudgeFailed)
+
+
+def test_rejudge_main_sends_the_second_judge_through_one_batch(tmp_path):
+    source = tmp_path / "in" / "qwen_kernel_shared" / \
+        "results_kernel_shared.json"
+    source.parent.mkdir(parents=True)
+    source.write_text(experiment([trial(0)]).model_dump_json())
+    batched = []
+
+    def in_batch(todo, judge_, label):
+        batched.append((sorted(todo), judge_.name, label))
+        return dict(todo)
+
+    with patch.object(rejudge, "rejudge_in_batch", in_batch), \
+            patch.object(rejudge, "rejudge_experiment",
+                         side_effect=AssertionError("per answer")):
+        rejudge.main([str(source), "--output", str(tmp_path / "out"),
+                      "--judge", SECOND_JUDGE])
+    assert batched == [([str(source)], SECOND_JUDGE, SECOND_JUDGE)]
+
+
+def test_a_rejudged_file_with_a_failed_trial_is_not_complete(tmp_path):
+    path = tmp_path / "results.json"
+    path.write_text(experiment([trial(0), trial(1, failed=True)])
+                    .model_dump_json())
+    assert not rejudge.complete(path, 2)
+    path.write_text(experiment([trial(0), trial(1)]).model_dump_json())
+    assert rejudge.complete(path, 2)

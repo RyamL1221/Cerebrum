@@ -2,6 +2,7 @@
 docs/METRICS.md, "Reliability protocol", "The k rule", "Agreement
 between the judges")."""
 import json
+import lzma
 from pathlib import Path
 
 import numpy as np
@@ -241,10 +242,11 @@ def test_the_second_judge_judges_the_set_in_one_batch(tmp_path,
 
 def test_agreement_at_each_judges_own_k():
     a = rows(np.array([[1, 1, 1], [3, 3, 3], [5, 5, 5], [4, 4, 4]]), "a")
-    b = rows(np.array([[2, 2, 2], [4, 3, 4], [5, 5, 5], [5, 5, 5]]), "b")
+    b = rows(np.array([[2, 2, 2], [3, 4, 4], [5, 5, 5], [5, 5, 5]]), "b")
     out = jr.agreement(a, 1, b, 3, resamples=50)["profile"]
     assert out["units"] == 4
-    # a at k = 1: 1, 3, 5, 4; b at k = 3: 2, 4, 5, 5.
+    # a at k = 1: 1, 3, 5, 4; b at k = 3, the median of its first
+    # three: 2, 4, 5, 5 (its first repeat would give 2, 3, 5, 5).
     assert out["offset"]["mean"] == pytest.approx(0.75)
     assert out["spearman"] == pytest.approx(0.9486833)
     assert 0 < out["alpha"] < 1
@@ -380,3 +382,66 @@ def test_directions_record_each_judges_k_and_refuse_a_mixed_run(tmp_path):
     with pytest.raises(ValueError, match="more than one k"):
         jr.directions_report(
             {"run": {"gpt-5.4": ("gpt-5.4", tmp_path / "mixed")}}, {})
+
+
+def test_differences_pool_the_backends_and_take_h2_minus_h0():
+    """With two backends, each difference is also pooled over them (the
+    mean of the user's backend gaps); H2 - H0 is the H2 gap minus the
+    H0 gap."""
+    values = {}
+    for backend, gap in (("inhouse", 1), ("mem0", 3)):
+        values[("kernel", backend, 0)] = [4, 4]
+        values[("replicated", backend, 0)] = [4 - gap] * 2
+        values[("kernel", backend, 2)] = [5, 5]
+        values[("replicated", backend, 2)] = [5 - 2 * gap] * 2
+    cells = {("qwen", locus, backend, h): {
+        i: rejudged(i, "m", locus, v) for i, v in enumerate(vs)}
+        for (locus, backend, h), vs in values.items()}
+    d = jr.differences(cells, "g", ("profile",))
+    assert d["qwen pooled H0 kernel-replicated profile"]["mean"] == 2
+    assert d["qwen inhouse H2-H0 kernel-replicated profile"]["mean"] == 1
+    assert d["qwen pooled H2-H0 kernel-replicated profile"]["mean"] == 2
+
+
+def test_a_zero_mean_is_its_own_sign_and_either_interval_decides():
+    """METRICS.md, "Agreement between the judges": a mean of 0 is a
+    sign of its own; a difference is decisive where either judge's
+    interval excludes 0, above or below."""
+    assert [jr.sign(v) for v in (-0.5, 0, 0.5)] == [-1, 0, 1]
+    zero = {"mean": 0.0, "ci_low": -1.0, "ci_high": 1.0}
+    up = {"mean": 0.5, "ci_low": 0.1, "ci_high": 0.9}
+    down = {"mean": -0.5, "ci_low": -0.9, "ci_high": -0.1}
+    assert jr.excludes_zero(up) and jr.excludes_zero(down)
+    assert not jr.excludes_zero(zero)
+    out = jr.direction_agreement({"x": zero, "y": down},
+                                 {"x": up, "y": down})
+    assert (out["same_direction"], out["decisive"],
+            out["decisive_same_direction"]) == (1, 2, 1)
+
+
+# -- the recorded study --------------------------------------------------------
+
+ROOT = Path(__file__).resolve().parents[2]
+STUDY = ROOT / "results" / "judge_reliability_s20"
+
+
+def test_the_reliability_report_reproduces_the_second_judges_study(
+        tmp_path):
+    """The second judge's 2,002 judgments of calibration_v1 (without
+    the reasoning text; ``fixtures/judge_runs/make_fixtures.py``) give
+    the committed report: every alpha, interval (seeded bootstrap, 2,000
+    resamples, 95%), agreement, median-of-k figure, k and token count."""
+    from tests.agents.test_ablation_report import same
+
+    judgments = tmp_path / "claude-sonnet-5.5.jsonl"
+    judgments.write_bytes(lzma.decompress(
+        (Path(__file__).resolve().parent / "fixtures" / "judge_runs"
+         / "claude-sonnet-5.5.jsonl.xz").read_bytes()))
+    md, js = tmp_path / "report.md", tmp_path / "report.json"
+    jr.main(["report", "--set", str(ROOT / "benchmarks" / "shared_memory"
+                                    / "data" / "calibration_v1.jsonl"),
+             "--judgments", str(judgments), "--md", str(md),
+             "--json", str(js)])
+    assert md.read_text() == (STUDY / "report_claude_only.md").read_text()
+    assert same(json.loads(js.read_text()),
+                json.loads((STUDY / "report_claude_only.json").read_text()))
