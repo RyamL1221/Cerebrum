@@ -238,7 +238,7 @@ def test_failed_trials_other_conditions_and_baselines_are_excluded(
         "kept", "second failed", "Ask Qwen to review it."]
 
 
-def test_an_answer_that_names_a_model_or_a_memory_system_tells(tmp_path):
+def test_an_answer_that_names_a_model_or_a_memory_system_tells():
     inputs = {"profile": PROFILE, "task_context": TASK,
               "query": "How do I fix the flaky CI?"}
     telling = ("Best regards,\nQwen", "As GPT-4o, I suggest", "ChatGPT",
