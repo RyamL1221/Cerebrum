@@ -1,0 +1,2411 @@
+{
+ "pilot_v1_hetero": {
+  "k": {
+   "gpt-5.4": 1,
+   "claude-sonnet-5.5": 1
+  },
+  "differences": {
+   "gpt-5.4": {
+    "gpt4o inhouse H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": -0.1,
+     "ci_low": -0.27948156738417074,
+     "ci_high": 0.0794815673841707
+    },
+    "gpt4o inhouse H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.4848658780499778,
+     "ci_high": 1.7151341219500225
+    },
+    "gpt4o inhouse H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.1666666666666667,
+     "ci_low": 0.5155862046723209,
+     "ci_high": 1.8177471286610127
+    },
+    "gpt4o inhouse H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.2666666666666666,
+     "ci_low": 0.5877503198672974,
+     "ci_high": 1.945583013466036
+    },
+    "gpt4o mem0 H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.16666666666666666,
+     "ci_low": -0.05442467973683307,
+     "ci_high": 0.3877580130701664
+    },
+    "gpt4o mem0 H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.40777485815997216,
+     "ci_high": 1.5255584751733613
+    },
+    "gpt4o mem0 H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.2,
+     "ci_low": 0.5844751926362186,
+     "ci_high": 1.8155248073637813
+    },
+    "gpt4o mem0 H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.37930567953363936,
+     "ci_high": 1.6873609871330275
+    },
+    "gpt4o pooled H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.11321275277539133,
+     "ci_high": 0.179879419442058
+    },
+    "gpt4o pooled H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.47015657729147076,
+     "ci_high": 1.596510089375196
+    },
+    "gpt4o pooled H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.1833333333333333,
+     "ci_low": 0.5798713985469569,
+     "ci_high": 1.7867952681197097
+    },
+    "gpt4o pooled H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.15,
+     "ci_low": 0.5161001561597123,
+     "ci_high": 1.7838998438402875
+    },
+    "gpt4o inhouse H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "gpt4o inhouse H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.3948695275751867,
+     "ci_high": 1.7384638057581467
+    },
+    "gpt4o inhouse H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.2,
+     "ci_low": 0.5038341455233784,
+     "ci_high": 1.8961658544766216
+    },
+    "gpt4o inhouse H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.2,
+     "ci_low": 0.5038341455233784,
+     "ci_high": 1.8961658544766216
+    },
+    "gpt4o mem0 H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "gpt4o mem0 H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.1005097431933224,
+     "ci_high": 1.2328235901400109
+    },
+    "gpt4o mem0 H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.432390790202417,
+     "ci_high": 1.767609209797583
+    },
+    "gpt4o mem0 H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.432390790202417,
+     "ci_high": 1.767609209797583
+    },
+    "gpt4o pooled H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "gpt4o pooled H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.2887427306675875,
+     "ci_high": 1.444590602665746
+    },
+    "gpt4o pooled H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.15,
+     "ci_low": 0.4828410561265707,
+     "ci_high": 1.8171589438734292
+    },
+    "gpt4o pooled H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.15,
+     "ci_low": 0.4828410561265707,
+     "ci_high": 1.8171589438734292
+    },
+    "gpt4o inhouse H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": -0.06666666666666667,
+     "ci_low": -0.23461595143953667,
+     "ci_high": 0.10128261810620333
+    },
+    "gpt4o inhouse H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.1333333333333333,
+     "ci_low": 0.49984446616991085,
+     "ci_high": 1.7668222004967558
+    },
+    "gpt4o inhouse H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.1666666666666667,
+     "ci_low": 0.5381304796328106,
+     "ci_high": 1.795202853700523
+    },
+    "gpt4o inhouse H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.2333333333333334,
+     "ci_low": 0.5491261911999517,
+     "ci_high": 1.9175404754667151
+    },
+    "gpt4o mem0 H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.2,
+     "ci_low": -0.005695025179458052,
+     "ci_high": 0.4056950251794581
+    },
+    "gpt4o mem0 H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.44920313963025504,
+     "ci_high": 1.6174635270364117
+    },
+    "gpt4o mem0 H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.2333333333333334,
+     "ci_low": 0.6234322636939296,
+     "ci_high": 1.8432344029727372
+    },
+    "gpt4o mem0 H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.36476456973863747,
+     "ci_high": 1.7019020969280294
+    },
+    "gpt4o pooled H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.06666666666666667,
+     "ci_low": -0.06968197614218023,
+     "ci_high": 0.20301530947551355
+    },
+    "gpt4o pooled H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.0833333333333333,
+     "ci_low": 0.4968414868168465,
+     "ci_high": 1.66982517984982
+    },
+    "gpt4o pooled H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.2,
+     "ci_low": 0.6043232723779953,
+     "ci_high": 1.7956767276220047
+    },
+    "gpt4o pooled H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.1333333333333333,
+     "ci_low": 0.49417752117566827,
+     "ci_high": 1.7724891454909983
+    },
+    "gpt4o inhouse H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.13867955768536375,
+     "ci_high": 0.13867955768536375
+    },
+    "gpt4o inhouse H1 kernel-native profile": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.41669484688385083,
+     "ci_high": 1.7166384864494826
+    },
+    "gpt4o inhouse H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.12606184995910685,
+     "ci_high": 1.8072714833742265
+    },
+    "gpt4o inhouse H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.08148615583783969,
+     "ci_high": 1.8518471774954937
+    },
+    "gpt4o mem0 H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.2,
+     "ci_low": -0.048077534459261356,
+     "ci_high": 0.44807753445926135
+    },
+    "gpt4o mem0 H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.23327720239891914,
+     "ci_high": 1.366722797601081
+    },
+    "gpt4o mem0 H2 kernel-native profile": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.320611691831987,
+     "ci_high": 1.679388308168013
+    },
+    "gpt4o mem0 H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.08341439693580444,
+     "ci_high": 1.5165856030641955
+    },
+    "gpt4o pooled H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.024038767229630678,
+     "ci_high": 0.22403876722963068
+    },
+    "gpt4o pooled H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.38793876209794576,
+     "ci_high": 1.478727904568721
+    },
+    "gpt4o pooled H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.9833333333333333,
+     "ci_low": 0.2586027131098534,
+     "ci_high": 1.7080639535568132
+    },
+    "gpt4o pooled H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.8833333333333333,
+     "ci_low": 0.12425538993950669,
+     "ci_high": 1.64241127672716
+    },
+    "gpt4o inhouse H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "gpt4o inhouse H1 kernel-native task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.3948695275751867,
+     "ci_high": 1.7384638057581467
+    },
+    "gpt4o inhouse H2 kernel-native task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.2887415071236922,
+     "ci_high": 1.844591826209641
+    },
+    "gpt4o inhouse H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.2887415071236922,
+     "ci_high": 1.844591826209641
+    },
+    "gpt4o mem0 H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "gpt4o mem0 H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.1005097431933224,
+     "ci_high": 1.2328235901400109
+    },
+    "gpt4o mem0 H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.14784800863194025,
+     "ci_high": 1.5854853247013931
+    },
+    "gpt4o mem0 H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.14784800863194025,
+     "ci_high": 1.5854853247013931
+    },
+    "gpt4o pooled H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "gpt4o pooled H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.2887427306675875,
+     "ci_high": 1.444590602665746
+    },
+    "gpt4o pooled H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.2378839295435231,
+     "ci_high": 1.6954494037898102
+    },
+    "gpt4o pooled H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.2378839295435231,
+     "ci_high": 1.6954494037898102
+    },
+    "gpt4o inhouse H0 kernel-native integration": {
+     "n": 30,
+     "mean": -0.1,
+     "ci_low": -0.30452296421327035,
+     "ci_high": 0.10452296421327034
+    },
+    "gpt4o inhouse H1 kernel-native integration": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.3421850992143133,
+     "ci_high": 1.6578149007856866
+    },
+    "gpt4o inhouse H2 kernel-native integration": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.20334659308224357,
+     "ci_high": 1.7966534069177564
+    },
+    "gpt4o inhouse H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.24878537198672912,
+     "ci_high": 1.951214628013271
+    },
+    "gpt4o mem0 H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.16666666666666666,
+     "ci_low": -0.05442467973683307,
+     "ci_high": 0.3877580130701664
+    },
+    "gpt4o mem0 H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8333333333333334,
+     "ci_low": 0.23617866411317034,
+     "ci_high": 1.4304880025534965
+    },
+    "gpt4o mem0 H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.22665699625176838,
+     "ci_high": 1.6400096704148983
+    },
+    "gpt4o mem0 H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.04152152774222084,
+     "ci_high": 1.4918118055911127
+    },
+    "gpt4o pooled H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.09577030884547474,
+     "ci_high": 0.1624369755121414
+    },
+    "gpt4o pooled H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.9166666666666666,
+     "ci_low": 0.34680645020081247,
+     "ci_high": 1.486526883132521
+    },
+    "gpt4o pooled H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.24451137307061677,
+     "ci_high": 1.6888219602627166
+    },
+    "gpt4o pooled H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.19179742917527176,
+     "ci_high": 1.674869237491395
+    },
+    "qwen inhouse H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": -0.16666666666666666,
+     "ci_low": -0.507538273688784,
+     "ci_high": 0.17420494035545067
+    },
+    "qwen inhouse H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.08377243808260326,
+     "ci_high": 1.24956089525073
+    },
+    "qwen inhouse H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.5509445300263439,
+     "ci_high": 1.6490554699736562
+    },
+    "qwen inhouse H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.2666666666666666,
+     "ci_low": 0.6627069764949128,
+     "ci_high": 1.8706263568384203
+    },
+    "qwen mem0 H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.06666666666666667,
+     "ci_low": -0.2859904768236634,
+     "ci_high": 0.4193238101569967
+    },
+    "qwen mem0 H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.3256429290905899,
+     "ci_high": 1.27435707090941
+    },
+    "qwen mem0 H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.2593275485646753,
+     "ci_high": 1.3406724514353248
+    },
+    "qwen mem0 H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.1293736431615795,
+     "ci_high": 1.337293023505087
+    },
+    "qwen pooled H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": -0.05,
+     "ci_low": -0.2919451591211653,
+     "ci_high": 0.19194515912116528
+    },
+    "qwen pooled H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.2900646396451373,
+     "ci_high": 1.1766020270215294
+    },
+    "qwen pooled H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.95,
+     "ci_low": 0.48137901756797197,
+     "ci_high": 1.418620982432028
+    },
+    "qwen pooled H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.5072482887268908,
+     "ci_high": 1.4927517112731092
+    },
+    "qwen inhouse H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "qwen inhouse H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.37930567953363936,
+     "ci_high": 1.6873609871330275
+    },
+    "qwen inhouse H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1666666666666667,
+     "ci_low": 0.4866888674479076,
+     "ci_high": 1.8466444658854257
+    },
+    "qwen inhouse H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1666666666666667,
+     "ci_low": 0.4866888674479076,
+     "ci_high": 1.8466444658854257
+    },
+    "qwen mem0 H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "qwen mem0 H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.09192033580180425,
+     "ci_high": 1.1747463308648625
+    },
+    "qwen mem0 H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.37930567953363936,
+     "ci_high": 1.6873609871330275
+    },
+    "qwen mem0 H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.37930567953363936,
+     "ci_high": 1.6873609871330275
+    },
+    "qwen pooled H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "qwen pooled H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.8333333333333334,
+     "ci_low": 0.277893282858107,
+     "ci_high": 1.3887733838085596
+    },
+    "qwen pooled H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.44879647204443907,
+     "ci_high": 1.7512035279555611
+    },
+    "qwen pooled H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.44879647204443907,
+     "ci_high": 1.7512035279555611
+    },
+    "qwen inhouse H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": -0.06666666666666667,
+     "ci_low": -0.37572819981993216,
+     "ci_high": 0.24239486648659886
+    },
+    "qwen inhouse H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.10906676338753396,
+     "ci_high": 1.2242665699457993
+    },
+    "qwen inhouse H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.5192516235669157,
+     "ci_high": 1.5474150430997513
+    },
+    "qwen inhouse H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.5007021039020605,
+     "ci_high": 1.6992978960979397
+    },
+    "qwen mem0 H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.13333333333333333,
+     "ci_low": -0.1564593847310828,
+     "ci_high": 0.4231260513977495
+    },
+    "qwen mem0 H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.238486599981241,
+     "ci_high": 1.1615134000187588
+    },
+    "qwen mem0 H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.426149991844719,
+     "ci_high": 1.373850008155281
+    },
+    "qwen mem0 H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.25071782590011926,
+     "ci_high": 1.2826155074332142
+    },
+    "qwen pooled H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.1909963012081109,
+     "ci_high": 0.25766296787477755
+    },
+    "qwen pooled H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.6833333333333333,
+     "ci_low": 0.2195250174229738,
+     "ci_high": 1.147141649243693
+    },
+    "qwen pooled H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.5366109458906783,
+     "ci_high": 1.396722387442655
+    },
+    "qwen pooled H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.4740826941460854,
+     "ci_high": 1.3925839725205813
+    },
+    "qwen inhouse H0 kernel-native profile": {
+     "n": 30,
+     "mean": -0.16666666666666666,
+     "ci_low": -0.5836672801353583,
+     "ci_high": 0.2503339468020249
+    },
+    "qwen inhouse H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.17058360383287363,
+     "ci_high": 1.296083062833793
+    },
+    "qwen inhouse H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.2181759847445558,
+     "ci_high": 1.5151573485887777
+    },
+    "qwen inhouse H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.2770315947175258,
+     "ci_high": 1.789635071949141
+    },
+    "qwen mem0 H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.13333333333333333,
+     "ci_low": -0.21658645587953526,
+     "ci_high": 0.4832531225462019
+    },
+    "qwen mem0 H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": -0.02101763408703522,
+     "ci_high": 0.9543509674203685
+    },
+    "qwen mem0 H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.3,
+     "ci_low": -0.3056820751477957,
+     "ci_high": 0.9056820751477956
+    },
+    "qwen mem0 H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.16666666666666666,
+     "ci_low": -0.5133111325520925,
+     "ci_high": 0.8466444658854257
+    },
+    "qwen pooled H0 kernel-native profile": {
+     "n": 30,
+     "mean": -0.016666666666666666,
+     "ci_low": -0.32082785451585133,
+     "ci_high": 0.287494521182518
+    },
+    "qwen pooled H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": 0.14162262769754452,
+     "ci_high": 1.0583773723024554
+    },
+    "qwen pooled H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.5833333333333334,
+     "ci_low": 0.028434559631608458,
+     "ci_high": 1.1382321070350583
+    },
+    "qwen pooled H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": -0.03057276162789735,
+     "ci_high": 1.2305727616278972
+    },
+    "qwen inhouse H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.034840988071090116,
+     "ci_high": 0.10150765473775678
+    },
+    "qwen inhouse H1 kernel-native task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.3948695275751867,
+     "ci_high": 1.7384638057581467
+    },
+    "qwen inhouse H2 kernel-native task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.32675349967304024,
+     "ci_high": 1.806579833660293
+    },
+    "qwen inhouse H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.2834157978846753,
+     "ci_high": 1.7832508687819915
+    },
+    "qwen mem0 H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0
+    },
+    "qwen mem0 H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.1539897675992542,
+     "ci_high": 1.179343565734079
+    },
+    "qwen mem0 H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.05490585516750457,
+     "ci_high": 1.4784274781658289
+    },
+    "qwen mem0 H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.05490585516750457,
+     "ci_high": 1.4784274781658289
+    },
+    "qwen pooled H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.016666666666666666,
+     "ci_low": -0.017420494035545058,
+     "ci_high": 0.05075382736887839
+    },
+    "qwen pooled H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.30992969901416056,
+     "ci_high": 1.4234036343191727
+    },
+    "qwen pooled H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.9166666666666666,
+     "ci_low": 0.21280244586566066,
+     "ci_high": 1.6205308874676727
+    },
+    "qwen pooled H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.19219062333068682,
+     "ci_high": 1.6078093766693131
+    },
+    "qwen inhouse H0 kernel-native integration": {
+     "n": 30,
+     "mean": -0.16666666666666666,
+     "ci_low": -0.5836672801353583,
+     "ci_high": 0.2503339468020249
+    },
+    "qwen inhouse H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.2682945459362116,
+     "ci_high": 1.3317054540637885
+    },
+    "qwen inhouse H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.29273236696879623,
+     "ci_high": 1.5072676330312038
+    },
+    "qwen inhouse H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.3807049944055224,
+     "ci_high": 1.7526283389278108
+    },
+    "qwen mem0 H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.23036602717275742,
+     "ci_high": 0.4303660271727574
+    },
+    "qwen mem0 H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.5,
+     "ci_low": 0.012151412800420647,
+     "ci_high": 0.9878485871995794
+    },
+    "qwen mem0 H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": -0.11951767776823197,
+     "ci_high": 1.0528510111015654
+    },
+    "qwen mem0 H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.36666666666666664,
+     "ci_low": -0.2416557090317027,
+     "ci_high": 0.974989042365036
+    },
+    "qwen pooled H0 kernel-native integration": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.32312605139774947,
+     "ci_high": 0.2564593847310828
+    },
+    "qwen pooled H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.65,
+     "ci_low": 0.20831594999048952,
+     "ci_high": 1.0916840500095106
+    },
+    "qwen pooled H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.6833333333333333,
+     "ci_low": 0.14738722796742598,
+     "ci_high": 1.2192794386992407
+    },
+    "qwen pooled H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.7166666666666667,
+     "ci_low": 0.15402374444192946,
+     "ci_high": 1.279309588891404
+    }
+   },
+   "claude-sonnet-5.5": {
+    "gpt4o inhouse H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.2409670915196405,
+     "ci_high": 0.17430042485297384
+    },
+    "gpt4o inhouse H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.25360093989538335,
+     "ci_high": 1.2130657267712832
+    },
+    "gpt4o inhouse H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.46373013971791527,
+     "ci_high": 1.4029365269487515
+    },
+    "gpt4o inhouse H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.46202422447966696,
+     "ci_high": 1.4713091088536663
+    },
+    "gpt4o mem0 H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.23333333333333334,
+     "ci_low": -0.020176033811864724,
+     "ci_high": 0.4868427004785314
+    },
+    "gpt4o mem0 H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.20049164698931804,
+     "ci_high": 1.0661750196773485
+    },
+    "gpt4o mem0 H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.20822500269270783,
+     "ci_high": 1.191774997307292
+    },
+    "gpt4o mem0 H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": 0.031056832179304772,
+     "ci_high": 0.9022765011540286
+    },
+    "gpt4o pooled H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.06554645299953299,
+     "ci_high": 0.265546452999533
+    },
+    "gpt4o pooled H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.6833333333333333,
+     "ci_low": 0.26303092497955344,
+     "ci_high": 1.1036357416871132
+    },
+    "gpt4o pooled H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.8166666666666667,
+     "ci_low": 0.360699401928642,
+     "ci_high": 1.2726339314046913
+    },
+    "gpt4o pooled H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.7166666666666667,
+     "ci_low": 0.28451978790796634,
+     "ci_high": 1.148813545425367
+    },
+    "gpt4o inhouse H0 kernel-replicated task": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.10150765473775678,
+     "ci_high": 0.034840988071090116
+    },
+    "gpt4o inhouse H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.37930567953363936,
+     "ci_high": 1.6873609871330275
+    },
+    "gpt4o inhouse H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1333333333333333,
+     "ci_low": 0.47018012007141097,
+     "ci_high": 1.7964865465952555
+    },
+    "gpt4o inhouse H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1666666666666667,
+     "ci_low": 0.4866888674479076,
+     "ci_high": 1.8466444658854257
+    },
+    "gpt4o mem0 H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.034840988071090116,
+     "ci_high": 0.10150765473775678
+    },
+    "gpt4o mem0 H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.1621037228326655,
+     "ci_high": 1.304562943834001
+    },
+    "gpt4o mem0 H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1333333333333333,
+     "ci_low": 0.47018012007141097,
+     "ci_high": 1.7964865465952555
+    },
+    "gpt4o mem0 H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.432390790202417,
+     "ci_high": 1.767609209797583
+    },
+    "gpt4o pooled H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.04903062782563584,
+     "ci_high": 0.04903062782563584
+    },
+    "gpt4o pooled H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.8833333333333333,
+     "ci_low": 0.2956130873750169,
+     "ci_high": 1.4710535792916497
+    },
+    "gpt4o pooled H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1333333333333333,
+     "ci_low": 0.48114611368719795,
+     "ci_high": 1.7855205529794687
+    },
+    "gpt4o pooled H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1333333333333333,
+     "ci_low": 0.46837003605701855,
+     "ci_high": 1.7982966306096482
+    },
+    "gpt4o inhouse H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": -0.13333333333333333,
+     "ci_low": -0.29545600381386106,
+     "ci_high": 0.028789337147194394
+    },
+    "gpt4o inhouse H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.15269870534045715,
+     "ci_high": 1.2473012946595428
+    },
+    "gpt4o inhouse H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.5301601630032644,
+     "ci_high": 1.603173170330069
+    },
+    "gpt4o inhouse H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.2,
+     "ci_low": 0.6505068611884334,
+     "ci_high": 1.7494931388115664
+    },
+    "gpt4o mem0 H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.12119743324329943,
+     "ci_high": 0.18786409990996608
+    },
+    "gpt4o mem0 H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.27087695375666104,
+     "ci_high": 1.1291230462433388
+    },
+    "gpt4o mem0 H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.409514670475121,
+     "ci_high": 1.3238186628582125
+    },
+    "gpt4o mem0 H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.8333333333333334,
+     "ci_low": 0.3725149840102173,
+     "ci_high": 1.2941516826564494
+    },
+    "gpt4o pooled H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": -0.05,
+     "ci_low": -0.12516252917972914,
+     "ci_high": 0.02516252917972915
+    },
+    "gpt4o pooled H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.23330671386141932,
+     "ci_high": 1.1666932861385806
+    },
+    "gpt4o pooled H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.4839369573347517,
+     "ci_high": 1.4493963759985817
+    },
+    "gpt4o pooled H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 1.0166666666666666,
+     "ci_low": 0.5426053164518364,
+     "ci_high": 1.490728016881497
+    },
+    "gpt4o inhouse H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.2773591153707275,
+     "ci_high": 0.2773591153707275
+    },
+    "gpt4o inhouse H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.1615552978474879,
+     "ci_high": 1.238444702152512
+    },
+    "gpt4o inhouse H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.08643110736018877,
+     "ci_high": 1.313568892639811
+    },
+    "gpt4o inhouse H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.1615552978474879,
+     "ci_high": 1.238444702152512
+    },
+    "gpt4o mem0 H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.23333333333333334,
+     "ci_low": 0.02111886749617442,
+     "ci_high": 0.44554779917049225
+    },
+    "gpt4o mem0 H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.5333333333333333,
+     "ci_low": 0.12038792752004823,
+     "ci_high": 0.9462787391466184
+    },
+    "gpt4o mem0 H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.28467406425044484,
+     "ci_high": 1.1819926024162217
+    },
+    "gpt4o mem0 H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.5,
+     "ci_low": 0.06420624748270509,
+     "ci_high": 0.9357937525172949
+    },
+    "gpt4o pooled H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.11666666666666667,
+     "ci_low": -0.07750534983512963,
+     "ci_high": 0.31083868316846297
+    },
+    "gpt4o pooled H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6166666666666667,
+     "ci_low": 0.1986583982125525,
+     "ci_high": 1.034674935120781
+    },
+    "gpt4o pooled H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.7166666666666667,
+     "ci_low": 0.20551600273758275,
+     "ci_high": 1.2278173305957507
+    },
+    "gpt4o pooled H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": 0.1390077897579181,
+     "ci_high": 1.060992210242082
+    },
+    "gpt4o inhouse H0 kernel-native task": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.10150765473775678,
+     "ci_high": 0.034840988071090116
+    },
+    "gpt4o inhouse H1 kernel-native task": {
+     "n": 30,
+     "mean": 1.0666666666666667,
+     "ci_low": 0.41669484688385083,
+     "ci_high": 1.7166384864494826
+    },
+    "gpt4o inhouse H2 kernel-native task": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.25318772648379984,
+     "ci_high": 1.7468122735162002
+    },
+    "gpt4o inhouse H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 1.0333333333333334,
+     "ci_low": 0.2707008335713593,
+     "ci_high": 1.7959658330953077
+    },
+    "gpt4o mem0 H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.034840988071090116,
+     "ci_high": 0.10150765473775678
+    },
+    "gpt4o mem0 H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.20605694895936144,
+     "ci_high": 1.327276384373972
+    },
+    "gpt4o mem0 H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.1411900833100781,
+     "ci_high": 1.5921432500232553
+    },
+    "gpt4o mem0 H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.8333333333333334,
+     "ci_low": 0.09896429374246152,
+     "ci_high": 1.5677023729242052
+    },
+    "gpt4o pooled H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.04903062782563584,
+     "ci_high": 0.04903062782563584
+    },
+    "gpt4o pooled H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.9166666666666666,
+     "ci_low": 0.3447010481409669,
+     "ci_high": 1.4886322851923663
+    },
+    "gpt4o pooled H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.21484919109646405,
+     "ci_high": 1.6518174755702026
+    },
+    "gpt4o pooled H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.2015878295100041,
+     "ci_high": 1.6650788371566625
+    },
+    "gpt4o inhouse H0 kernel-native integration": {
+     "n": 30,
+     "mean": -0.06666666666666667,
+     "ci_low": -0.23461595143953667,
+     "ci_high": 0.10128261810620333
+    },
+    "gpt4o inhouse H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.2682945459362116,
+     "ci_high": 1.3317054540637885
+    },
+    "gpt4o inhouse H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8333333333333334,
+     "ci_low": 0.1971936094746809,
+     "ci_high": 1.4694730571919858
+    },
+    "gpt4o inhouse H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.2770987254410784,
+     "ci_high": 1.5229012745589217
+    },
+    "gpt4o mem0 H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.06666666666666667,
+     "ci_low": -0.06968197614218023,
+     "ci_high": 0.20301530947551355
+    },
+    "gpt4o mem0 H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": 0.1770841887630405,
+     "ci_high": 1.0229158112369594
+    },
+    "gpt4o mem0 H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.2682945459362116,
+     "ci_high": 1.3317054540637885
+    },
+    "gpt4o mem0 H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.17919323535003773,
+     "ci_high": 1.287473431316629
+    },
+    "gpt4o pooled H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.09806125565127168,
+     "ci_high": 0.09806125565127168
+    },
+    "gpt4o pooled H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.7,
+     "ci_low": 0.26808497215061056,
+     "ci_high": 1.1319150278493892
+    },
+    "gpt4o pooled H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8166666666666667,
+     "ci_low": 0.25231725371262403,
+     "ci_high": 1.3810160796207094
+    },
+    "gpt4o pooled H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.8166666666666667,
+     "ci_low": 0.2587435066287951,
+     "ci_high": 1.3745898267045382
+    },
+    "qwen inhouse H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.09806125565127168,
+     "ci_high": 0.09806125565127168
+    },
+    "qwen inhouse H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.4,
+     "ci_low": 0.12966377428233766,
+     "ci_high": 0.6703362257176624
+    },
+    "qwen inhouse H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": 0.06553339913280248,
+     "ci_high": 0.8677999342005309
+    },
+    "qwen inhouse H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": 0.031056832179304772,
+     "ci_high": 0.9022765011540286
+    },
+    "qwen mem0 H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.24020003988222896,
+     "ci_high": 0.24020003988222896
+    },
+    "qwen mem0 H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.4,
+     "ci_low": 0.09616831196354947,
+     "ci_high": 0.7038316880364506
+    },
+    "qwen mem0 H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.22448397385966717,
+     "ci_high": 1.1088493594736661
+    },
+    "qwen mem0 H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.163455386012632,
+     "ci_high": 1.1698779473207013
+    },
+    "qwen pooled H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.12972284785199606,
+     "ci_high": 0.12972284785199606
+    },
+    "qwen pooled H1 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.4,
+     "ci_low": 0.1433491329834578,
+     "ci_high": 0.6566508670165423
+    },
+    "qwen pooled H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.16613315017971964,
+     "ci_high": 0.9672001831536137
+    },
+    "qwen pooled H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.14564990324241583,
+     "ci_high": 0.9876834300909174
+    },
+    "qwen inhouse H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.013936883013668952,
+     "ci_high": 0.21393688301366898
+    },
+    "qwen inhouse H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.40351666845045,
+     "ci_high": 1.5964833315495501
+    },
+    "qwen inhouse H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.37210159718624325,
+     "ci_high": 1.6278984028137566
+    },
+    "qwen inhouse H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.2618479667297635,
+     "ci_high": 1.5381520332702365
+    },
+    "qwen mem0 H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.13333333333333333,
+     "ci_low": -0.08001094243601067,
+     "ci_high": 0.3466776091026773
+    },
+    "qwen mem0 H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.06970470980423632,
+     "ci_high": 1.063628623529097
+    },
+    "qwen mem0 H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.41644485343496684,
+     "ci_high": 1.5168884798983666
+    },
+    "qwen mem0 H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.8333333333333334,
+     "ci_low": 0.1971936094746809,
+     "ci_high": 1.4694730571919858
+    },
+    "qwen pooled H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.11666666666666667,
+     "ci_low": -0.00022108864848040255,
+     "ci_high": 0.23355442198181375
+    },
+    "qwen pooled H1 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.7833333333333333,
+     "ci_low": 0.26517601298547666,
+     "ci_high": 1.3014906536811899
+    },
+    "qwen pooled H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.9833333333333333,
+     "ci_low": 0.41685803610798333,
+     "ci_high": 1.5498086305586831
+    },
+    "qwen pooled H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.26830548773672647,
+     "ci_high": 1.465027845596607
+    },
+    "qwen inhouse H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.0503250583594583,
+     "ci_high": 0.2503250583594583
+    },
+    "qwen inhouse H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.2174345685001562,
+     "ci_high": 0.9158987648331771
+    },
+    "qwen inhouse H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.3419063408628709,
+     "ci_high": 1.1247603258037957
+    },
+    "qwen inhouse H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.20049164698931804,
+     "ci_high": 1.0661750196773485
+    },
+    "qwen mem0 H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.14710658147930988,
+     "ci_high": 0.3471065814793099
+    },
+    "qwen mem0 H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": 0.2519170727616892,
+     "ci_high": 0.9480829272383108
+    },
+    "qwen mem0 H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.3672963533508959,
+     "ci_high": 1.0993703133157706
+    },
+    "qwen mem0 H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.189522635741404,
+     "ci_high": 1.0771440309252627
+    },
+    "qwen pooled H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.058119023636470035,
+     "ci_high": 0.25811902363647005
+    },
+    "qwen pooled H1 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.5833333333333334,
+     "ci_low": 0.2690652398164053,
+     "ci_high": 0.8976014268502615
+    },
+    "qwen pooled H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.3875602055098901,
+     "ci_high": 1.0791064611567764
+    },
+    "qwen pooled H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.2233090587869076,
+     "ci_high": 1.043357607879759
+    },
+    "qwen inhouse H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.3797896100455632,
+     "ci_high": 0.3797896100455632
+    },
+    "qwen inhouse H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.43333333333333335,
+     "ci_low": 0.11281650277684746,
+     "ci_high": 0.7538501638898192
+    },
+    "qwen inhouse H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.1543038316665863,
+     "ci_high": 0.979029501666747
+    },
+    "qwen inhouse H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.08944641683570248,
+     "ci_high": 1.0438869164976308
+    },
+    "qwen mem0 H0 kernel-native profile": {
+     "n": 30,
+     "mean": -0.13333333333333333,
+     "ci_low": -0.439267687898273,
+     "ci_high": 0.17260102123160634
+    },
+    "qwen mem0 H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.21547694376928253,
+     "ci_high": 0.41547694376928257
+    },
+    "qwen mem0 H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.3,
+     "ci_low": -0.1718163077478131,
+     "ci_high": 0.7718163077478131
+    },
+    "qwen mem0 H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.43333333333333335,
+     "ci_low": -0.16059199448783368,
+     "ci_high": 1.0272586611545003
+    },
+    "qwen pooled H0 kernel-native profile": {
+     "n": 30,
+     "mean": -0.06666666666666667,
+     "ci_low": -0.3105088170435176,
+     "ci_high": 0.17717548371018427
+    },
+    "qwen pooled H1 kernel-native profile": {
+     "n": 30,
+     "mean": 0.26666666666666666,
+     "ci_low": 0.0038454267329222636,
+     "ci_high": 0.529487906600411
+    },
+    "qwen pooled H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.43333333333333335,
+     "ci_low": 0.009471188822635701,
+     "ci_high": 0.8571954778440309
+    },
+    "qwen pooled H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.5,
+     "ci_low": 0.04530866295041719,
+     "ci_high": 0.9546913370495829
+    },
+    "qwen inhouse H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.16666666666666666,
+     "ci_low": -0.031488256549003835,
+     "ci_high": 0.36482158988233715
+    },
+    "qwen inhouse H1 kernel-native task": {
+     "n": 30,
+     "mean": 1.1,
+     "ci_low": 0.5252740316570822,
+     "ci_high": 1.6747259683429179
+    },
+    "qwen inhouse H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.2111240412191281,
+     "ci_high": 1.5888759587808718
+    },
+    "qwen inhouse H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": -5.298016769861302e-05,
+     "ci_high": 1.466719646834365
+    },
+    "qwen mem0 H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.0794815673841707,
+     "ci_high": 0.27948156738417074
+    },
+    "qwen mem0 H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.5333333333333333,
+     "ci_low": 0.03588787193929144,
+     "ci_high": 1.0307787947273752
+    },
+    "qwen mem0 H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.0908013445173046,
+     "ci_high": 1.375865322149362
+    },
+    "qwen mem0 H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": -0.0702746832171186,
+     "ci_high": 1.3369413498837852
+    },
+    "qwen pooled H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.13333333333333333,
+     "ci_low": -0.004767184003893643,
+     "ci_high": 0.2714338506705603
+    },
+    "qwen pooled H1 kernel-native task": {
+     "n": 30,
+     "mean": 0.8166666666666667,
+     "ci_low": 0.31071588268447325,
+     "ci_high": 1.3226174506488602
+    },
+    "qwen pooled H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.8166666666666667,
+     "ci_low": 0.17460252965570022,
+     "ci_high": 1.458730803677633
+    },
+    "qwen pooled H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.6833333333333333,
+     "ci_low": -0.002190127384869567,
+     "ci_high": 1.3688567940515362
+    },
+    "qwen inhouse H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.25228147191700057,
+     "ci_high": 0.3189481385836672
+    },
+    "qwen inhouse H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.17832263366307405,
+     "ci_high": 0.9550106996702592
+    },
+    "qwen inhouse H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.2117459573633847,
+     "ci_high": 1.054920709303282
+    },
+    "qwen inhouse H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": 0.08482830810170461,
+     "ci_high": 1.1151716918982952
+    },
+    "qwen mem0 H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.1998494492076032,
+     "ci_high": 0.39984944920760324
+    },
+    "qwen mem0 H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.5,
+     "ci_low": 0.19380382736868734,
+     "ci_high": 0.8061961726313127
+    },
+    "qwen mem0 H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.43333333333333335,
+     "ci_low": -0.02329249503045927,
+     "ci_high": 0.889959161697126
+    },
+    "qwen mem0 H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.3333333333333333,
+     "ci_low": -0.20674595012150337,
+     "ci_high": 0.87341261678817
+    },
+    "qwen pooled H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.06666666666666667,
+     "ci_low": -0.14554779917049226,
+     "ci_high": 0.27888113250382557
+    },
+    "qwen pooled H1 kernel-native integration": {
+     "n": 30,
+     "mean": 0.5333333333333333,
+     "ci_low": 0.21583083460616698,
+     "ci_high": 0.8508358320604996
+    },
+    "qwen pooled H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.5333333333333333,
+     "ci_low": 0.10890440165901549,
+     "ci_high": 0.9577622650076512
+    },
+    "qwen pooled H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": -0.0008843545939216102,
+     "ci_high": 0.934217687927255
+    }
+   }
+  },
+  "agreement": {
+   "gpt-5.4 vs claude-sonnet-5.5": {
+    "differences": 144,
+    "same_direction": 126,
+    "decisive": 104,
+    "decisive_same_direction": 104,
+    "disagreements": [
+     {
+      "difference": "gpt4o inhouse H0 kernel-native task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.03333333333333333,
+       "ci_low": -0.10150765473775678,
+       "ci_high": 0.034840988071090116
+      }
+     },
+     {
+      "difference": "gpt4o inhouse H0 kernel-replicated task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.03333333333333333,
+       "ci_low": -0.10150765473775678,
+       "ci_high": 0.034840988071090116
+      }
+     },
+     {
+      "difference": "gpt4o mem0 H0 kernel-native task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.03333333333333333,
+       "ci_low": -0.034840988071090116,
+       "ci_high": 0.10150765473775678
+      }
+     },
+     {
+      "difference": "gpt4o mem0 H0 kernel-replicated task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.03333333333333333,
+       "ci_low": -0.034840988071090116,
+       "ci_high": 0.10150765473775678
+      }
+     },
+     {
+      "difference": "gpt4o pooled H0 kernel-native integration",
+      "a": {
+       "n": 30,
+       "mean": 0.03333333333333333,
+       "ci_low": -0.09577030884547474,
+       "ci_high": 0.1624369755121414
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.09806125565127168,
+       "ci_high": 0.09806125565127168
+      }
+     },
+     {
+      "difference": "gpt4o pooled H0 kernel-replicated integration",
+      "a": {
+       "n": 30,
+       "mean": 0.06666666666666667,
+       "ci_low": -0.06968197614218023,
+       "ci_high": 0.20301530947551355
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.05,
+       "ci_low": -0.12516252917972914,
+       "ci_high": 0.02516252917972915
+      }
+     },
+     {
+      "difference": "qwen inhouse H0 kernel-native integration",
+      "a": {
+       "n": 30,
+       "mean": -0.16666666666666666,
+       "ci_low": -0.5836672801353583,
+       "ci_high": 0.2503339468020249
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.03333333333333333,
+       "ci_low": -0.25228147191700057,
+       "ci_high": 0.3189481385836672
+      }
+     },
+     {
+      "difference": "qwen inhouse H0 kernel-native profile",
+      "a": {
+       "n": 30,
+       "mean": -0.16666666666666666,
+       "ci_low": -0.5836672801353583,
+       "ci_high": 0.2503339468020249
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.3797896100455632,
+       "ci_high": 0.3797896100455632
+      }
+     },
+     {
+      "difference": "qwen inhouse H0 kernel-replicated integration",
+      "a": {
+       "n": 30,
+       "mean": -0.06666666666666667,
+       "ci_low": -0.37572819981993216,
+       "ci_high": 0.24239486648659886
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.1,
+       "ci_low": -0.0503250583594583,
+       "ci_high": 0.2503250583594583
+      }
+     },
+     {
+      "difference": "qwen inhouse H0 kernel-replicated profile",
+      "a": {
+       "n": 30,
+       "mean": -0.16666666666666666,
+       "ci_low": -0.507538273688784,
+       "ci_high": 0.17420494035545067
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.09806125565127168,
+       "ci_high": 0.09806125565127168
+      }
+     },
+     {
+      "difference": "qwen inhouse H0 kernel-replicated task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.1,
+       "ci_low": -0.013936883013668952,
+       "ci_high": 0.21393688301366898
+      }
+     },
+     {
+      "difference": "qwen mem0 H0 kernel-native profile",
+      "a": {
+       "n": 30,
+       "mean": 0.13333333333333333,
+       "ci_low": -0.21658645587953526,
+       "ci_high": 0.4832531225462019
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.13333333333333333,
+       "ci_low": -0.439267687898273,
+       "ci_high": 0.17260102123160634
+      }
+     },
+     {
+      "difference": "qwen mem0 H0 kernel-native task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.1,
+       "ci_low": -0.0794815673841707,
+       "ci_high": 0.27948156738417074
+      }
+     },
+     {
+      "difference": "qwen mem0 H0 kernel-replicated profile",
+      "a": {
+       "n": 30,
+       "mean": 0.06666666666666667,
+       "ci_low": -0.2859904768236634,
+       "ci_high": 0.4193238101569967
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.24020003988222896,
+       "ci_high": 0.24020003988222896
+      }
+     },
+     {
+      "difference": "qwen mem0 H0 kernel-replicated task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.13333333333333333,
+       "ci_low": -0.08001094243601067,
+       "ci_high": 0.3466776091026773
+      }
+     },
+     {
+      "difference": "qwen pooled H0 kernel-native integration",
+      "a": {
+       "n": 30,
+       "mean": -0.03333333333333333,
+       "ci_low": -0.32312605139774947,
+       "ci_high": 0.2564593847310828
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.06666666666666667,
+       "ci_low": -0.14554779917049226,
+       "ci_high": 0.27888113250382557
+      }
+     },
+     {
+      "difference": "qwen pooled H0 kernel-replicated profile",
+      "a": {
+       "n": 30,
+       "mean": -0.05,
+       "ci_low": -0.2919451591211653,
+       "ci_high": 0.19194515912116528
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.12972284785199606,
+       "ci_high": 0.12972284785199606
+      }
+     },
+     {
+      "difference": "qwen pooled H0 kernel-replicated task",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": 0.0,
+       "ci_high": 0.0
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.11666666666666667,
+       "ci_low": -0.00022108864848040255,
+       "ci_high": 0.23355442198181375
+      }
+     }
+    ]
+   }
+  }
+ },
+ "pilot_v1_amem": {
+  "k": {
+   "gpt-5.4": 1,
+   "claude-sonnet-5.5": 1
+  },
+  "differences": {
+   "gpt-5.4": {
+    "qwen amem H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.3922450226050867,
+     "ci_high": 0.3922450226050867
+    },
+    "qwen amem H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.3007021039020604,
+     "ci_high": 1.4992978960979397
+    },
+    "qwen amem H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.9,
+     "ci_low": 0.13820856197696074,
+     "ci_high": 1.6617914380230392
+    },
+    "qwen amem H0 kernel-replicated task": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.10150765473775678,
+     "ci_high": 0.034840988071090116
+    },
+    "qwen amem H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.1666666666666667,
+     "ci_low": 0.4866888674479076,
+     "ci_high": 1.8466444658854257
+    },
+    "qwen amem H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.2,
+     "ci_low": 0.49696166050558177,
+     "ci_high": 1.9030383394944181
+    },
+    "qwen amem H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.1,
+     "ci_low": -0.244612422541346,
+     "ci_high": 0.44461242254134603
+    },
+    "qwen amem H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.9666666666666667,
+     "ci_low": 0.4525849569002489,
+     "ci_high": 1.4807483764330844
+    },
+    "qwen amem H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.8666666666666667,
+     "ci_low": 0.16820247033364577,
+     "ci_high": 1.5651308629996876
+    },
+    "qwen amem H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.5371036173748246,
+     "ci_high": 0.5371036173748246
+    },
+    "qwen amem H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": 0.023186389591333678,
+     "ci_high": 1.1768136104086664
+    },
+    "qwen amem H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6,
+     "ci_low": -0.2526255599081858,
+     "ci_high": 1.4526255599081859
+    },
+    "qwen amem H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.03333333333333333,
+     "ci_low": -0.08609760051069928,
+     "ci_high": 0.15276426717736594
+    },
+    "qwen amem H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.08245952453328498,
+     "ci_high": 1.4508738088000483
+    },
+    "qwen amem H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.033493754907596096,
+     "ci_high": 1.4331729117590704
+    },
+    "qwen amem H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.06666666666666667,
+     "ci_low": -0.4327081314894998,
+     "ci_high": 0.5660414648228331
+    },
+    "qwen amem H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.7333333333333333,
+     "ci_low": 0.1879387620979457,
+     "ci_high": 1.2787279045687208
+    },
+    "qwen amem H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": -0.11986366819259875,
+     "ci_high": 1.4531970015259321
+    }
+   },
+   "claude-sonnet-5.5": {
+    "qwen amem H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.15276426717736594,
+     "ci_high": 0.08609760051069928
+    },
+    "qwen amem H2 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.5333333333333333,
+     "ci_low": 0.12038792752004823,
+     "ci_high": 0.9462787391466184
+    },
+    "qwen amem H2-H0 kernel-replicated profile": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.13160905277040152,
+     "ci_high": 1.0017242805629318
+    },
+    "qwen amem H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.06666666666666667,
+     "ci_low": -0.028069506656465085,
+     "ci_high": 0.16140283998979843
+    },
+    "qwen amem H2 kernel-replicated task": {
+     "n": 30,
+     "mean": 1.0,
+     "ci_low": 0.37210159718624325,
+     "ci_high": 1.6278984028137566
+    },
+    "qwen amem H2-H0 kernel-replicated task": {
+     "n": 30,
+     "mean": 0.9333333333333333,
+     "ci_low": 0.30594562470965214,
+     "ci_high": 1.5607210419570146
+    },
+    "qwen amem H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": -0.03333333333333333,
+     "ci_low": -0.21635182332455202,
+     "ci_high": 0.14968515665788537
+    },
+    "qwen amem H2 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.3783226336630741,
+     "ci_high": 1.1550106996702594
+    },
+    "qwen amem H2-H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.8,
+     "ci_low": 0.36808497215061065,
+     "ci_high": 1.2319150278493893
+    },
+    "qwen amem H0 kernel-native profile": {
+     "n": 30,
+     "mean": -0.16666666666666666,
+     "ci_low": -0.478052974577006,
+     "ci_high": 0.14471964124367268
+    },
+    "qwen amem H2 kernel-native profile": {
+     "n": 30,
+     "mean": 0.4666666666666667,
+     "ci_low": 0.02015581824077356,
+     "ci_high": 0.9131775150925598
+    },
+    "qwen amem H2-H0 kernel-native profile": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.08311152010163347,
+     "ci_high": 1.1835551465650331
+    },
+    "qwen amem H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.13333333333333333,
+     "ci_low": -0.028789337147194394,
+     "ci_high": 0.29545600381386106
+    },
+    "qwen amem H2 kernel-native task": {
+     "n": 30,
+     "mean": 0.7666666666666667,
+     "ci_low": 0.18089257610992604,
+     "ci_high": 1.3524407572234074
+    },
+    "qwen amem H2-H0 kernel-native task": {
+     "n": 30,
+     "mean": 0.6333333333333333,
+     "ci_low": 0.009403743960368693,
+     "ci_high": 1.257262922706298
+    },
+    "qwen amem H0 kernel-native integration": {
+     "n": 30,
+     "mean": -0.1,
+     "ci_low": -0.3471065814793099,
+     "ci_high": 0.14710658147930988
+    },
+    "qwen amem H2 kernel-native integration": {
+     "n": 30,
+     "mean": 0.5666666666666667,
+     "ci_low": 0.16613315017971964,
+     "ci_high": 0.9672001831536137
+    },
+    "qwen amem H2-H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.6666666666666666,
+     "ci_low": 0.23549439951797208,
+     "ci_high": 1.0978389338153611
+    }
+   }
+  },
+  "agreement": {
+   "gpt-5.4 vs claude-sonnet-5.5": {
+    "differences": 18,
+    "same_direction": 13,
+    "decisive": 12,
+    "decisive_same_direction": 12,
+    "disagreements": [
+     {
+      "difference": "qwen amem H0 kernel-native integration",
+      "a": {
+       "n": 30,
+       "mean": 0.06666666666666667,
+       "ci_low": -0.4327081314894998,
+       "ci_high": 0.5660414648228331
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.1,
+       "ci_low": -0.3471065814793099,
+       "ci_high": 0.14710658147930988
+      }
+     },
+     {
+      "difference": "qwen amem H0 kernel-native profile",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.5371036173748246,
+       "ci_high": 0.5371036173748246
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.16666666666666666,
+       "ci_low": -0.478052974577006,
+       "ci_high": 0.14471964124367268
+      }
+     },
+     {
+      "difference": "qwen amem H0 kernel-replicated integration",
+      "a": {
+       "n": 30,
+       "mean": 0.1,
+       "ci_low": -0.244612422541346,
+       "ci_high": 0.44461242254134603
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.03333333333333333,
+       "ci_low": -0.21635182332455202,
+       "ci_high": 0.14968515665788537
+      }
+     },
+     {
+      "difference": "qwen amem H0 kernel-replicated profile",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.3922450226050867,
+       "ci_high": 0.3922450226050867
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.03333333333333333,
+       "ci_low": -0.15276426717736594,
+       "ci_high": 0.08609760051069928
+      }
+     },
+     {
+      "difference": "qwen amem H0 kernel-replicated task",
+      "a": {
+       "n": 30,
+       "mean": -0.03333333333333333,
+       "ci_low": -0.10150765473775678,
+       "ci_high": 0.034840988071090116
+      },
+      "b": {
+       "n": 30,
+       "mean": 0.06666666666666667,
+       "ci_low": -0.028069506656465085,
+       "ci_high": 0.16140283998979843
+      }
+     }
+    ]
+   }
+  }
+ },
+ "bench_v2_smoke_amem": {
+  "k": {
+   "gpt-5.4": 1,
+   "claude-sonnet-5.5": 1
+  },
+  "differences": {
+   "gpt-5.4": {
+    "qwen amem H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": 0.16666666666666666,
+     "ci_low": -0.31456671828567595,
+     "ci_high": 0.6479000516190092
+    },
+    "qwen amem H0 kernel-native integration": {
+     "n": 30,
+     "mean": 0.0,
+     "ci_low": -0.43854326719045783,
+     "ci_high": 0.43854326719045783
+    }
+   },
+   "claude-sonnet-5.5": {
+    "qwen amem H0 kernel-replicated integration": {
+     "n": 30,
+     "mean": -0.23333333333333334,
+     "ci_low": -0.5960716250116276,
+     "ci_high": 0.12940495834496096
+    },
+    "qwen amem H0 kernel-native integration": {
+     "n": 30,
+     "mean": -0.1,
+     "ci_low": -0.44461242254134603,
+     "ci_high": 0.244612422541346
+    }
+   }
+  },
+  "agreement": {
+   "gpt-5.4 vs claude-sonnet-5.5": {
+    "differences": 2,
+    "same_direction": 0,
+    "decisive": 0,
+    "decisive_same_direction": 0,
+    "disagreements": [
+     {
+      "difference": "qwen amem H0 kernel-native integration",
+      "a": {
+       "n": 30,
+       "mean": 0.0,
+       "ci_low": -0.43854326719045783,
+       "ci_high": 0.43854326719045783
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.1,
+       "ci_low": -0.44461242254134603,
+       "ci_high": 0.244612422541346
+      }
+     },
+     {
+      "difference": "qwen amem H0 kernel-replicated integration",
+      "a": {
+       "n": 30,
+       "mean": 0.16666666666666666,
+       "ci_low": -0.31456671828567595,
+       "ci_high": 0.6479000516190092
+      },
+      "b": {
+       "n": 30,
+       "mean": -0.23333333333333334,
+       "ci_low": -0.5960716250116276,
+       "ci_high": 0.12940495834496096
+      }
+     }
+    ]
+   }
+  }
+ }
+}
