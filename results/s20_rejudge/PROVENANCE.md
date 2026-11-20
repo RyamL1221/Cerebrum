@@ -60,7 +60,8 @@ results file and adds the judge's record. Result: AIOS
 - A reading, not a registered measure: against the hybrid scores the
   pilot stored (the same judge, 2026-11-07 and 08), the new hybrid is
   the same for Profile on 893 of 1,080 answers (0.83), Task 1,077
-  (1.00), Integration 973 (0.90); no mean moved by more than 0.05.
+  (1.00), Integration 973 (0.90); no overall mean moved by more than
+  0.05 (a cell's mean can move more).
 
 ## `directions.md` / `.json`
 

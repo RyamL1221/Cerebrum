@@ -55,8 +55,10 @@ AIOS `docs/DEV_STATUS.md`, Subtask 20.
   $11.65 at $2.50 / $15 per million tokens in / out (OpenAI's list
   price for GPT-5.4; Azure's own price was not read).
 - The kernel's log (3,400 judge calls, with the measurement and the
-  re-judge): no error, and no judge call fell back to a plain chat (no
-  memory request of any kind).
+  re-judge): no judge call failed, and none fell back to a plain chat
+  (no memory request of any kind). Its four error lines are none of
+  them a call's: Redis refused at startup, and three file-watcher
+  decode errors.
 
 ## Before the study
 

@@ -38,7 +38,7 @@ check's result" (in-house) and "The functional check's Mem0 cells".
 `bench_v2_analysis results/decision_functional_s20 --no-criteria`
 (`analysis.md` / `analysis.json`), rendered at Cerebrum `968029a` over
 the 26 cells. The in-house rendering of 2026-11-19 (13 cells, at
-`fae6ce1`) is in this file's history (Cerebrum `3716e02`).
+`fae6ce1`) is in `analysis.md`'s history (Cerebrum `3716e02`).
 
 | Criterion | Met | Both backends | In-house alone (2026-11-19) |
 |---|---|---|---|
@@ -77,16 +77,22 @@ What the blocks held (`options_in_block`, the scorer's matcher):
   not in the block;
 - native Mem0: the matcher found the correct option's value in none of
   its 20 blocks with memory (the native consumer's own search at its k
-  of 10, over the facts Mem0's extraction stored). 12 of its 15 errors
-  were of a value not in the block: guesses, by `METRICS.md`'s
-  reading, not recency, deletion or identity failures;
+  of 10, over the facts Mem0's extraction stored), so its 5 right
+  answers were guesses, and 12 of its 15 errors were of a value not in
+  the block: guesses too, by `METRICS.md`'s reading, which no item's
+  error kind names as a recency, deletion or identity failure. Under
+  `wrong_user` its blocks did hold user i − 1's rows (users 1 to 4: 3
+  to 7 of 9 or 10): the identity failure is in the blocks, and the
+  items do not register it;
 - of the 10 foreign errors that make D5, 8 had the foreign value in
   the block; the no-memory cells' errors had none (their blocks are
   empty).
 
 Qwen answered alike wherever the prompt was the same: over the 26
 cells, the 236 pairs of answers to one item with the same block text
-(90 of them across the two backends) name the same letter.
+name the same letter. 86 of them have a non-empty block, each pair
+within one backend; the other 150 are the no_memory cells' empty
+blocks (90 of them across the two backends).
 
 ## Archive
 

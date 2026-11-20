@@ -45,8 +45,10 @@ results/decision_nomemory150_s20 --no-criteria`, at Cerebrum
   of 76, C 33 of 85, D 21 of 73).
 
 Read by Amendment 10's rules: the correct option is the least
-plausible-sounding without memory (harmless for paired comparisons;
-recorded in `METRICS.md`); no cue toward the answer; `foreign` options
+plausible-sounding without memory (harmless for paired comparisons
+between cells whose blocks are the same, Amendment 10, "The letters'
+size"; recorded in `METRICS.md`); no cue toward the answer; `foreign`
+options
 more plausible on both items, `d1`'s stale and `d2`'s correct and
 private options less (recorded with their direction); a position lean
 to B that costs accuracy (B is correct least often), under 0.01 and
@@ -91,4 +93,8 @@ Cerebrum
 `tests/agents/test_decision_probe.py::test_the_v2_analysis_reproduces_the_recorded_decision_runs`
 regenerates `analysis.md` and `analysis.json` from these records,
 trimmed to the fields the analysis reads
-(`tests/agents/fixtures/decision_runs/`).
+(`tests/agents/fixtures/decision_runs/`). The fixture was rebuilt on
+2026-11-20 with the functional check's Mem0 cells: its trimmed records
+now keep every field the analysis reads in either run
+(`writes_without_fact` among them), and still reproduce this run's
+analysis byte for byte.
