@@ -2,13 +2,16 @@
 raters' file, the key and the analysis.
 
 Written with the kit and not run when it was committed: the first run
-of this file is still to come."""
+of this file is still to come. The page's script (its CSV writer, each
+rater's order, its storage and its keys) is checked here only as text:
+no test runs it."""
 import csv
 import json
 import re
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from benchmarks.shared_memory import human_rating as hr
@@ -151,6 +154,40 @@ def test_a_short_cell_gives_what_it_has_and_the_command_refuses_it(
     assert not (tmp_path / "raters").exists()
 
 
+def test_a_cell_that_loses_every_trial_is_short(tmp_path):
+    rels = list(CELLS)
+    write_run(tmp_path / "tree" / RUN, {
+        rels[0]: [trial(i, "kernel_shared", "kernel", f"k{i}", user=i)
+                  for i in range(3)],
+        # Every trial failed.
+        rels[3]: [trial(i, "native_mem0", "native", f"n{i}", user=i,
+                        failed=True) for i in range(3)],
+        # No trial has the second judge's record.
+        rels[2]: [trial(i, "replicated_mem0", "replicated", f"r{i}",
+                        user=i, judges=(hr.PRIMARY_JUDGE,))
+                  for i in range(3)],
+    })
+    doc, key = hr.make_sample([tmp_path / "tree"], per_cell=3, practice=0,
+                              seed=1)
+    assert {c["cell"]["locus"]: (c["candidates"], c["items"])
+            for c in key["cells"]} == {"kernel": (3, 3), "native": (0, 0),
+                                       "replicated": (0, 0)}
+    assert sorted(c["cell"]["locus"] for c in hr.short_cells(key)) == [
+        "native", "replicated"]
+    command = ["sample", "--tree", str(tmp_path / "tree"), "--per-cell",
+               "3", "--practice", "0", "--items",
+               str(tmp_path / "raters" / "items.json"), "--key",
+               str(tmp_path / "private" / "key.json")]
+    with pytest.raises(SystemExit, match="2 cells gave fewer than 3"):
+        hr.main(command)
+    assert not (tmp_path / "raters").exists()
+    # Requiring the primary judge only, the replicated cell has its
+    # answers back.
+    doc, key = hr.make_sample([tmp_path / "tree"], per_cell=3, practice=0,
+                              seed=1, require=[hr.PRIMARY_JUDGE])
+    assert [c["cell"]["locus"] for c in hr.short_cells(key)] == ["native"]
+
+
 def test_failed_trials_other_conditions_and_baselines_are_excluded(
         tmp_path):
     kernel = ("kernel_shared", "kernel")
@@ -172,6 +209,15 @@ def test_failed_trials_other_conditions_and_baselines_are_excluded(
     other_prompt = trial(12, *kernel, "other prompt")
     other_prompt["judges"][hr.PRIMARY_JUDGE]["prompt_sha256"] = "0" * 64
     trials += [second_failed, other_prompt]
+    # A blank answer or query leaves a rater nothing to score.
+    trials += [trial(13, *kernel, ""), trial(14, *kernel, "  \n "),
+               trial(15, *kernel, "no query", follow_up_query=None)]
+    # An answer signed with the model's name tells a rater the model;
+    # one whose inputs name it too tells nothing.
+    trials.append(trial(16, *kernel, "Try this.\n\nBest regards, Qwen"))
+    trials.append(trial(17, *kernel, "Ask Qwen to review it.",
+                        synthetic_profile={**PROFILE,
+                                           "preferred_tools": ["Qwen"]}))
     write_run(tmp_path / "pilot_extra", {
         "qwen/kmem0/h0_kernel_shared/results_kernel_shared.json": trials,
         # No model in the path: no cell.
@@ -179,16 +225,35 @@ def test_failed_trials_other_conditions_and_baselines_are_excluded(
             trial(0, *kernel, "no model")],
     })
     found = hr.candidates([tmp_path])
-    assert [c["response"] for c in found["candidates"]] == ["kept"]
-    assert found["trials"] == 14
+    assert [c["response"] for c in found["candidates"]] == [
+        "kept", "Ask Qwen to review it."]
+    assert found["trials"] == 19
     assert found["excluded"] == {
         "failed": 1, "other_condition": 6, "not_a_locus": 1,
-        "no_inputs": 1, "no_cell": 1, "unjudged": 3}
+        "no_inputs": 4, "names_hidden": 1, "no_cell": 1, "unjudged": 3}
     # Requiring the primary judge only keeps the answer whose second
     # judgment failed.
     primary = hr.candidates([tmp_path], require=[hr.PRIMARY_JUDGE])
     assert [c["response"] for c in primary["candidates"]] == [
-        "kept", "second failed"]
+        "kept", "second failed", "Ask Qwen to review it."]
+
+
+def test_an_answer_that_names_a_model_or_a_memory_system_tells(tmp_path):
+    inputs = {"profile": PROFILE, "task_context": TASK,
+              "query": "How do I fix the flaky CI?"}
+    telling = ("Best regards,\nQwen", "As GPT-4o, I suggest", "ChatGPT",
+               "an OpenAI model", "Llama 3 says", "stored in Mem0",
+               "A-MEM notes", "Graphiti's graph", "the AIOS kernel")
+    for answer in telling:
+        assert hr.tells_hidden({**inputs, "response": answer}), answer
+    plain_words = ("Use git bisect.", "a kernel module", "metadata",
+                   "remember the blockers", "your memory of the run")
+    for answer in plain_words:
+        assert not hr.tells_hidden({**inputs, "response": answer}), answer
+    # A name the user's own profile, task or query holds tells nothing.
+    named = {**inputs, "query": "Should I try Qwen for the eval?"}
+    assert not hr.tells_hidden({**named, "response": "Qwen fits."})
+    assert hr.tells_hidden({**named, "response": "Qwen or Mem0."})
 
 
 def test_an_answer_found_in_two_cells_is_drawn_once(tmp_path):
@@ -214,11 +279,35 @@ def test_the_draw_spreads_the_users(tmp_path):
     # least so far, so 12 picks give each user two.
     tree = grid(tmp_path, users=6)
     doc, key = hr.make_sample([tree], per_cell=3, practice=0, seed=9)
-    assert sorted(Counter(i["user"] for i in key["items"]).values()) == [
+    assert sorted(Counter(i["person"] for i in key["items"]).values()) == [
         2] * 6
     for cell in key["cells"]:
-        users = [i["user"] for i in key["items"] if i["cell"] == cell["cell"]]
+        users = [i["person"] for i in key["items"]
+                 if i["cell"] == cell["cell"]]
         assert len(users) == len(set(users)) == 3
+
+
+def test_the_draw_spreads_the_people_a_rater_sees(tmp_path):
+    # A v2 run holds the v1 run's four people (the same profile, task
+    # context and query) under other dataset hashes: to a rater they
+    # are the same people, so the draw spreads them across both runs.
+    kernel_rel = next(iter(CELLS))
+    write_run(tmp_path / RUN, {kernel_rel: [
+        trial(i, "kernel_shared", "kernel", f"v1 answer {i}", user=i)
+        for i in range(4)]})
+    write_run(tmp_path / "bench_v2", {kernel_rel: [
+        trial(i, "kernel_shared", "kernel", f"v2 answer {i}", user=i,
+              input_sha256=f"v2 inputs of user {i}",
+              probe_results=[{"probe": "integration"}])
+        for i in range(4)]})
+    doc, key = hr.make_sample([tmp_path], per_cell=2, practice=0, seed=3)
+    assert sorted(c["cell"]["version"] for c in key["cells"]) == ["v1",
+                                                                  "v2"]
+    people = [i["person"] for i in key["items"]]
+    assert len(people) == len(set(people)) == 4
+    shown = {json.dumps([i["profile"], i["task_context"], i["query"]])
+             for i in doc["items"]}
+    assert len(shown) == 4
 
 
 def test_the_sample_is_numbered_in_an_order_of_its_own(tmp_path):
@@ -266,6 +355,34 @@ def test_a_judge_used_at_two_k_is_refused(tmp_path):
         hr.candidates([tree])
 
 
+def test_two_trees_with_different_scores_of_one_judge_are_refused(
+        tmp_path):
+    first = grid(tmp_path / "first", users=2)
+    second = grid(tmp_path / "second", users=2, judges=(hr.PRIMARY_JUDGE,))
+    # The same scores in both trees: one record.
+    assert len(hr.candidates([first, second])["candidates"]) == 8
+    path = second / RUN / next(iter(CELLS))
+    data = json.loads(path.read_text())
+    data["conditions"][0]["trials"][0]["judges"][hr.PRIMARY_JUDGE]["llm"][
+        "task"] = 1
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="different scores"):
+        hr.candidates([first, second])
+
+
+def test_an_icloud_copy_of_a_results_file_is_not_read(tmp_path):
+    tree = grid(tmp_path, users=2)
+    path = tree / RUN / next(iter(CELLS))
+    copy = path.with_name(f"{path.stem} 2.json")
+    data = json.loads(path.read_text())
+    data["conditions"][0]["trials"][0]["assistant_response"] = "a copy's"
+    copy.write_text(json.dumps(data))
+    assert hr.is_copy(copy) and not hr.is_copy(path)
+    found = hr.candidates([tree])
+    assert found["trials"] == 8
+    assert "a copy's" not in [c["response"] for c in found["candidates"]]
+
+
 # What a rater must not learn: an explicit list, apart from the module's.
 HIDDEN = (
     "run", "file", "path", "source", "trial", "trial_index", "condition",
@@ -274,6 +391,7 @@ HIDDEN = (
     "user", "user_id", "input_sha256", "inputs_sha256", "judge", "judges",
     "llm", "keyword", "hybrid", "score", "scores", "reasoning", "seed",
     "also", "control", "ablation", "block_text", "rater", "ratings",
+    "person",
 )
 # Every key the raters' file may hold.
 RATERS_KEYS = {
@@ -292,10 +410,10 @@ def test_the_raters_file_holds_no_hidden_field(tmp_path):
     names = set(keys_of(json.loads(text)))
     assert names == RATERS_KEYS
     assert not names & set(HIDDEN)
-    # Nor a value that tells a source, a cell, a user or a judge.
+    # Nor a value that tells a source, a cell, a person or a judge.
     for item in key["items"]:
         for value in (item["source"]["file"], item["source"]["method"],
-                      item["user"], item["inputs_sha256"]):
+                      item["person"], item["inputs_sha256"]):
             assert value not in text
     assert not re.search(r"gpt|claude|qwen|mem0|kernel|replicated|native"
                          r"|pilot_|results_", text)
@@ -334,6 +452,7 @@ def test_the_key_is_apart_and_complete(tmp_path):
         assert item["source"]["file"] in files
         assert isinstance(item["source"]["trial_index"], int)
         assert set(item["cell"]) == set(hr.FACTORS)
+        assert re.fullmatch(r"[0-9a-f]{64}", item["person"])
         assert set(item["judges"]) == set(JUDGES)
         assert all(set(s) == set(DIMS) for s in item["judges"].values())
         assert set(item[hr.KEYWORD]) == set(DIMS)
@@ -395,18 +514,21 @@ CELL = {"version": "v1", "locus": "kernel", "backend": "mem0",
         "model": "qwen", "h": 0}
 
 
-def make_key(n, judges=None, practice=0, cells=None):
+def make_key(n, judges=None, practice=0, cells=None, people=None):
     """A key of ``n`` items ``h001``... (and ``practice`` warm-up items):
     ``judges`` maps a judge to its score of each item, the same on every
-    dimension; the keyword score is 3 throughout."""
+    dimension; the keyword score is 3 throughout; ``people`` names each
+    item's person (by default each item is a person of its own)."""
     judges = judges or {}
     items = [{"item_id": f"p{i:02d}", "practice": True, "cell": CELL,
               "source": {"file": "w.json", "trial_index": i},
-              "judges": {}, hr.KEYWORD: None}
+              "person": f"p{i:02d}", "judges": {}, hr.KEYWORD: None}
              for i in range(1, practice + 1)]
     items += [{"item_id": f"h{i:03d}", "practice": False,
                "cell": (cells or [CELL] * n)[i - 1],
                "source": {"file": "f.json", "trial_index": i},
+               "person": (people or [f"h{j:03d}" for j in range(1, n + 1)])[
+                   i - 1],
                "judges": {name: dict.fromkeys(DIMS, scores[i - 1])
                           for name, scores in judges.items()},
                hr.KEYWORD: dict.fromkeys(DIMS, 3)}
@@ -435,6 +557,13 @@ def uniform(*per_item):
     """Scores by item id, the same on every dimension."""
     return {f"h{i:03d}": None if s is None else [s] * 3
             for i, s in enumerate(per_item, 1)}
+
+
+def judge_rows(scores):
+    """One coder's scores of ``h001``... as judge_reliability's rows."""
+    return [{"item_id": f"h{i:03d}", "repeat": 1,
+             "scores": dict.fromkeys(DIMS, s)}
+            for i, s in enumerate(scores, 1)]
 
 
 # Krippendorff (2011), "Computing Krippendorff's alpha-reliability": four
@@ -495,6 +624,18 @@ def test_the_median_against_each_judge(tmp_path):
     pair = result["between_judges"][f"{hr.PRIMARY_JUDGE} vs "
                                     f"{hr.SECOND_JUDGE}"]
     assert pair["task"]["offset"]["mean"] == pytest.approx(-1.0)
+    # The intervals are judge_reliability.agreement's on the same items,
+    # seeded; each item its own person, the one over the people is the
+    # same.
+    direct = jr.agreement(judge_rows([1, 2, 3, 4]), 1,
+                          judge_rows([2, 3, 4, 5]), 1, 200)["profile"]
+    assert tuple(primary["alpha_ci"]) == direct["alpha_ci"]
+    assert primary["offset"] == direct["offset"]
+    assert tuple(primary["alpha_ci_people"]) == tuple(primary["alpha_ci"])
+    between = jr.agreement(judge_rows([2, 3, 4, 5]), 1,
+                           judge_rows([1, 2, 3, 4]), 1, 200)["task"]
+    assert tuple(pair["task"]["alpha_ci"]) == between["alpha_ci"]
+    assert pair["task"]["offset"] == between["offset"]
 
 
 def test_the_median_needs_every_rater_and_is_one_of_their_scores(tmp_path):
@@ -544,6 +685,85 @@ def test_missing_and_incomplete_ratings(tmp_path):
     units = [[1, 1, 1], [2, None, 2], [3, None, 3], [4, None, 4]]
     assert result["alpha"]["task"]["alpha"] == pytest.approx(
         jr.alpha(units, "interval"))
+    # Time: the median over complete ratings of the sample; the hours
+    # over every row, the warm-up and the skipped items included (each
+    # row here took 12.5 seconds).
+    a = result["ratings"]["a"]
+    assert a["median_seconds"] == b["median_seconds"] == 12.5
+    assert a["hours"] == pytest.approx(5 * 12.5 / 3600)
+    assert b["hours"] == pytest.approx(3 * 12.5 / 3600)
+
+
+def test_a_skipped_items_comment_is_reported(tmp_path):
+    key = make_key(3, judges={hr.PRIMARY_JUDGE: [1, 3, 2]})
+    # a gives h003 one score and says why; b and c are 4 points apart.
+    raters = {"a": {"h001": [1, 1, 1], "h002": [3, 3, 3], "h003": [2]},
+              "b": uniform(1, 3, 5), "c": uniform(1, 3, 1)}
+    why = "SKIP: the answer stops mid-sentence"
+    paths = [write_ratings(tmp_path / f"{r}.csv", r, s,
+                           comments={"h003": why} if r == "a" else None)
+             for r, s in raters.items()]
+    result = hr._clean(hr.analyze(key, hr.read_ratings(paths, key),
+                                  resamples=200))
+    lists = result["disagreements"]
+    assert [(e["item_id"], e["raters"], e["comments"])
+            for e in lists["raters"]] == [
+        ("h003", {"b": 5, "c": 1}, {"a": why})] * 3
+    assert result["median"]["without"] == ["h003"]
+    (without,) = lists["without_median"]
+    assert without["raters"] == {
+        "a": {"profile": 2, "task": None, "integration": None},
+        "b": dict.fromkeys(DIMS, 5), "c": dict.fromkeys(DIMS, 1)}
+    assert without["comments"] == {"a": why}
+    assert without["judges"] == {hr.PRIMARY_JUDGE: dict.fromkeys(DIMS, 2)}
+    assert without["source"]["trial_index"] == 3
+    report = hr.markdown(result)
+    assert f"- h003, a: {why}" in report
+    assert ("| h003 | 2/-/- | 5/5/5 | 1/1/1 | 2/2/2 | 3/3/3 | "
+            "v1 kernel mem0 qwen H0 | f.json #3 |") in report
+
+
+def test_the_intervals_over_the_people(tmp_path):
+    # Six items of three people, two answers each.
+    people = ["x", "x", "y", "y", "z", "z"]
+    judge = [1, 2, 4, 4, 5, 3]
+    raters = {"a": [1, 2, 3, 4, 5, 2], "b": [2, 2, 4, 5, 5, 1],
+              "c": [1, 3, 3, 4, 4, 1]}
+    paths = [write_ratings(tmp_path / f"{r}.csv", r, uniform(*s))
+             for r, s in raters.items()]
+    clustered = make_key(6, judges={hr.PRIMARY_JUDGE: judge},
+                         people=people)
+    alone = make_key(6, judges={hr.PRIMARY_JUDGE: judge})
+    result = hr.analyze(clustered, hr.read_ratings(paths, clustered),
+                        resamples=200)
+    single = hr.analyze(alone, hr.read_ratings(paths, alone),
+                        resamples=200)
+    assert result["people"] == 3 and single["people"] == 6
+    member, count = hr.people_of([f"h{i:03d}" for i in range(1, 7)],
+                                 dict(zip([f"h{i:03d}" for i in
+                                           range(1, 7)], people)))
+    assert member.tolist() == [0, 0, 1, 1, 2, 2] and count == 3
+    # The raters' alpha: people drawn with replacement, each with both
+    # answers; the interval over items is unchanged by the people.
+    units = [list(scores) for scores in zip(*raters.values())]
+    expected = jr.bootstrap(
+        lambda w: hr._resampled_alpha(units, w[member]), 3, 200)
+    a = result["alpha"]["profile"]
+    assert tuple(a["alpha_ci_people"]) == expected
+    assert a["alpha_ci"] == single["alpha"]["profile"]["alpha_ci"]
+    assert single["alpha"]["profile"]["alpha_ci_people"] == a["alpha_ci"]
+    assert a["alpha_ci_people"] != a["alpha_ci"]
+    # The median against the judge: alpha and the mean offset.
+    median = [1, 2, 3, 4, 5, 1]
+    x = np.array([median], dtype=float)
+    y = np.array([judge], dtype=float)
+    against = result["against"][hr.PRIMARY_JUDGE]["profile"]
+    assert tuple(against["alpha_ci_people"]) == jr.bootstrap(
+        lambda w: float(jr.two_coder_alphas(x, y, w[member])[0]), 3, 200)
+    offsets = (y - x)[0]
+    assert tuple(against["offset_ci_people"]) == jr.bootstrap(
+        lambda w: float((offsets * w[member]).sum() / w[member].sum()), 3,
+        200)
 
 
 def test_the_disagreement_lists(tmp_path):
@@ -586,18 +806,35 @@ def test_the_threshold_needs_profile_and_integration(tmp_path):
     assert hr.reading(0.6669) == "not reliable"
     assert hr.reading(None) == "undefined"
     # Profile and task agree, integration does not.
-    key = make_key(6)
     agreed = [1, 2, 3, 4, 5, 1]
+    key = make_key(6, judges={hr.PRIMARY_JUDGE: agreed})
     integration = {"a": [1, 2, 3, 4, 5, 1], "b": [5, 4, 3, 2, 1, 5],
                    "c": [3, 3, 3, 3, 3, 3]}
     paths = [write_ratings(tmp_path / f"{r}.csv", r, {
         f"h{i:03d}": [agreed[i - 1], agreed[i - 1], s]
         for i, s in enumerate(values, 1)})
         for r, values in integration.items()]
-    result = hr.analyze(key, hr.read_ratings(paths, key), resamples=200)
+    ratings = hr.read_ratings(paths, key)
+    result = hr.analyze(key, ratings, resamples=200, informed=["b"])
     assert result["alpha"]["profile"]["reading"] == "reliable"
     assert result["alpha"]["integration"]["reading"] == "not reliable"
     assert result["threshold"]["met"] is False
+    # Each comparison with the median carries the raters' reading.
+    assert result["median"]["reference"] == {
+        "profile": "reliable", "task": "reliable",
+        "integration": "not reliable"}
+    report = hr.markdown(hr._clean(result))
+    table = report.split(f"### {hr.PRIMARY_JUDGE} (k = 1)")[1].split(
+        "###")[0]
+    rows = {line.split(" | ")[0][2:]: line for line in table.splitlines()
+            if line.startswith("| ") and not line.startswith("| dim")}
+    assert rows["profile"].endswith("| a reference |")
+    assert rows["integration"].endswith("| no reference |")
+    # The rater who knows the hypotheses is named.
+    assert result["informed"] == ["b"]
+    assert "| b | yes |" in report and "| a | no |" in report
+    with pytest.raises(ValueError, match="informed"):
+        hr.analyze(key, ratings, resamples=20, informed=["d"])
 
 
 def test_the_offset_by_stratum(tmp_path):
@@ -665,6 +902,12 @@ def test_the_page_is_self_contained_and_reads_the_rubric_from_the_file():
     assert not any(words in page for d in hr.rubric()["dimensions"]
                    for _, words in d["anchors"])
     assert "localStorage" in page and "try {" in page
+    # A second tab's save stops this one, rather than being overwritten
+    # by it; a digit with every score given and no dimension focused
+    # changes no score (it used to change Integration).
+    assert 'window.addEventListener("storage"' in page
+    assert 'screen === "taken"' in page
+    assert "HR.DIMS[HR.DIMS.length - 1]" not in page
 
 
 def test_the_command_line_draws_and_analyses(tmp_path, capsys):
@@ -681,11 +924,13 @@ def test_the_command_line_draws_and_analyses(tmp_path, capsys):
         i["item_id"]: [3, 4, 2] for i in key["items"]}, sample=key["sample"])
         for r in ("a", "b", "c")]
     assert hr.main(["analyze", "--key", str(key_path), "--ratings",
-                    *map(str, paths), "--resamples", "50", "--md",
-                    str(tmp_path / "r.md"), "--json",
+                    *map(str, paths), "--resamples", "50", "--informed",
+                    "c", "--md", str(tmp_path / "r.md"), "--json",
                     str(tmp_path / "r.json")]) == 0
     report = (tmp_path / "r.md").read_text()
     assert report.startswith(f"# Human ratings (sample {key['sample']}: "
-                             "4 items, 3 raters)")
-    assert json.loads((tmp_path / "r.json").read_text())["median"][
-        "items"] == 4
+                             "4 items, 3 people, 3 raters)")
+    assert "| c | yes |" in report
+    written = json.loads((tmp_path / "r.json").read_text())
+    assert written["median"]["items"] == 4
+    assert written["informed"] == ["c"]

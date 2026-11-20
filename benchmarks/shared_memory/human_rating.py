@@ -25,12 +25,14 @@ the same two files, byte for byte.
 ``human_rating.html``, beside this file) and reports Krippendorff's
 alpha across the raters, the agreement of the raters' median with each
 judge, and the disagreements item by item. Without ``--ratings`` it
-reports the sample and the judges' agreement on it.
+reports the sample and the judges' agreement on it. ``--informed
+RATER ...`` names the raters who know the hypotheses; the report says
+so.
 
 The statistics are ``judge_reliability``'s (``alpha``, ``bootstrap``,
-``agreement``, ``interval``, ``medians_at``), so raters and judges are
-measured by one code. The module reads results files only: it makes no
-kernel, model or network call.
+``agreement``, ``interval``, ``medians_at``, ``two_coder_alphas``), so
+raters and judges are measured by one module. The module reads results
+files only: it makes no kernel, model or network call.
 """
 import argparse
 import csv
@@ -44,6 +46,8 @@ import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
 
 from benchmarks.shared_memory import judge_reliability as jr
 from benchmarks.shared_memory.conditions import locus_of
@@ -101,10 +105,17 @@ FORBIDDEN_FIELDS = (
     "inputs_sha256", "seed", "per_cell", "judge", "judges", "score",
     "scores", "llm", "keyword", "hybrid", "stored", "reasoning", "band",
     "rater", "raters", "ratings", "memory", "block", "block_text",
-    "injection_diagnostics",
+    "injection_diagnostics", "person", "people", "informed",
 )
 PRACTICE_ID = re.compile(r"p\d{2,}")
 ITEM_ID = re.compile(r"h\d{3,}")
+# Names that would tell a rater the model, its maker or the memory
+# system behind an answer. An answer that holds one its profile, task
+# context and query do not is no candidate (an answer signed "Qwen").
+HIDDEN_NAMES = tuple(re.compile(pattern, re.I) for pattern in (
+    r"\bqwen", r"\bgpt|chatgpt", r"openai", r"\bllama", r"alibaba",
+    r"\bmeta ai\b", r"anthropic", r"\bclaude\b", r"mem0", r"\ba-?mem\b",
+    r"graphiti", r"\bzep\b", r"\baios\b", r"cerebrum"))
 
 # The columns of a rater's CSV, in the order the page writes them.
 CSV_COLUMNS = ("sample", "item_id", "rater", "profile", "task",
@@ -113,7 +124,7 @@ REQUIRED_COLUMNS = ("sample", "item_id", "rater") + DIMENSIONS
 
 # Why a stored trial is not a candidate, in the order checked.
 EXCLUSIONS = ("failed", "other_condition", "not_a_locus", "no_inputs",
-              "no_cell", "unjudged")
+              "names_hidden", "no_cell", "unjudged")
 FACTORS = ("version", "locus", "backend", "model", "h")
 # The plain condition's stress settings: the harness's defaults.
 STRESS_DEFAULTS = {name: TrialResult.model_fields[name].default
@@ -237,19 +248,48 @@ def judge_scores(trial: dict, judge: str) -> Optional[Dict[str, int]]:
     return {d: llm[d] for d in DIMENSIONS}
 
 
+def _text(value: Any) -> bool:
+    """Whether ``value`` is text with something in it."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def judge_inputs(trial: dict) -> Optional[Dict[str, Any]]:
     """What a judge sees of a stored trial (``rejudge.judge_inputs``; a
     v2 trial's are its integration probe's), as plain data with the
-    judge prompt's fields only. None when the record lacks a part."""
+    judge prompt's fields only. None when the record lacks a part: a
+    profile or task context field, the query or the answer (or holds a
+    blank query or answer, which leaves a rater nothing to score)."""
     profile = trial.get("synthetic_profile") or {}
     task = trial.get("synthetic_task_context") or {}
+    query = trial.get("follow_up_query")
+    response = trial.get("assistant_response")
     if any(f not in profile for f in PROFILE_FIELDS) or any(
-            f not in task for f in TASK_FIELDS):
+            f not in task for f in TASK_FIELDS) or not (
+            _text(query) and _text(response)):
         return None
-    return {"query": trial.get("follow_up_query") or "",
-            "response": trial.get("assistant_response") or "",
+    return {"query": query, "response": response,
             "profile": {f: profile[f] for f in PROFILE_FIELDS},
             "task_context": {f: task[f] for f in TASK_FIELDS}}
+
+
+def tells_hidden(inputs: Dict[str, Any]) -> bool:
+    """Whether the answer names a model, its maker or a memory system
+    (``HIDDEN_NAMES``) that its profile, task context and query do not:
+    a rater would learn what the protocol hides."""
+    seen = json.dumps([inputs["profile"], inputs["task_context"],
+                       inputs["query"]], ensure_ascii=False)
+    return any(name.search(inputs["response"]) and not name.search(seen)
+               for name in HIDDEN_NAMES)
+
+
+def person_sha256(inputs: Dict[str, Any]) -> str:
+    """The person a rater sees: the profile, the task context and the
+    query, hashed (all a judge sees but the answer). One person's
+    answers share it across cells, runs and dataset versions, where a
+    v2 user's inputs are its v1 user's."""
+    text = json.dumps([inputs["query"], inputs["profile"],
+                       inputs["task_context"]], sort_keys=True)
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def stratum(rel: Path, trial: dict) -> Optional[Dict[str, Any]]:
@@ -287,8 +327,10 @@ def plain(trial: dict) -> bool:
 
 
 def _entry(run: str, rel: Path, index: int, trial: dict) -> dict:
-    """One trial of the answers' tree: its source, and either why it is
-    no candidate (``reason``) or its cell, user and inputs."""
+    """One trial of the answers' tree: its source, its cell (for every
+    trial of the plain condition and a locus, so that a cell whose
+    trials are all excluded is still seen), and either why it is no
+    candidate (``reason``) or its person and inputs."""
     entry: Dict[str, Any] = {
         "source": {"run": run, "file": rel.as_posix(),
                    "condition_index": index,
@@ -296,7 +338,9 @@ def _entry(run: str, rel: Path, index: int, trial: dict) -> dict:
                    "method": trial.get("method")},
         "judges": {}, "reason": None}
     inputs = judge_inputs(trial)
-    cell = None
+    locus_trial = plain(trial) and \
+        trial.get("method") not in jr.EXCLUDED_METHODS
+    cell = stratum(rel, trial) if locus_trial else None
     if trial.get("failed"):
         entry["reason"] = "failed"
     elif not plain(trial):
@@ -305,18 +349,15 @@ def _entry(run: str, rel: Path, index: int, trial: dict) -> dict:
         entry["reason"] = "not_a_locus"
     elif inputs is None:
         entry["reason"] = "no_inputs"
-    else:
-        cell = stratum(rel, trial)
-        if cell is None:
-            entry["reason"] = "no_cell"
+    elif tells_hidden(inputs):
+        entry["reason"] = "names_hidden"
+    elif cell is None:
+        entry["reason"] = "no_cell"
     if inputs is not None:
         entry.update(inputs)
         entry["inputs_sha256"] = jr.inputs_sha256(inputs)
+        entry["person"] = person_sha256(inputs)
     entry["cell"] = cell
-    # One user's trials share ``input_sha256`` across the cells of a
-    # dataset; older files fall back on the run and the index.
-    entry["user"] = trial.get("input_sha256") or (
-        f"{run}:{trial['trial_index']}")
     return entry
 
 
@@ -332,14 +373,17 @@ def candidates(trees: Sequence[Path],
     each hold one judge's). A trial is not a candidate when it failed,
     ran another condition than the plain one (``plain``), is a baseline
     (``judge_reliability.EXCLUDED_METHODS``, not a locus), lacks a part
-    of what the judge sees, sits in no cell, or lacks a complete record
-    of a judge in ``require`` (default: every one of ``judges``).
+    of what the judge sees, names what is hidden (``tells_hidden``),
+    sits in no cell, or lacks a complete record of a judge in
+    ``require`` (default: every one of ``judges``).
 
-    Returns ``{candidates, trials, excluded, k}``: the candidates in
-    file order, the trials read, the count excluded per reason
-    (``EXCLUSIONS``), and the k each judge was used at. Refuses trees
-    that hold different answers, or different scores of one judge, for
-    one trial, and a judge used at two k."""
+    Returns ``{candidates, trials, excluded, k, cells}``: the candidates
+    in file order, the trials read, the count excluded per reason
+    (``EXCLUSIONS``), the k each judge was used at, and every cell a
+    trial of the plain condition and a locus sits in with its count of
+    candidates (0 for a cell whose trials were all excluded). Refuses
+    trees that hold different answers, or different scores of one
+    judge, for one trial, and a judge used at two k."""
     require = tuple(judges) if require is None else tuple(require)
     unknown = sorted(set(require) - set(judges))
     if unknown:
@@ -362,11 +406,13 @@ def candidates(trees: Sequence[Path],
                         found[where] = _entry(run, rel, index, trial)
                     if where in found:
                         _add_scores(found[where], tree, trial, judges, ks)
-    kept, excluded = [], Counter()
+    kept, excluded, cells = [], Counter(), Counter()
     for entry in found.values():
         reason = entry.pop("reason") or next(
             ("unjudged" for name in require
              if entry["judges"].get(name) is None), None)
+        if entry["cell"] is not None:
+            cells[jr.cell_key(entry)] += 0 if reason else 1
         if reason:
             excluded[reason] += 1
         else:
@@ -378,7 +424,8 @@ def candidates(trees: Sequence[Path],
     return {"candidates": kept, "trials": len(found),
             "excluded": {r: excluded.get(r, 0) for r in EXCLUSIONS},
             "k": {name: next(iter(values), None)
-                  for name, values in ks.items()}}
+                  for name, values in ks.items()},
+            "cells": dict(cells)}
 
 
 def _add_scores(entry: dict, tree: Path, trial: dict,
@@ -414,11 +461,12 @@ def draw(found: List[dict], per_cell: int = PER_CELL,
     """The seeded draw (docs/HUMAN_RATING.md, "The sampling rule").
 
     Cells are visited in a seeded order. A cell gives ``per_cell`` of
-    its candidates: each time the one whose user has been drawn least
-    so far, ties in a seeded order, passing over an answer whose inputs
-    (query, answer, profile, task context) are those of an answer
-    already drawn. Then the first ``practice`` cells of the order give
-    one more each, the same way: the warm-up. No score is read.
+    its candidates: each time the one whose person (``person_sha256``:
+    profile, task context and query) has been drawn least so far, ties
+    in a seeded order, passing over an answer whose inputs (query,
+    answer, profile, task context) are those of an answer already
+    drawn. Then the first ``practice`` cells of the order give one more
+    each, the same way: the warm-up. No score is read.
 
     Returns ``{sample, practice, order}``: the sample in a seeded order
     of its own (so an item's place says nothing of its cell), the
@@ -434,15 +482,15 @@ def draw(found: List[dict], per_cell: int = PER_CELL,
     order = list(cells)
     rng.shuffle(order)
     taken: set = set()
-    per_user: Counter = Counter()
+    per_person: Counter = Counter()
 
     def take(cell: Tuple) -> Optional[dict]:
         left = [c for c in pools[cell] if c["inputs_sha256"] not in taken]
         if not left:
             return None
-        pick = min(left, key=lambda c: per_user[c["user"]])
+        pick = min(left, key=lambda c: per_person[c["person"]])
         taken.add(pick["inputs_sha256"])
-        per_user[pick["user"]] += 1
+        per_person[pick["person"]] += 1
         return pick
 
     sample = [pick for cell in order for _ in range(per_cell)
@@ -459,7 +507,7 @@ def draw(found: List[dict], per_cell: int = PER_CELL,
 
 def _keyed_item(item_id: str, practice: bool, candidate: dict,
                 same: Dict[str, List[dict]]) -> dict:
-    """The key's entry: the item's source trial, cell, user and scores
+    """The key's entry: the item's source trial, cell, person and scores
     (each judge's, and the keyword score recomputed from the inputs),
     and every other candidate trial with the same inputs (``also``)."""
     keyword = keyword_scores(
@@ -467,7 +515,7 @@ def _keyed_item(item_id: str, practice: bool, candidate: dict,
         SyntheticTaskContext(**candidate["task_context"]))
     return {"item_id": item_id, "practice": practice,
             "source": candidate["source"], "cell": candidate["cell"],
-            "user": candidate["user"],
+            "person": candidate["person"],
             "inputs_sha256": candidate["inputs_sha256"],
             "judges": candidate["judges"], KEYWORD: keyword,
             "also": [{"source": other["source"], "cell": other["cell"],
@@ -490,10 +538,10 @@ def make_sample(trees: Sequence[Path],
     found = candidates(trees, runs, judges, require)
     drawn = draw(found["candidates"], per_cell, practice, seed)
     same: Dict[str, List[dict]] = defaultdict(list)
-    per_cell_found: Counter = Counter()
     for candidate in found["candidates"]:
         same[candidate["inputs_sha256"]].append(candidate)
-        per_cell_found[jr.cell_key(candidate)] += 1
+    # Every cell the trees hold, a cell without a candidate included.
+    per_cell_found = found["cells"]
     width = max(3, len(str(len(drawn["sample"]))))
     picks = [(f"p{n:02d}", True, c)
              for n, c in enumerate(drawn["practice"], 1)]
@@ -533,7 +581,8 @@ def make_sample(trees: Sequence[Path],
 
 
 def short_cells(key: dict) -> List[dict]:
-    """The cells that gave fewer answers than ``per_cell``."""
+    """The cells that gave fewer answers than ``per_cell``, a cell that
+    gave none (every trial of it excluded) included."""
     return [c for c in key["cells"] if c["items"] < key["per_cell"]]
 
 
@@ -736,35 +785,59 @@ def _resampled_alpha(units: Sequence[Sequence[Optional[int]]],
     return float("nan") if value is None else value
 
 
+def people_of(ids: Sequence[str],
+              person: Dict[str, str]) -> Tuple[np.ndarray, int]:
+    """Each item's person as an index into the people, and how many
+    there are. A bootstrap over the people draws people with
+    replacement and takes every item of each, so that a person's
+    answers, which share their inputs, are not counted as independent.
+    An item ``person`` does not name is a person of its own."""
+    names = sorted({person.get(i, i) for i in ids})
+    index = {name: n for n, name in enumerate(names)}
+    return np.array([index[person.get(i, i)] for i in ids],
+                    dtype=int), len(names)
+
+
 def raters_alpha(units: Sequence[Sequence[Optional[int]]],
-                 resamples: int = RESAMPLES) -> Dict[str, Any]:
+                 resamples: int = RESAMPLES,
+                 people: Optional[Tuple[np.ndarray, int]] = None
+                 ) -> Dict[str, Any]:
     """Krippendorff's alpha with the raters as coders (interval metric;
     ordinal beside) over ``units`` (per item, each rater's score or
     None), with the 95% percentile bootstrap over items
-    (``judge_reliability.bootstrap``, seeded as METRICS.md's). A
-    skipped rating is a missing value, as alpha allows; an item with
-    fewer than two scores pairs nothing."""
+    (``judge_reliability.bootstrap``, seeded as METRICS.md's) and,
+    beside it, over the people (``people``: each unit's person, from
+    ``people_of``; without it each item is its own). A skipped rating
+    is a missing value, as alpha allows; an item with fewer than two
+    scores pairs nothing."""
     point = jr.alpha(units, "interval")
     out = {"items": sum(1 for unit in units
                         if sum(v is not None for v in unit) >= 2),
-           "alpha": point, "alpha_ci": None,
+           "alpha": point, "alpha_ci": None, "alpha_ci_people": None,
            "alpha_ordinal": jr.alpha(units, "ordinal"),
            **pair_shares(units), "reading": reading(point)}
     if point is not None:
+        member, count = people or (np.arange(len(units)), len(units))
         out["alpha_ci"] = jr.bootstrap(
             lambda weights: _resampled_alpha(units, weights), len(units),
             resamples)
+        out["alpha_ci_people"] = jr.bootstrap(
+            lambda weights: _resampled_alpha(units, weights[member]),
+            count, resamples)
     return out
 
 
 def agreement(a: Dict[str, Dict[str, int]], b: Dict[str, Dict[str, int]],
-              resamples: int = RESAMPLES) -> Dict[str, Any]:
+              resamples: int = RESAMPLES,
+              person: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """``judge_reliability.agreement`` of ``b`` with ``a`` (each: scores
     by dimension, then by item id), per dimension, on the items both
     hold: interval alpha with its bootstrap interval, Spearman's rho,
     the mean offset b - a with its 95% t interval, exact agreement. The
     numbers are ``agreement``'s on the same items (it bootstraps each
-    dimension from the same seed). A dimension with fewer than two such
+    dimension from the same seed). Beside them, the 95% percentile
+    bootstrap over the people (``person``: item id -> person) of the
+    alpha and of the mean offset. A dimension with fewer than two such
     items, or one value only in both, gets its count only: its alpha is
     undefined, in the data and in every resample of it."""
     out: Dict[str, Any] = {}
@@ -781,6 +854,16 @@ def agreement(a: Dict[str, Dict[str, int]], b: Dict[str, Dict[str, int]],
                    "scores": dict.fromkeys(DIMENSIONS, b[d][i])}
                   for i in shared]
         out[d] = jr.agreement(rows_a, 1, rows_b, 1, resamples)[d]
+        member, count = people_of(shared, person or {})
+        x = np.array([[a[d][i] for i in shared]], dtype=float)
+        y = np.array([[b[d][i] for i in shared]], dtype=float)
+        offsets = (y - x)[0]
+        out[d]["alpha_ci_people"] = jr.bootstrap(
+            lambda w: float(jr.two_coder_alphas(x, y, w[member])[0]),
+            count, resamples)
+        out[d]["offset_ci_people"] = jr.bootstrap(
+            lambda w: float((offsets * w[member]).sum() / w[member].sum()),
+            count, resamples)
     return out
 
 
@@ -792,12 +875,22 @@ def two_coder_alpha(a: Dict[str, int], b: Dict[str, int]) -> Dict[str, Any]:
             "alpha": jr.alpha([[a[i], b[i]] for i in shared], "interval")}
 
 
+def _comments(item_id: str, raters: Sequence[str],
+              rows: Dict[str, Dict[str, dict]]) -> Dict[str, str]:
+    """Every rater's comment on the item, from every row (a skipped or
+    incomplete rating's comment, which says why, included)."""
+    return {r: rows[r][item_id]["comment"] for r in raters
+            if item_id in rows[r] and rows[r][item_id]["comment"]}
+
+
 def _listed(item: dict, dimension: str, raters: Sequence[str],
             complete: Dict[str, Dict[str, dict]],
+            rows: Dict[str, Dict[str, dict]],
             medians: Dict[str, Dict[str, int]]) -> Dict[str, Any]:
     """What a disagreement list shows of an item on a dimension: every
-    rater's score, their median, every judge's score and the keyword
-    score, the cell and the source trial, and the raters' comments."""
+    rater's complete score, their median, every judge's score and the
+    keyword score, the cell and the source trial, and every rater's
+    comment on the item (``rows``: each rater's rows, complete or not)."""
     item_id = item["item_id"]
     rated = {r: complete[r][item_id] for r in raters
              if item_id in complete[r]}
@@ -809,13 +902,32 @@ def _listed(item: dict, dimension: str, raters: Sequence[str],
                    for name, scores in item["judges"].items()},
         KEYWORD: (item.get(KEYWORD) or {}).get(dimension),
         "cell": item["cell"], "source": item["source"],
-        "comments": {r: row["comment"] for r, row in rated.items()
-                     if row["comment"]},
+        "comments": _comments(item_id, raters, rows),
+    }
+
+
+def _unmedianed(item: dict, raters: Sequence[str],
+                rows: Dict[str, Dict[str, dict]]) -> Dict[str, Any]:
+    """What the list of the items without a median shows of one: each
+    rater's scores as given (None where a score or the row is missing),
+    every rater's comment, every judge's scores and the keyword score,
+    the cell and the source trial."""
+    item_id = item["item_id"]
+    return {
+        "item_id": item_id,
+        "raters": {r: {d: (rows[r].get(item_id) or {}).get(d)
+                       for d in DIMENSIONS} for r in raters},
+        "judges": {name: dict(scores or {})
+                   for name, scores in item["judges"].items()},
+        KEYWORD: item.get(KEYWORD),
+        "cell": item["cell"], "source": item["source"],
+        "comments": _comments(item_id, raters, rows),
     }
 
 
 def analyze(key: dict, ratings: Dict[str, Dict[str, dict]],
-            resamples: int = RESAMPLES) -> Dict[str, Any]:
+            resamples: int = RESAMPLES,
+            informed: Sequence[str] = ()) -> Dict[str, Any]:
     """The protocol's analysis (docs/HUMAN_RATING.md, "The agreement
     statistic" and "Disagreements") of ``ratings`` (``read_ratings``)
     against ``key``. The warm-up items are left out. A rating counts
@@ -823,14 +935,26 @@ def analyze(key: dict, ratings: Dict[str, Dict[str, dict]],
     missing one is a skipped item: alpha takes it as a missing value,
     and the raters' median exists where every rater scored the item (an
     odd number of raters, so it is one of the scores). Every item enters
-    every statistic it can: the lists drop nothing."""
+    every statistic it can: the lists drop nothing. ``informed``: the
+    raters who know the hypotheses, whom the report names."""
     items = [item for item in key["items"] if not item["practice"]]
     ids = [item["item_id"] for item in items]
     raters, sample = sorted(ratings), set(ids)
-    complete = {r: {i: row for i, row in ratings[r].items()
-                    if row["complete"] and i in sample} for r in raters}
+    unknown = sorted(set(informed) - set(raters))
+    if unknown:
+        raise ValueError(f"informed raters without ratings: {unknown}")
+    rows = {r: {i: row for i, row in ratings[r].items() if i in sample}
+            for r in raters}
+    complete = {r: {i: row for i, row in rows[r].items()
+                    if row["complete"]} for r in raters}
+    # Each item's person (the key's ``person``; an older key's item is
+    # its own), for the intervals over the people.
+    person = {item["item_id"]: item.get("person") or item["item_id"]
+              for item in items}
     out: Dict[str, Any] = {
         "sample": key["sample"], "items": len(ids), "raters": raters,
+        "informed": sorted(informed),
+        "people": len(set(person.values())),
         "judges": dict(key["judges"]), "resamples": resamples,
         "ratings": {r: _rater_summary(ratings[r], ids) for r in raters},
         "threshold": {"reliable": ALPHA_RELIABLE,
@@ -841,10 +965,13 @@ def analyze(key: dict, ratings: Dict[str, Dict[str, dict]],
     # Between the raters.
     units = {d: [[complete[r][i][d] if i in complete[r] else None
                   for r in raters] for i in ids] for d in DIMENSIONS}
-    out["alpha"] = {d: raters_alpha(units[d], resamples) if len(raters) > 1
+    people = people_of(ids, person)
+    out["alpha"] = {d: raters_alpha(units[d], resamples, people)
+                    if len(raters) > 1
                     else {"items": 0, "alpha": None, "alpha_ci": None,
-                          "alpha_ordinal": None, "pairs": 0, "exact": None,
-                          "within_1": None, "reading": reading(None)}
+                          "alpha_ci_people": None, "alpha_ordinal": None,
+                          "pairs": 0, "exact": None, "within_1": None,
+                          "reading": reading(None)}
                     for d in DIMENSIONS}
     out["threshold"]["met"] = len(raters) > 1 and all(
         out["alpha"][d]["reading"] == "reliable" for d in RULE_DIMENSIONS)
@@ -880,14 +1007,18 @@ def analyze(key: dict, ratings: Dict[str, Dict[str, dict]],
         "items": len(medians.get(DIMENSIONS[0], {})),
         "without": [i for i in ids if i not in medians[DIMENSIONS[0]]]
         if odd else [],
+        # How each dimension's comparisons with the median are read
+        # (docs/HUMAN_RATING.md, "What follows"): the raters' alpha.
+        "reference": {d: out["alpha"][d]["reading"] for d in DIMENSIONS},
     }
     out["against"], out["by_stratum"] = {}, {}
     if odd:
         for name, scores in scored.items():
-            out["against"][name] = agreement(medians, scores, resamples)
+            out["against"][name] = agreement(medians, scores, resamples,
+                                             person)
             out["by_stratum"][name] = _by_stratum(items, medians, scores)
     out["between_judges"] = {
-        f"{a} vs {b}": agreement(scored[a], scored[b], resamples)
+        f"{a} vs {b}": agreement(scored[a], scored[b], resamples, person)
         for a, b in itertools.combinations(names, 2)}
 
     # The disagreements, item by item.
@@ -900,15 +1031,19 @@ def analyze(key: dict, ratings: Dict[str, Dict[str, dict]],
              for item in items for d in DIMENSIONS]
     out["disagreements"] = {
         "raters": [
-            {**_listed(item, d, raters, complete, medians), "spread": s}
+            {**_listed(item, d, raters, complete, rows, medians),
+             "spread": s}
             for s, item, d in sorted(
                 (x for x in apart if x[0] is not None and x[0] >= SPREAD),
                 key=lambda x: (-x[0], x[1]["item_id"],
                                DIMENSIONS.index(x[2])))],
         "judges": {},
+        "without_median": [_unmedianed(item, raters, rows)
+                           for item in items
+                           if item["item_id"] in out["median"]["without"]],
     }
     for name, scores in scored.items():
-        rows = []
+        listed = []
         for item in items:
             for d in DIMENSIONS:
                 median = medians.get(d, {}).get(item["item_id"])
@@ -916,12 +1051,13 @@ def analyze(key: dict, ratings: Dict[str, Dict[str, dict]],
                     continue
                 difference = scores[d][item["item_id"]] - median
                 if abs(difference) >= SPREAD:
-                    rows.append({**_listed(item, d, raters, complete,
-                                           medians),
-                                 "difference": difference})
+                    listed.append({**_listed(item, d, raters, complete,
+                                             rows, medians),
+                                   "difference": difference})
         out["disagreements"]["judges"][name] = sorted(
-            rows, key=lambda row: (-abs(row["difference"]), row["item_id"],
-                                   DIMENSIONS.index(row["dimension"])))
+            listed, key=lambda row: (-abs(row["difference"]),
+                                     row["item_id"],
+                                     DIMENSIONS.index(row["dimension"])))
     return out
 
 
@@ -929,21 +1065,25 @@ def _rater_summary(rows: Dict[str, dict],
                    ids: Sequence[str]) -> Dict[str, Any]:
     """One rater's counts over the sample: complete ratings, incomplete
     ones (some scores, not all three), items without a row or a score,
-    warm-up rows; the time the page recorded on the complete ones; the
-    mean score per dimension (a rater's leniency, for reading)."""
+    warm-up rows; the median time the page recorded on a complete
+    rating of the sample, and the hours on every row (the warm-up and
+    skipped items included); the mean score per dimension (a rater's
+    leniency, for reading)."""
     sample = set(ids)
     mine = {i: row for i, row in rows.items() if i in sample}
     done = [row for row in mine.values() if row["complete"]]
     partial = sorted(i for i, row in mine.items() if not row["complete"]
                      and any(row[d] is not None for d in DIMENSIONS))
     seconds = [row["seconds"] for row in done if row["seconds"] is not None]
+    every = [row["seconds"] for row in rows.values()
+             if row["seconds"] is not None]
     return {
         "complete": len(done), "incomplete": partial,
         "not_rated": sorted(i for i in ids if i not in mine or not any(
             mine[i][d] is not None for d in DIMENSIONS)),
         "practice_rows": len(rows) - len(mine),
         "median_seconds": statistics.median(seconds) if seconds else None,
-        "hours": sum(seconds) / 3600 if seconds else None,
+        "hours": sum(every) / 3600 if every else None,
         "mean": {d: statistics.fmean(row[d] for row in done) if done
                  else None for d in DIMENSIONS},
     }
@@ -980,21 +1120,46 @@ def _ci(point: Any, ci: Any, digits: int = 3) -> str:
     return f"{_n(point, digits)} [{_n(ci[0], digits)}, {_n(ci[1], digits)}]"
 
 
-def _agreement_table(rows: Dict[str, Any], offset: str) -> List[str]:
-    lines = ["| dimension | items | alpha [95% CI] | Spearman | "
-             f"offset ({offset}) [95% CI] | exact |",
-             "|---|---|---|---|---|---|"]
+def _bounds(ci: Any, digits: int = 3) -> str:
+    if ci is None or None in tuple(ci):
+        return "-"
+    return f"[{_n(ci[0], digits)}, {_n(ci[1], digits)}]"
+
+
+# How a comparison with the raters' median is read, by the raters' alpha
+# on the dimension (docs/HUMAN_RATING.md, "What follows").
+AS_REFERENCE = {"reliable": "a reference",
+                "tentative": "a tentative reference",
+                "not reliable": "no reference",
+                "undefined": "no reference"}
+
+
+def _agreement_table(rows: Dict[str, Any], offset: str,
+                     reference: Optional[Dict[str, str]] = None
+                     ) -> List[str]:
+    """A table of ``agreement``'s rows; with ``reference`` (the raters'
+    reading per dimension), a column saying how a row is read."""
+    extra = " the median is |" if reference else ""
+    lines = ["| dimension | items | alpha [95% CI] | over people | "
+             f"Spearman | offset ({offset}) [95% CI] | over people | "
+             "exact |" + extra,
+             "|---|---|---|---|---|---|---|---|" + (
+                 "---|" if reference else "")]
     for d in DIMENSIONS:
         r = rows[d]
+        read = f" {AS_REFERENCE[reference[d]]} |" if reference else ""
         if "alpha" not in r:
-            lines.append(f"| {d} | {r['units']} | - | - | - | - |")
+            lines.append(f"| {d} | {r['units']} | - | - | - | - | - | - |"
+                         + read)
             continue
         off = r["offset"]
         lines.append(
             f"| {d} | {r['units']} | {_ci(r['alpha'], r['alpha_ci'])} | "
+            f"{_bounds(r.get('alpha_ci_people'))} | "
             f"{_n(r['spearman'])} | "
             f"{_ci(off['mean'], (off['ci_low'], off['ci_high']), 2)} | "
-            f"{_n(r['exact'])} |")
+            f"{_bounds(r.get('offset_ci_people'), 2)} | "
+            f"{_n(r['exact'])} |" + read)
     return lines
 
 
@@ -1011,33 +1176,46 @@ def markdown(result: Dict[str, Any]) -> str:
     """The analysis as a report. Its lists name items by id, cell and
     source trial, and quote the raters' comments; no answer text."""
     raters = result["raters"]
+    informed = set(result.get("informed") or [])
     lines = [f"# Human ratings (sample {result['sample']}: "
-             f"{result['items']} items, {len(raters)} raters)", ""]
+             f"{result['items']} items, {result.get('people')} people, "
+             f"{len(raters)} raters)", ""]
     if raters:
         lines += ["## Ratings", "",
-                  "| rater | complete | incomplete | not rated | warm-up "
-                  "rows | median seconds | hours | mean " + " / ".join(
-                      DIMENSIONS) + " |", "|---|---|---|---|---|---|---|---|"]
+                  "| rater | knows the hypotheses | complete | incomplete | "
+                  "not rated | warm-up rows | median seconds per complete "
+                  "rating | hours on every row | mean " + " / ".join(
+                      DIMENSIONS) + " |",
+                  "|---|---|---|---|---|---|---|---|---|"]
         for r in raters:
             s = result["ratings"][r]
             lines.append(
-                f"| {r} | {s['complete']} | {len(s['incomplete'])} | "
+                f"| {r} | {'yes' if r in informed else 'no'} | "
+                f"{s['complete']} | {len(s['incomplete'])} | "
                 f"{len(s['not_rated'])} | {s['practice_rows']} | "
                 f"{_n(s['median_seconds'], 0)} | {_n(s['hours'], 1)} | "
                 + " / ".join(_n(s["mean"][d], 2) for d in DIMENSIONS)
                 + " |")
+        lines += ["", "Knows the hypotheses: named with `--informed` "
+                      "(docs/HUMAN_RATING.md, \"Who rates\"). "
+                  + (f"Raters who know them: {', '.join(sorted(informed))}."
+                     if informed else "No rater is named as knowing them.")]
         t = result["threshold"]
         lines += [
             "", "## Agreement between the raters", "",
             "Krippendorff's alpha, the raters as coders (interval "
             "metric; ordinal beside); 95% interval: percentile bootstrap "
-            f"over items, {result['resamples']} resamples.", "",
-            "| dimension | items | alpha [95% CI] | ordinal | exact | "
-            "within 1 | reading |", "|---|---|---|---|---|---|---|"]
+            f"over items, {result['resamples']} resamples, and beside it "
+            "over the people (a person's answers share their inputs, so "
+            "the items are not independent).", "",
+            "| dimension | items | alpha [95% CI] | over people | ordinal | "
+            "exact | within 1 | reading |",
+            "|---|---|---|---|---|---|---|---|"]
         for d in DIMENSIONS:
             a = result["alpha"][d]
             lines.append(
                 f"| {d} | {a['items']} | {_ci(a['alpha'], a['alpha_ci'])} | "
+                f"{_bounds(a.get('alpha_ci_people'))} | "
                 f"{_n(a['alpha_ordinal'])} | {_n(a['exact'])} | "
                 f"{_n(a['within_1'])} | {a['reading']} |")
         lines += ["", "One rater: no agreement to measure."
@@ -1065,12 +1243,19 @@ def markdown(result: Dict[str, Any]) -> str:
         else:
             lines += [f"The median of the {m['raters']} raters, on the "
                       f"{m['items']} of {result['items']} items that every "
-                      "rater scored.", ""]
+                      "rater scored. The last column reads the raters' "
+                      "alpha on the dimension (docs/HUMAN_RATING.md, "
+                      "\"What follows\"): the median is a reference from "
+                      f"{t['reliable']:.2f}, a tentative one from "
+                      f"{t['tentative']:.3f}, and no reference below; a "
+                      "row on no reference is reported and neither "
+                      "supports nor counts against the score.", ""]
             for name, rows in result["against"].items():
                 label = name if name == KEYWORD else (
                     f"{name} (k = {result['judges'].get(name)})")
                 lines += [f"### {label}", ""] + _agreement_table(
-                    rows, f"{name} - raters' median") + [""]
+                    rows, f"{name} - raters' median",
+                    m["reference"]) + [""]
     lines += ["## The judges with each other, on the sample", ""]
     for pair, rows in result["between_judges"].items():
         first, second = pair.split(" vs ")
@@ -1138,10 +1323,25 @@ def _disagreement_lines(result: Dict[str, Any]) -> List[str]:
         if entries:
             lines += [head, rule] + [row(e) for e in entries]
             lines += [""] + comments(entries)
-    without = result["median"]["without"]
+    without = result["disagreements"].get("without_median") or []
     if result["median"]["defined"] and without:
-        lines += ["", "### Without a median (a rater skipped the item): "
-                      f"{len(without)}", "", ", ".join(without)]
+
+        def three(scores: Any) -> str:
+            return "/".join(mark((scores or {}).get(d)) for d in DIMENSIONS)
+
+        lines += ["", "### Without a median (a rater skipped the item or "
+                      f"left a score out): {len(without)}", "",
+                  "Scores as " + "/".join(DIMENSIONS) + ", - where none.",
+                  "", "| item | " + " | ".join(raters) + " | "
+                  + " | ".join(judges) + f" | {KEYWORD} | cell | source |",
+                  "|---|" + "---|" * (len(raters) + len(judges) + 3)]
+        lines += [f"| {e['item_id']} | "
+                  + " | ".join(three(e["raters"].get(r)) for r in raters)
+                  + " | " + " | ".join(three(e["judges"].get(j))
+                                       for j in judges)
+                  + f" | {three(e[KEYWORD])} | {_cell_text(e['cell'])} | "
+                    f"{_source_text(e['source'])} |" for e in without]
+        lines += [""] + comments(without)
     return lines
 
 
@@ -1190,6 +1390,9 @@ def main(argv=None) -> int:
     a.add_argument("--ratings", type=Path, nargs="*", default=[],
                    help="one CSV per rater, as the page exports it")
     a.add_argument("--resamples", type=int, default=RESAMPLES)
+    a.add_argument("--informed", nargs="*", default=[], metavar="RATER",
+                   help="the raters who know the hypotheses (the report "
+                        "names them)")
     a.add_argument("--md", type=Path)
     a.add_argument("--json", type=Path)
     args = parser.parse_args(argv)
@@ -1202,9 +1405,10 @@ def main(argv=None) -> int:
             raise SystemExit(
                 f"{len(short)} cells gave fewer than {args.per_cell} "
                 f"answers (--allow-short writes the sample anyway): "
-                + "; ".join(_cell_text(c["cell"]) for c in short))
+                + "; ".join(f"{_cell_text(c['cell'])} ({c['items']})"
+                            for c in short))
         write_sample(document, key, args.items, args.key, args.force)
-        drawn = Counter(item["user"] for item in key["items"])
+        drawn = Counter(item["person"] for item in key["items"])
         print(json.dumps({
             "sample": key["sample"], "seed": key["seed"],
             "items": sum(not i["practice"] for i in key["items"]),
@@ -1213,13 +1417,13 @@ def main(argv=None) -> int:
             "trials": key["trials"], "excluded": key["excluded"],
             "candidates": key["candidates"],
             "distinct_answers": key["distinct_answers"],
-            "users": len(drawn),
-            "most_items_of_a_user": max(drawn.values(), default=0),
+            "people": len(drawn),
+            "most_items_of_a_person": max(drawn.values(), default=0),
             "judges": key["judges"]}))
     else:
         key = load_key(args.key)
         result = _clean(analyze(key, read_ratings(args.ratings, key),
-                                args.resamples))
+                                args.resamples, args.informed))
         if args.json:
             args.json.write_text(json.dumps(result, indent=1) + "\n")
         text = markdown(result)

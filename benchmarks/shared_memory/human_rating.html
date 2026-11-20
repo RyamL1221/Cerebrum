@@ -164,7 +164,8 @@ legend { font-weight: 600; padding: 0 4px; }
       <li>If you cannot score an item, skip it and say why in the
       comment. A comment is optional otherwise.</li>
       <li>The first items are a warm-up: they are not analysed.</li>
-      <li>Work in sessions of about 45 minutes. Your place is kept.</li>
+      <li>Work in sessions of about 45 minutes. Your place is kept in
+      this browser; keep the page open in one tab only.</li>
     </ul>
   </section>
 
@@ -201,10 +202,11 @@ legend { font-weight: 600; padding: 0 4px; }
           <button id="export" type="button">Export CSV</button>
           <button id="show-csv" type="button">Show CSV</button>
         </div>
-        <p class="keys">Keys outside the comment box: 1 to 5 give the
-        current dimension its score and move on; Enter or n: save and
-        next; b: back; s: skip; x: clear scores; c: comment (Esc leaves
-        it); u: first unrated; e: export.</p>
+        <p class="keys">Keys outside the comment box: 1 to 5 score the
+        dimension that has the focus (else the first without a score)
+        and move on; Enter or n: save and next; b: back; s: skip; x:
+        clear scores; c: comment (Esc leaves it); u: first unrated; e:
+        export.</p>
         <label class="field" for="csv-box" id="csv-label" hidden>The CSV
         (select all and copy it if the download did not start)</label>
         <textarea id="csv-box" readonly hidden></textarea>
@@ -221,6 +223,15 @@ legend { font-weight: 600; padding: 0 4px; }
       <button id="done-unrated" type="button">First unrated</button>
       <button id="done-back" type="button">Back to the last item</button>
     </div>
+  </section>
+
+  <section id="taken" class="card" hidden aria-labelledby="taken-title">
+    <h2 id="taken-title" tabindex="-1">Open in another tab</h2>
+    <p>These items are open under the same rater code in another tab or
+    window of this browser, which has saved since. This tab has stopped
+    and saves nothing more, so that it cannot overwrite the other tab's
+    ratings. Rate in one tab at a time: close this one, or reload it and
+    start again to continue here (the other tab then stops).</p>
   </section>
 </main>
 <script>
@@ -421,9 +432,27 @@ if (typeof document !== "undefined") (function () {
   }
 
   function persist() {
-    if (!state) return;
+    if (!state || screen === "taken") return;
     storageNote(!store.set(stateKey(), JSON.stringify(state)));
   }
+
+  // Another tab of this browser saved the same sample and rater code:
+  // its state is newer than this tab's, which would overwrite it on its
+  // next save (each save writes the whole state). This tab stops.
+  window.addEventListener("storage", function (e) {
+    if (!state || !doc || screen === "taken" || e.key !== stateKey()) {
+      return;
+    }
+    shownAt = null;
+    screen = "taken";
+    $("start").hidden = true;
+    $("rate").hidden = true;
+    $("done").hidden = true;
+    $("taken").hidden = false;
+    $("status").textContent = "Rater " + rater + ": stopped (open in " +
+      "another tab)";
+    $("taken-title").focus();
+  });
 
   function load() {
     let saved = null;
@@ -782,7 +811,9 @@ if (typeof document !== "undefined") (function () {
 
   // -- keys
   // 1 to 5 score the dimension that holds the focus, else the first
-  // without a score, then move the focus to the next dimension.
+  // without a score, then move the focus to the next dimension. With
+  // every score given and no dimension focused, a digit changes nothing:
+  // which score it meant is not known.
   function keyScore(value) {
     const focused = document.activeElement;
     const r = current();
@@ -790,7 +821,12 @@ if (typeof document !== "undefined") (function () {
     if (!column) {
       column = HR.DIMS.find(function (d) {
         return !Number.isInteger(r[d]);
-      }) || HR.DIMS[HR.DIMS.length - 1];
+      });
+    }
+    if (!column) {
+      say("All three scores are given. To change one, focus its " +
+          "dimension (Tab, or click a score), then press 1 to 5.");
+      return;
     }
     score(column, value);
     const n = HR.DIMS.indexOf(column);
@@ -805,7 +841,8 @@ if (typeof document !== "undefined") (function () {
   }
 
   document.addEventListener("keydown", function (e) {
-    if (screen === "start" || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (screen === "start" || screen === "taken" || e.ctrlKey ||
+        e.metaKey || e.altKey) return;
     const t = e.target;
     const typing = t && (t.tagName === "TEXTAREA" ||
       (t.tagName === "INPUT" && t.type !== "radio"));
