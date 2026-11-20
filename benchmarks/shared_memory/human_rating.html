@@ -1,0 +1,853 @@
+<!doctype html>
+<!--
+  The human-rating page (protocol: docs/HUMAN_RATING.md).
+
+  Open this file from disk in a browser. It loads the raters' items file
+  (items.json, written by `human_rating.py sample`) through a file
+  picker, shows one answer at a time beside the judge prompt's rubric,
+  and exports the ratings as CSV for `human_rating.py analyze`. It is
+  self-contained: no script, style, font or image is loaded from
+  anywhere, and the Content-Security-Policy below forbids it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Human rating</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f6f5f1;
+  --panel: #ffffff;
+  --fg: #1c1c1a;
+  --muted: #55544d;
+  --line: #d4d1c7;
+  --accent: #1d4ed8;
+  --accent-fg: #ffffff;
+  --chosen: #dce6fb;
+  --note-bg: #fff3d6;
+  --note-fg: #5b3c00;
+  --focus: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413;
+    --panel: #1e1e1c;
+    --fg: #ecebe5;
+    --muted: #b3b1a8;
+    --line: #3d3c38;
+    --accent: #8db4ff;
+    --accent-fg: #0b1220;
+    --chosen: #22355c;
+    --note-bg: #3b2c0f;
+    --note-fg: #f6dfac;
+    --focus: #ffb35c;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline;
+  padding: 10px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+header h1 { font-size: 1.05rem; margin: 0; }
+#status { color: var(--muted); font-size: 0.9rem; }
+main { padding: 16px; max-width: 1280px; margin: 0 auto; }
+section[hidden] { display: none; }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 16px;
+}
+.note {
+  background: var(--note-bg); color: var(--note-fg);
+  border-radius: 6px; padding: 8px 12px; margin: 0 0 12px;
+}
+.note[hidden] { display: none; }
+label.field { display: block; margin: 12px 0 4px; font-weight: 600; }
+input[type="text"], textarea {
+  font: inherit; color: inherit; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  width: 100%; max-width: 40rem;
+}
+textarea { min-height: 4.5rem; resize: vertical; max-width: none; }
+button {
+  font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 12px; cursor: pointer;
+}
+button.primary {
+  background: var(--accent); color: var(--accent-fg);
+  border-color: var(--accent);
+}
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.layout {
+  display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+  .scoring {
+    position: sticky; top: 12px; align-self: start;
+    max-height: calc(100vh - 24px); overflow: auto;
+  }
+}
+.where { font-weight: 600; margin: 0 0 4px; }
+.where:focus { outline: none; }
+.id { color: var(--muted); font-size: 0.9rem; }
+.intro { color: var(--muted); margin: 8px 0 0; }
+h2 {
+  font-size: 0.8rem; letter-spacing: 0.06em; color: var(--muted);
+  margin: 16px 0 4px;
+}
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px;
+     margin: 0; }
+dt { font-weight: 600; }
+dd { margin: 0; overflow-wrap: anywhere; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.guidance p { margin: 0 0 8px; color: var(--muted); font-size: 0.95rem; }
+fieldset {
+  border: 1px solid var(--line); border-radius: 6px;
+  margin: 0 0 12px; padding: 8px 10px 10px;
+}
+legend { font-weight: 600; padding: 0 4px; }
+.option {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 4px 6px; border-radius: 4px; cursor: pointer;
+}
+.option.chosen { background: var(--chosen); }
+.option input { margin-top: 0.3em; flex: none; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+#msg { min-height: 1.5em; margin: 4px 0; font-weight: 600; }
+.keys { color: var(--muted); font-size: 0.85rem; }
+#csv-box { font-family: ui-monospace, Menlo, Consolas, monospace;
+           font-size: 0.8rem; min-height: 10rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Human rating</h1>
+  <span id="status"></span>
+</header>
+<main>
+  <p class="note" id="store-note" hidden>This browser does not keep your
+  progress on this page (its storage is off or full). Export your
+  ratings before you close or reload the page.</p>
+
+  <section id="start" class="card" aria-labelledby="start-title">
+    <h2 id="start-title">Start</h2>
+    <p>Pick the items file you were given (<code>items.json</code>) and
+    type your rater code. Your ratings stay in this browser until you
+    export them as a CSV file; export at the end of each session and
+    send the file to the study's coordinator.</p>
+    <label class="field" for="file">Items file</label>
+    <input id="file" type="file" accept=".json,application/json">
+    <label class="field" for="rater">Rater code (letters, digits, - _ .)
+    </label>
+    <input id="rater" type="text" autocomplete="off" spellcheck="false"
+           maxlength="40">
+    <div class="buttons">
+      <button id="begin" class="primary" type="button">Start rating</button>
+    </div>
+    <p id="start-msg" role="alert"></p>
+    <h2>How to rate</h2>
+    <ul>
+      <li>Read the user's profile, the task context, the query and the
+      answer, then give each of the three scores with the rubric's
+      words. Score each dimension on its own.</li>
+      <li>Judge the answer as written. Do not look anything up and do
+      not ask anyone about an item until every rater has finished.</li>
+      <li>If you cannot score an item, skip it and say why in the
+      comment. A comment is optional otherwise.</li>
+      <li>The first items are a warm-up: they are not analysed.</li>
+      <li>Work in sessions of about 45 minutes. Your place is kept.</li>
+    </ul>
+  </section>
+
+  <section id="rate" hidden aria-label="Rating">
+    <div class="layout">
+      <article class="card" aria-labelledby="where">
+        <p class="where" id="where" tabindex="-1"></p>
+        <span class="id" id="item-id"></span>
+        <p class="intro" id="intro"></p>
+        <h2 id="profile-title"></h2>
+        <dl id="profile"></dl>
+        <h2 id="task-title"></h2>
+        <dl id="task"></dl>
+        <h2 id="query-title"></h2>
+        <p class="text" id="query"></p>
+        <h2 id="response-title"></h2>
+        <p class="text" id="response"></p>
+      </article>
+      <div class="card scoring" id="scoring">
+        <div class="guidance" id="guidance"></div>
+        <div id="dims"></div>
+        <label class="field" for="comment">Comment (optional)</label>
+        <textarea id="comment"></textarea>
+        <p id="msg" role="alert"></p>
+        <div class="buttons">
+          <button id="back" type="button">Back</button>
+          <button id="skip" type="button">Skip</button>
+          <button id="next" class="primary" type="button">Save and next
+          </button>
+        </div>
+        <div class="buttons">
+          <button id="clear" type="button">Clear scores</button>
+          <button id="unrated" type="button">First unrated</button>
+          <button id="export" type="button">Export CSV</button>
+          <button id="show-csv" type="button">Show CSV</button>
+        </div>
+        <p class="keys">Keys outside the comment box: 1 to 5 give the
+        current dimension its score and move on; Enter or n: save and
+        next; b: back; s: skip; x: clear scores; c: comment (Esc leaves
+        it); u: first unrated; e: export.</p>
+        <label class="field" for="csv-box" id="csv-label" hidden>The CSV
+        (select all and copy it if the download did not start)</label>
+        <textarea id="csv-box" readonly hidden></textarea>
+      </div>
+    </div>
+  </section>
+
+  <section id="done" class="card" hidden aria-labelledby="done-title">
+    <h2 id="done-title" tabindex="-1">End of the items</h2>
+    <p id="done-text"></p>
+    <div class="buttons">
+      <button id="done-export" class="primary" type="button">Export CSV
+      </button>
+      <button id="done-unrated" type="button">First unrated</button>
+      <button id="done-back" type="button">Back to the last item</button>
+    </div>
+  </section>
+</main>
+<script>
+"use strict";
+
+// The page's rules, apart from the page itself (no DOM): the items
+// file's check, each rater's order and the CSV.
+var HR = (function () {
+  const KIT = "human_rating";
+  const FORMAT = 1;
+  const DIMS = ["profile", "task", "integration"];
+  // The CSV's columns, in the order human_rating.py reads them
+  // (CSV_COLUMNS there).
+  const COLUMNS = ["sample", "item_id", "rater", "profile", "task",
+                   "integration", "comment", "seconds", "rated_at",
+                   "position"];
+  const RATER = /^[A-Za-z0-9_.-]{1,40}$/;
+  const PARTS = ["profile", "task_context", "query", "response"];
+
+  function isText(value) { return typeof value === "string"; }
+
+  function isLines(value) {
+    return Array.isArray(value) && value.every(function (line) {
+      return Array.isArray(line) && line.length === 2 &&
+        isText(line[0]) && isText(line[1]);
+    });
+  }
+
+  // Why the items file cannot be rated; empty when it can.
+  function problems(doc) {
+    const out = [];
+    if (!doc || doc.kit !== KIT || doc.kind !== "items" ||
+        doc.format !== FORMAT) {
+      return ["This is not a human-rating items file."];
+    }
+    if (!isText(doc.sample) || !doc.sample) out.push("No sample id.");
+    const rubric = doc.rubric || {};
+    const dims = Array.isArray(rubric.dimensions) ? rubric.dimensions : [];
+    if (dims.map(function (d) { return d.column; }).join() !== DIMS.join()) {
+      out.push("The rubric is not the three dimensions.");
+    }
+    dims.forEach(function (d) {
+      const anchors = Array.isArray(d.anchors) ? d.anchors : [];
+      if (!isText(d.title) || anchors.map(function (a) {
+        return Array.isArray(a) ? a[0] : null;
+      }).join() !== "5,4,3,2,1" || !anchors.every(function (a) {
+        return isText(a[1]);
+      })) {
+        out.push("A dimension lacks its title or its five anchors.");
+      }
+    });
+    if (!Array.isArray(rubric.guidance) || !rubric.parts ||
+        !PARTS.every(function (p) { return isText(rubric.parts[p]); })) {
+      out.push("The rubric lacks its guidance or its parts' titles.");
+    }
+    if (!Array.isArray(doc.items) || doc.items.length === 0) {
+      out.push("No items.");
+      return out;
+    }
+    const seen = {};
+    doc.items.forEach(function (item, n) {
+      const name = item && isText(item.item_id) ? item.item_id
+        : "item " + (n + 1);
+      if (!item || !isText(item.item_id) || !item.item_id ||
+          typeof item.practice !== "boolean" || !isLines(item.profile) ||
+          !isLines(item.task_context) || !isText(item.query) ||
+          !isText(item.response)) {
+        out.push(name + " is not an item.");
+      } else if (seen[item.item_id]) {
+        out.push(name + " appears twice.");
+      }
+      if (item && isText(item.item_id)) seen[item.item_id] = true;
+    });
+    return out;
+  }
+
+  // FNV-1a, 32 bits: the seed of a rater's order.
+  function hash32(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+
+  // mulberry32: numbers in [0, 1) from a 32-bit seed.
+  function generator(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // A rater's order: the warm-up first, in the file's order, then the
+  // other items shuffled by a generator seeded with the sample and the
+  // rater code (the same after a reload; another for each rater).
+  function order(items, sample, rater) {
+    const warm = items.filter(function (i) { return i.practice; });
+    const rest = items.filter(function (i) { return !i.practice; });
+    const next = generator(hash32(sample + "\n" + rater));
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = Math.floor(next() * (i + 1));
+      const kept = rest[i];
+      rest[i] = rest[j];
+      rest[j] = kept;
+    }
+    return warm.concat(rest);
+  }
+
+  function isScore(value) {
+    return Number.isInteger(value) && value >= 1 && value <= 5;
+  }
+
+  function complete(rating) {
+    return DIMS.every(function (d) { return isScore((rating || {})[d]); });
+  }
+
+  // One CSV field, quoted when it holds a quote, a comma, a line break
+  // or space at either end (RFC 4180: a quote inside is doubled).
+  function field(value) {
+    const text = value === undefined || value === null ? "" : String(value);
+    if (/[",\r\n]/.test(text) || text !== text.trim()) {
+      return '"' + text.replace(/"/g, '""') + '"';
+    }
+    return text;
+  }
+
+  // The CSV of one rater: a row per item in the rater's order; scores
+  // and their time only when all three are given.
+  function csv(sample, rater, sequence, ratings) {
+    const lines = [COLUMNS.join(",")];
+    sequence.forEach(function (item, n) {
+      const r = ratings[item.item_id] || {};
+      const done = complete(r);
+      const row = {
+        sample: sample, item_id: item.item_id, rater: rater,
+        profile: done ? r.profile : "", task: done ? r.task : "",
+        integration: done ? r.integration : "",
+        comment: r.comment || "",
+        seconds: typeof r.seconds === "number" && r.seconds > 0
+          ? r.seconds.toFixed(1) : "",
+        rated_at: done ? (r.rated_at || "") : "",
+        position: n + 1,
+      };
+      lines.push(COLUMNS.map(function (c) { return field(row[c]); })
+        .join(","));
+    });
+    return "﻿" + lines.join("\r\n") + "\r\n";
+  }
+
+  return {KIT: KIT, FORMAT: FORMAT, DIMS: DIMS, COLUMNS: COLUMNS,
+          RATER: RATER, problems: problems, hash32: hash32,
+          generator: generator, order: order, complete: complete,
+          field: field, csv: csv};
+})();
+
+if (typeof document !== "undefined") (function () {
+  const $ = function (id) { return document.getElementById(id); };
+
+  // Browser storage, wrapped: where it is off, the page still works
+  // and says that progress will not survive a reload.
+  const store = (function () {
+    try {
+      const s = window.localStorage;
+      const probe = "human_rating/probe";
+      s.setItem(probe, "1");
+      s.removeItem(probe);
+      return {
+        ok: true,
+        get: function (k) { try { return s.getItem(k); } catch (e) {
+          return null; } },
+        set: function (k, v) { try { s.setItem(k, v); return true; }
+          catch (e) { return false; } },
+      };
+    } catch (e) {
+      return {ok: false, get: function () { return null; },
+              set: function () { return false; }};
+    }
+  })();
+
+  let doc = null;
+  let rater = "";
+  let sequence = [];
+  let at = 0;
+  let state = null;
+  let shownAt = null;
+  let screen = "start";
+
+  function stateKey() { return "human_rating/" + doc.sample + "/" + rater; }
+  function raterKey() { return "human_rating/" + doc.sample + "/rater"; }
+
+  function storageNote(failed) {
+    $("store-note").hidden = store.ok && !failed;
+  }
+
+  function persist() {
+    if (!state) return;
+    storageNote(!store.set(stateKey(), JSON.stringify(state)));
+  }
+
+  function load() {
+    let saved = null;
+    try { saved = JSON.parse(store.get(stateKey()) || "null"); }
+    catch (e) { saved = null; }
+    if (!saved || typeof saved !== "object" ||
+        typeof saved.ratings !== "object" || saved.ratings === null) {
+      saved = {ratings: {}, at: 0, exported_at: null};
+    }
+    return saved;
+  }
+
+  function record(id) {
+    if (!state.ratings[id]) state.ratings[id] = {};
+    return state.ratings[id];
+  }
+
+  function current() { return record(sequence[at].item_id); }
+
+  function count(rating) {
+    return HR.DIMS.filter(function (d) {
+      return Number.isInteger(rating[d]);
+    }).length;
+  }
+
+  // -- time on an item: counted while it is shown and the page visible
+  function startClock() {
+    shownAt = screen === "rate" && document.visibilityState === "visible"
+      ? performance.now() : null;
+  }
+
+  function stopClock() {
+    if (shownAt === null || !state || !sequence.length) return;
+    const r = current();
+    const spent = (performance.now() - shownAt) / 1000;
+    r.seconds = Math.round(((r.seconds || 0) + spent) * 10) / 10;
+    shownAt = null;
+    persist();
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") stopClock();
+    else startClock();
+  });
+  window.addEventListener("pagehide", stopClock);
+
+  // -- status and messages
+  function status() {
+    if (!state) { $("status").textContent = ""; return; }
+    const rated = sequence.filter(function (i) {
+      return HR.complete(state.ratings[i.item_id]);
+    }).length;
+    const exported = state.exported_at
+      ? "exported " + new Date(state.exported_at).toLocaleTimeString()
+      : "not exported yet";
+    $("status").textContent = "Rater " + rater + ": " + rated + " of " +
+      sequence.length + " rated, " + exported;
+  }
+
+  function say(text) { $("msg").textContent = text; }
+
+  // -- the start
+  $("file").addEventListener("change", function () {
+    const file = $("file").files[0];
+    $("start-msg").textContent = "";
+    doc = null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+      let parsed = null;
+      try { parsed = JSON.parse(reader.result); }
+      catch (e) {
+        $("start-msg").textContent = "The file is not JSON.";
+        return;
+      }
+      const found = HR.problems(parsed);
+      if (found.length) {
+        $("start-msg").textContent = found.slice(0, 5).join(" ");
+        return;
+      }
+      doc = parsed;
+      const last = store.get(raterKey());
+      if (last && !$("rater").value) $("rater").value = last;
+      $("start-msg").textContent = "Loaded " + doc.items.length +
+        " items (sample " + doc.sample + ").";
+    };
+    reader.onerror = function () {
+      $("start-msg").textContent = "The file could not be read.";
+    };
+    reader.readAsText(file);
+  });
+
+  $("begin").addEventListener("click", begin);
+  $("rater").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") begin();
+  });
+
+  function begin() {
+    const code = $("rater").value.trim();
+    if (!doc) {
+      $("start-msg").textContent = "Pick the items file first.";
+      return;
+    }
+    if (!HR.RATER.test(code)) {
+      $("start-msg").textContent = "The rater code takes 1 to 40 " +
+        "letters, digits, - _ or . and no space.";
+      $("rater").focus();
+      return;
+    }
+    rater = code;
+    store.set(raterKey(), rater);
+    sequence = HR.order(doc.items, doc.sample, rater);
+    state = load();
+    storageNote(false);
+    buildRubric();
+    screen = "rate";
+    $("start").hidden = true;
+    $("done").hidden = true;
+    $("rate").hidden = false;
+    const resume = Number.isInteger(state.at) ? state.at : 0;
+    show(Math.min(Math.max(resume, 0), sequence.length - 1));
+  }
+
+  // -- the rubric, from the items file: the judge prompt's words
+  function buildRubric() {
+    const rubric = doc.rubric;
+    $("intro").textContent = rubric.intro || "";
+    $("profile-title").textContent = rubric.parts.profile;
+    $("task-title").textContent = rubric.parts.task_context;
+    $("query-title").textContent = rubric.parts.query;
+    $("response-title").textContent = rubric.parts.response;
+    const guidance = $("guidance");
+    guidance.textContent = "";
+    rubric.guidance.forEach(function (text) {
+      const p = document.createElement("p");
+      p.textContent = text;
+      guidance.appendChild(p);
+    });
+    const dims = $("dims");
+    dims.textContent = "";
+    rubric.dimensions.forEach(function (d) {
+      const set = document.createElement("fieldset");
+      set.dataset.column = d.column;
+      const legend = document.createElement("legend");
+      legend.textContent = d.title;
+      set.appendChild(legend);
+      d.anchors.forEach(function (anchor) {
+        const label = document.createElement("label");
+        label.className = "option";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = d.column;
+        input.value = String(anchor[0]);
+        input.addEventListener("change", function () {
+          score(d.column, anchor[0]);
+        });
+        const words = document.createElement("span");
+        words.textContent = anchor[0] + " = " + anchor[1];
+        label.appendChild(input);
+        label.appendChild(words);
+        set.appendChild(label);
+      });
+      dims.appendChild(set);
+    });
+  }
+
+  function radios(column) {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('input[name="' + column + '"]'));
+  }
+
+  function mark() {
+    const r = current();
+    HR.DIMS.forEach(function (d) {
+      radios(d).forEach(function (input) {
+        input.checked = Number(input.value) === r[d];
+        input.parentNode.classList.toggle("chosen", input.checked);
+      });
+    });
+  }
+
+  function touched(r) {
+    if (HR.complete(r)) r.rated_at = new Date().toISOString();
+    else delete r.rated_at;
+    persist();
+    status();
+  }
+
+  function score(column, value) {
+    const r = current();
+    r[column] = value;
+    touched(r);
+    mark();
+    say("");
+  }
+
+  $("comment").addEventListener("input", function () {
+    const r = current();
+    r.comment = $("comment").value;
+    touched(r);
+  });
+
+  // -- one item at a time
+  function lines(target, rows) {
+    target.textContent = "";
+    rows.forEach(function (row) {
+      const dt = document.createElement("dt");
+      dt.textContent = row[0];
+      const dd = document.createElement("dd");
+      dd.textContent = row[1];
+      target.appendChild(dt);
+      target.appendChild(dd);
+    });
+  }
+
+  function show(n) {
+    stopClock();
+    at = n;
+    state.at = n;
+    persist();
+    const item = sequence[at];
+    const warm = sequence.filter(function (i) { return i.practice; });
+    const place = item.practice
+      ? "Warm-up item " + (at + 1) + " of " + warm.length +
+        " (not analysed)"
+      : "Item " + (at + 1 - warm.length) + " of " +
+        (sequence.length - warm.length);
+    $("where").textContent = place;
+    $("item-id").textContent = "Item id " + item.item_id;
+    lines($("profile"), item.profile);
+    lines($("task"), item.task_context);
+    $("query").textContent = item.query;
+    $("response").textContent = item.response;
+    $("comment").value = current().comment || "";
+    $("csv-box").hidden = true;
+    $("csv-label").hidden = true;
+    mark();
+    say("");
+    status();
+    window.scrollTo(0, 0);
+    $("where").focus();
+    startClock();
+  }
+
+  function go(n) {
+    if (n >= sequence.length) finish();
+    else show(n);
+  }
+
+  function saveNext() {
+    const given = count(current());
+    if (given === 0 || given === 3) {
+      go(at + 1);
+    } else {
+      say("Give all three scores, or clear them (x) to skip this item.");
+    }
+  }
+
+  function skip() {
+    if (count(current()) > 0) {
+      say("This item has scores: clear them (x) to skip it, or save it.");
+    } else {
+      go(at + 1);
+    }
+  }
+
+  function back() {
+    if (screen === "done") { reopen(sequence.length - 1); return; }
+    if (at > 0) show(at - 1);
+  }
+
+  function clearScores() {
+    const r = current();
+    HR.DIMS.forEach(function (d) { delete r[d]; });
+    touched(r);
+    mark();
+    say("Scores cleared.");
+  }
+
+  function firstUnrated() {
+    const n = sequence.findIndex(function (i) {
+      return !HR.complete(state.ratings[i.item_id]);
+    });
+    if (n < 0) {
+      if (screen === "rate") say("Every item has its three scores.");
+      return;
+    }
+    reopen(n);
+  }
+
+  function reopen(n) {
+    screen = "rate";
+    $("done").hidden = true;
+    $("rate").hidden = false;
+    show(n);
+  }
+
+  function finish() {
+    stopClock();
+    screen = "done";
+    $("rate").hidden = true;
+    $("done").hidden = false;
+    const left = sequence.filter(function (i) {
+      return !HR.complete(state.ratings[i.item_id]);
+    }).map(function (i) { return i.item_id; });
+    $("done-text").textContent = (sequence.length - left.length) + " of " +
+      sequence.length + " items have their three scores." +
+      (left.length ? " Without them: " + left.join(", ") + "." : "") +
+      " Export the CSV and send it to the study's coordinator.";
+    status();
+    $("done-title").focus();
+  }
+
+  // -- the CSV
+  function csvText() {
+    stopClock();
+    startClock();
+    return HR.csv(doc.sample, rater, sequence, state.ratings);
+  }
+
+  function exportCsv() {
+    const text = csvText();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(
+      new Blob([text], {type: "text/csv;charset=utf-8"}));
+    link.download = "human_rating_" + doc.sample + "_" + rater + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 2000);
+    state.exported_at = new Date().toISOString();
+    persist();
+    status();
+    if (screen === "rate") say("Exported " + link.download + ".");
+  }
+
+  function showCsv() {
+    const box = $("csv-box");
+    box.value = csvText();
+    box.hidden = false;
+    $("csv-label").hidden = false;
+    box.focus();
+    box.select();
+  }
+
+  $("back").addEventListener("click", back);
+  $("skip").addEventListener("click", skip);
+  $("next").addEventListener("click", saveNext);
+  $("clear").addEventListener("click", clearScores);
+  $("unrated").addEventListener("click", firstUnrated);
+  $("export").addEventListener("click", exportCsv);
+  $("show-csv").addEventListener("click", showCsv);
+  $("done-export").addEventListener("click", exportCsv);
+  $("done-unrated").addEventListener("click", firstUnrated);
+  $("done-back").addEventListener("click", back);
+
+  // -- keys
+  // 1 to 5 score the dimension that holds the focus, else the first
+  // without a score, then move the focus to the next dimension.
+  function keyScore(value) {
+    const focused = document.activeElement;
+    const r = current();
+    let column = focused && focused.type === "radio" ? focused.name : null;
+    if (!column) {
+      column = HR.DIMS.find(function (d) {
+        return !Number.isInteger(r[d]);
+      }) || HR.DIMS[HR.DIMS.length - 1];
+    }
+    score(column, value);
+    const n = HR.DIMS.indexOf(column);
+    if (n + 1 < HR.DIMS.length) {
+      const next = HR.DIMS[n + 1];
+      const options = radios(next);
+      const chosen = options.find(function (i) { return i.checked; });
+      (chosen || options[0]).focus();
+    } else {
+      $("next").focus();
+    }
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (screen === "start" || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    const typing = t && (t.tagName === "TEXTAREA" ||
+      (t.tagName === "INPUT" && t.type !== "radio"));
+    if (typing) {
+      if (e.key === "Escape") { t.blur(); $("where").focus(); }
+      return;
+    }
+    if (screen === "done") {
+      if (e.key === "e") exportCsv();
+      else if (e.key === "b") back();
+      else if (e.key === "u") firstUnrated();
+      else return;
+      e.preventDefault();
+      return;
+    }
+    if (/^[1-5]$/.test(e.key)) {
+      keyScore(Number(e.key));
+    } else if (e.key === "Enter") {
+      if (t && t.tagName === "BUTTON") return;
+      saveNext();
+    } else if (e.key === "n") {
+      saveNext();
+    } else if (e.key === "b") {
+      back();
+    } else if (e.key === "s") {
+      skip();
+    } else if (e.key === "x") {
+      clearScores();
+    } else if (e.key === "c") {
+      $("comment").focus();
+    } else if (e.key === "u") {
+      firstUnrated();
+    } else if (e.key === "e") {
+      exportCsv();
+    } else {
+      return;
+    }
+    e.preventDefault();
+  });
+
+  storageNote(false);
+})();
+</script>
+</body>
+</html>
