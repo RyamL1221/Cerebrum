@@ -1,0 +1,698 @@
+{
+ "rows": [
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "deletion",
+   "trials": 150,
+   "failed": 0,
+   "passed": 150,
+   "n": 150,
+   "rate": 1.0,
+   "ci_low": 0.9750297556319235,
+   "ci_high": 1.0,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 150,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0,
+   "in_block": 0,
+   "in_answer": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "privacy",
+   "trials": 150,
+   "failed": 0,
+   "passed": 150,
+   "n": 150,
+   "rate": 1.0,
+   "ci_low": 0.9750297556319235,
+   "ci_high": 1.0,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 150,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0,
+   "in_block": 0,
+   "in_answer": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "recall",
+   "trials": 150,
+   "failed": 0,
+   "passed": 0,
+   "n": 150,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.024970244368076582,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 150,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "recency",
+   "trials": 150,
+   "failed": 0,
+   "passed": 0,
+   "n": 150,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.024970244368076582,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 150,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0,
+   "lenient": 0.0,
+   "names_both": 0,
+   "named_as_past": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "contradiction",
+   "trials": 150,
+   "failed": 0,
+   "passed": 0,
+   "n": 150,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.024970244368076582,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 150,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0,
+   "lenient": 0.0,
+   "names_both": 0,
+   "named_as_past": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "deletion (echo)",
+   "trials": 150,
+   "failed": 0,
+   "passed": 50,
+   "n": 50,
+   "rate": 1.0,
+   "ci_low": 0.9286524008666414,
+   "ci_high": 1.0,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 50,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0,
+   "in_block": 0,
+   "in_answer": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probe": "deletion (no echo)",
+   "trials": 150,
+   "failed": 0,
+   "passed": 100,
+   "n": 100,
+   "rate": 1.0,
+   "ci_low": 0.9630065017930143,
+   "ci_high": 1.0,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "probes": 100,
+   "contaminated": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0,
+   "in_block": 0,
+   "in_answer": 0
+  }
+ ],
+ "binding": [
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "probes": 900,
+   "cap_bound": 0,
+   "budget_bound": 0,
+   "tokens_median": 0.0,
+   "tokens_max": 0,
+   "block_tokens": 0.0,
+   "block_rows": 0.0
+  }
+ ],
+ "criteria": [],
+ "contrasts": [],
+ "integration": [],
+ "readings": {
+  "forgets": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "revokes": 0,
+    "forget": 0,
+    "deleted": 0,
+    "fact_key": 0,
+    "value": 0,
+    "alias": 0,
+    "entity": 0,
+    "derived": 0,
+    "other_agents": 0,
+    "same_writer": 0,
+    "no_values": 0,
+    "messages": 0,
+    "history": 0,
+    "swept": 0,
+    "suppressed": 0,
+    "scoped": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "supersession": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "retired": 0,
+    "earlier_rows": 0,
+    "marked": 0,
+    "probes": 900,
+    "retired_in_block": 0,
+    "excluded": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "backend_invalidations": [],
+  "writes_without_fact": [],
+  "exposure": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "deletion",
+    "n": 150,
+    "passed": 150,
+    "exposed": 0,
+    "passed_exposed": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "privacy",
+    "n": 150,
+    "passed": 150,
+    "exposed": 0,
+    "passed_exposed": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "carriers": [],
+  "stored_carriers": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "stored": "none",
+    "failures": 0,
+    "passes": 150,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "misses": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "recall",
+    "failed": 150,
+    "named": 0,
+    "target_forgotten": 0,
+    "not_in_block": 150,
+    "in_block_no_row": 0,
+    "conversation_only": 0,
+    "in_writer_row": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "recency",
+    "failed": 150,
+    "named": 0,
+    "target_forgotten": 0,
+    "not_in_block": 150,
+    "in_block_no_row": 0,
+    "conversation_only": 0,
+    "in_writer_row": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "contradiction",
+    "failed": 150,
+    "named": 0,
+    "target_forgotten": 0,
+    "not_in_block": 150,
+    "in_block_no_row": 0,
+    "conversation_only": 0,
+    "in_writer_row": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "slots": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "client",
+    "n": 26,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "conference",
+    "n": 10,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "home_city",
+    "n": 31,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "manager",
+    "n": 19,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "offsite_city",
+    "n": 21,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "one_on_one",
+    "n": 19,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "slot": "teammate",
+    "n": 24,
+    "passed": 0,
+    "lenient": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "earlier_answers": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "recency",
+    "with_stale_answer": 0,
+    "passed_with": 0,
+    "without": 150,
+    "passed_without": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   },
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "probe": "contradiction",
+    "with_stale_answer": 0,
+    "passed_with": 0,
+    "without": 150,
+    "passed_without": 0,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "integration_blocks": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "n": 150,
+    "rows": 0.0,
+    "own_rows": 0.0,
+    "writer_rows": 0.0,
+    "budget_bound": 0,
+    "base_task_in_block": 0,
+    "base_profile_in_block": 0,
+    "both_in_block": 0,
+    "score_with": null,
+    "score_without": null,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ],
+  "integration_base_rows": [
+   {
+    "model": "qwen",
+    "locus": "kernel",
+    "backend": "inhouse",
+    "condition": "no_memory",
+    "base_rows": 0,
+    "n": 150,
+    "score": null,
+    "block_tokens": 0.0,
+    "block_rows": 0.0
+   }
+  ]
+ },
+ "decisions": [
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "items": 300,
+   "correct": 54,
+   "accuracy": 0.18,
+   "ci_low": 0.14065830269666493,
+   "ci_high": 0.22743319888704447,
+   "stale": 60,
+   "revoked": 47,
+   "private": 27,
+   "foreign": 112,
+   "no_letter": 0,
+   "multiple_letters": 0,
+   "stale_share": 0.2,
+   "revoked_share": 0.15666666666666668,
+   "private_share": 0.09,
+   "foreign_share": 0.37333333333333335,
+   "no_letter_share": 0.0,
+   "multiple_letters_share": 0.0,
+   "turn_errors": 0,
+   "echo_d1": 50,
+   "echo_d1_revoked": 14
+  }
+ ],
+ "decision_criteria": [
+  {
+   "criterion": "D1 full system: pooled accuracy >= 0.6",
+   "holds": null,
+   "evidence": "0 of 0 over 0 cells"
+  },
+  {
+   "criterion": "D2 no_memory: pooled accuracy in [0.10, 0.45]",
+   "holds": true,
+   "evidence": "54 of 300 over 1 cells"
+  },
+  {
+   "criterion": "D3 no_supersession: more stale errors than the same loci's full system",
+   "holds": null,
+   "evidence": "stale 0 of 0 vs 0 of 0"
+  },
+  {
+   "criterion": "D4 writer_scoped: >= 1 revoked error among echo users' d1 items, 0 in the full system",
+   "holds": null,
+   "evidence": "revoked 0 of 0 vs 0 of 0"
+  },
+  {
+   "criterion": "D5 wrong_user: >= 1 foreign error in the replicated and native cells, 0 in the kernel's",
+   "holds": null,
+   "evidence": "foreign 0 of 0 vs 0 of 0"
+  }
+ ],
+ "decision_picks": [
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "item": "d1",
+   "items": 150,
+   "picked": 150,
+   "kinds": {
+    "correct": {
+     "k": 28,
+     "share": 0.18666666666666668,
+     "ci": [
+      0.13242415483319162,
+      0.2565571983041364
+     ]
+    },
+    "stale": {
+     "k": 22,
+     "share": 0.14666666666666667,
+     "ci": [
+      0.09889437212588122,
+      0.2120846005608929
+     ]
+    },
+    "must_not_use": {
+     "k": 47,
+     "share": 0.31333333333333335,
+     "ci": [
+      0.24454914102020436,
+      0.3914397502105443
+     ]
+    },
+    "foreign": {
+     "k": 53,
+     "share": 0.35333333333333333,
+     "ci": [
+      0.2813726509048464,
+      0.4326186207764561
+     ]
+    }
+   },
+   "letters": {
+    "A": 33,
+    "B": 46,
+    "C": 38,
+    "D": 33
+   },
+   "letters_p": 0.3895740034512851,
+   "correct_letters": {
+    "A": 37,
+    "B": 37,
+    "C": 34,
+    "D": 42
+   },
+   "correct_letters_p": 0.8302513889646287,
+   "no_letter": 0,
+   "multiple_letters": 0,
+   "turn_errors": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "item": "d2",
+   "items": 150,
+   "picked": 150,
+   "kinds": {
+    "correct": {
+     "k": 26,
+     "share": 0.17333333333333334,
+     "ci": [
+      0.12112063226387282,
+      0.24185992738993722
+     ]
+    },
+    "stale": {
+     "k": 38,
+     "share": 0.25333333333333335,
+     "ci": [
+      0.19049122729084525,
+      0.32849409326407264
+     ]
+    },
+    "must_not_use": {
+     "k": 27,
+     "share": 0.18,
+     "ci": [
+      0.12675767807760893,
+      0.24922327831796007
+     ]
+    },
+    "foreign": {
+     "k": 59,
+     "share": 0.3933333333333333,
+     "ci": [
+      0.318759856976774,
+      0.47323379515508224
+     ]
+    }
+   },
+   "letters": {
+    "A": 33,
+    "B": 51,
+    "C": 34,
+    "D": 32
+   },
+   "letters_p": 0.08835714866888536,
+   "correct_letters": {
+    "A": 48,
+    "B": 29,
+    "C": 46,
+    "D": 27
+   },
+   "correct_letters_p": 0.02097436418207206,
+   "no_letter": 0,
+   "multiple_letters": 0,
+   "turn_errors": 0
+  },
+  {
+   "model": "qwen",
+   "locus": "kernel",
+   "backend": "inhouse",
+   "condition": "no_memory",
+   "item": "pooled",
+   "items": 300,
+   "picked": 300,
+   "kinds": {
+    "correct": {
+     "k": 54,
+     "share": 0.18,
+     "ci": [
+      0.14065830269666493,
+      0.22743319888704447
+     ]
+    },
+    "stale": {
+     "k": 60,
+     "share": 0.2,
+     "ci": [
+      0.15865685896694132,
+      0.24892892376778625
+     ]
+    },
+    "must_not_use": {
+     "k": 74,
+     "share": 0.24666666666666667,
+     "ci": [
+      0.20129380271657715,
+      0.2984453027038595
+     ]
+    },
+    "foreign": {
+     "k": 112,
+     "share": 0.37333333333333335,
+     "ci": [
+      0.3205246855955491,
+      0.4293448671146692
+     ]
+    }
+   },
+   "letters": {
+    "A": 66,
+    "B": 97,
+    "C": 72,
+    "D": 65
+   },
+   "letters_p": 0.029468686733963884,
+   "correct_letters": {
+    "A": 85,
+    "B": 66,
+    "C": 80,
+    "D": 69
+   },
+   "correct_letters_p": 0.3579803825618916,
+   "no_letter": 0,
+   "multiple_letters": 0,
+   "turn_errors": 0
+  }
+ ]
+}
