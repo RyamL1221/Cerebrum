@@ -250,6 +250,25 @@ cell that loses every trial to the exclusions (all failed, or none
 judged by both) is reported short, with 0 answers, like any cell
 short of the count.
 
+**A failed trial's cell.** Its H is read from its path, as every
+cell's is. The sampler refuses a trial whose own `heterogeneity_level`
+is not its path's H, but only a trial that did not fail: the harness
+records some failures without their H. A v1 trial whose data or agent
+pipeline failed keeps `TrialResult`'s default 0 (`run_evaluation.py`:
+`run_single_trial` and `_run_method`), so in an `h2_` directory it is
+counted as failed, in its H2 cell, and not refused.
+
+Open: a v2 trial that failed before its probes (reading the user or
+running the history) holds no probe results, and `cell_of` reads the
+version from them, so the trial is counted in the v1 cell of its
+locus, backend, model and H. Unless a v1 run in the trees fills that
+cell, it holds no answer: it is reported short, and `sample` refuses
+without `--allow-short` (a scratch run on made-up trials,
+2026-11-20). The three runs hold no failed trial (0 of 1,350). Before
+a users_v2 grid that holds such a failure is drawn, the version of a
+failed trial must be read from elsewhere, or the short v1 cell
+checked by hand.
+
 ## The design across raters
 
 **Raters.** 3. An odd number, so the median of their scores is one of
@@ -568,6 +587,13 @@ reached:
   test was also drawn with the earlier rule (a v2 user as a person of
   its own): at the test's seed, 3, the earlier rule shows 3 distinct
   people where the test asks for 4.
+- Failed trials, made up as `run_evaluation.py` records them, by hand:
+  an agent-pipeline failure (H 0 stored) beside three judged trials in
+  an `h2_` directory is counted as failed and the H2 cell keeps its 3
+  candidates; an `h2_` cell whose every trial failed so is reported
+  short with 0; a trial that ran with H 1 in an `h2_` directory is
+  still refused. The kit at commit 93cd6e1 refused the first two. The
+  stored trees' draw is unchanged (sample `911207beb4f4`).
 
 **Not checked.** The page has not been opened in a browser: its
 layout, its keys, its storage, its second-tab guard and its download

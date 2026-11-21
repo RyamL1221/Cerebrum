@@ -25,6 +25,7 @@ from benchmarks.shared_memory.judge import (
 from benchmarks.shared_memory.models import (
     SyntheticProfile,
     SyntheticTaskContext,
+    TrialResult,
 )
 
 PAGE = Path(hr.__file__).with_name("human_rating.html")
@@ -326,6 +327,42 @@ def test_a_trial_whose_level_is_not_its_paths_is_refused(tmp_path):
             trial(0, "kernel_shared", "kernel", "a", heterogeneity_level=1)]})
     with pytest.raises(ValueError, match="the path says H = 2"):
         hr.candidates([tmp_path])
+
+
+def test_a_failed_trial_recorded_without_its_level_is_counted_failed(
+        tmp_path):
+    # The harness records an agent-pipeline failure without its H
+    # (run_evaluation.py, run_single_trial): TrialResult's default 0.
+    # In an H2 directory the trial is excluded as failed, not refused,
+    # and its cell is its path's.
+    def failed(index):
+        return TrialResult(
+            trial_index=index, condition="kernel_shared",
+            method="kernel_shared", failed=True,
+            error_message="agent pipeline failed",
+            synthetic_profile=SyntheticProfile(**PROFILE),
+            synthetic_task_context=SyntheticTaskContext(**TASK),
+            follow_up_query=f"question of user {index}").model_dump()
+
+    assert failed(0)["heterogeneity_level"] == 0
+    h0, h2 = list(CELLS)[:2]
+    write_run(tmp_path / RUN, {h2: [
+        trial(i, "kernel_shared", "kernel", f"a{i}", user=i,
+              heterogeneity_level=2) for i in range(3)] + [failed(3)]})
+    found = hr.candidates([tmp_path])
+    assert len(found["candidates"]) == 3
+    assert found["excluded"]["failed"] == 1
+    assert found["cells"] == {("v1", "kernel", "mem0", "qwen", 2): 3}
+    # A cell whose every trial failed so is reported short, with 0.
+    write_run(tmp_path / RUN, {
+        h0: [trial(i, "kernel_shared", "kernel", f"b{i}", user=i,
+                   heterogeneity_level=0) for i in range(3)],
+        h2: [failed(i) for i in range(3)]})
+    doc, key = hr.make_sample([tmp_path], per_cell=3, practice=0, seed=1)
+    assert key["excluded"]["failed"] == 3
+    assert {c["cell"]["h"]: (c["candidates"], c["items"])
+            for c in key["cells"]} == {0: (3, 3), 2: (0, 0)}
+    assert [c["cell"]["h"] for c in hr.short_cells(key)] == [2]
 
 
 def test_two_trees_give_a_judge_each_and_must_hold_one_answer(tmp_path):

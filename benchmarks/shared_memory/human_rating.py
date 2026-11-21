@@ -292,11 +292,13 @@ def person_sha256(inputs: Dict[str, Any]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def stratum(rel: Path, trial: dict) -> Optional[Dict[str, Any]]:
+def stratum(rel: Path, trial: dict,
+            check_level: bool = True) -> Optional[Dict[str, Any]]:
     """The answer's cell, ``judge_reliability.cell_of``: dataset
-    version, locus, backend, model and H. None when the path names no
-    model or backend, or the trial no locus. A trial whose own
-    ``heterogeneity_level`` contradicts its path is refused."""
+    version, locus, backend, model and H (H read from the path). None
+    when the path names no model or backend, or the trial no locus.
+    With ``check_level``, a trial whose own ``heterogeneity_level``
+    contradicts its path is refused."""
     locus = trial.get("locus") or locus_of(
         trial.get("method") or trial.get("condition") or "")
     try:
@@ -306,7 +308,7 @@ def stratum(rel: Path, trial: dict) -> Optional[Dict[str, Any]]:
     if cell["locus"] not in jr.LOCI or cell["backend"] is None:
         return None
     level = trial.get("heterogeneity_level")
-    if level is not None and level != cell["h"]:
+    if check_level and level is not None and level != cell["h"]:
         raise ValueError(
             f"{rel}: the path says H = {cell['h']}, trial "
             f"{trial.get('trial_index')} says {level}")
@@ -340,7 +342,12 @@ def _entry(run: str, rel: Path, index: int, trial: dict) -> dict:
     inputs = judge_inputs(trial)
     locus_trial = plain(trial) and \
         trial.get("method") not in jr.EXCLUDED_METHODS
-    cell = stratum(rel, trial) if locus_trial else None
+    # A failed trial's own H is not checked: the harness records some
+    # failures without it (run_evaluation.py's synthetic-data and
+    # agent-pipeline failures keep TrialResult's default 0). Its cell,
+    # only counted, is its path's.
+    cell = stratum(rel, trial, check_level=not trial.get("failed")) \
+        if locus_trial else None
     if trial.get("failed"):
         entry["reason"] = "failed"
     elif not plain(trial):
